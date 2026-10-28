@@ -120,8 +120,8 @@ const LUCI = {
   notte:'Change only the time of day to night: a clear night lit by moonlight, deep blue tones, stars visible, very dark but readable shapes; if there are buildings, a few windows glow with warm candlelight.'
 };
 const NOMI_ORE = {giorno:'Giorno', alba:'Alba', tramonto:'Tramonto', notte:'Notte'};
-/* prezzi indicativi gpt-image-2, qualità alta, 1024×1536 (le modifiche costano un po' di più per l'immagine in ingresso) */
-const COSTO_CREA = 0.17, COSTO_MODIFICA = 0.2;
+/* prezzi indicativi gpt-image-2, qualità alta, 832×2080 (le modifiche costano un po' di più per l'immagine in ingresso) */
+const COSTO_CREA = 0.19, COSTO_MODIFICA = 0.22;
 
 let stile = leggi('finestre-stile', 'painterly');
 let momenti = leggi('finestre-momenti', {alba:true, tramonto:true, notte:true});
@@ -160,9 +160,9 @@ disegnaStili(); disegnaMomenti();
 function promptBase(descrizione){
   const s = STILI.find(x => x.id === stile);
   return `${s.prefisso}.
-A tall vertical view of the landscape seen from a high window of a medieval house, looking out at: ${descrizione}.
+A very tall and narrow vertical view (portrait format, 2 wide by 5 high, like a slit window) of the landscape seen from a high window of a medieval house, looking out at: ${descrizione}.
 The picture IS the view itself: no window frame, no walls, no curtains, no sill, nothing of the room in the foreground.
-Natural eye-level perspective with the horizon slightly above the middle, sky in the upper part, believable scale and deep atmospheric distance with several layers (near, middle, far).
+Compose for this narrow vertical frame: the main subject stays in the central part of the width, a generous sky in the upper part, the landscape descending toward the viewer in the lower part, natural eye-level perspective, believable scale and deep atmospheric distance with several layers (near, middle, far).
 No people in the foreground, no text, no signature, no watermark, no border, no vignette.
 ${LUCI.giorno}`;
 }
@@ -177,27 +177,32 @@ async function errOpenAI(r){
   if (/safety|moderation/i.test(m)) return 'OpenAI ha rifiutato la descrizione. Prova a cambiarla.';
   return 'OpenAI ha risposto con un errore (' + r.status + '). ' + m;
 }
-async function chiama(url, opzioni, modelli, prepara){
+/* prova nell'ordine: la proporzione esatta del foro (18×45 = 2:5, 832×2080) con gpt-image-2;
+   se il modello o la misura non sono accettati, la verticale più stretta che c'è (1024×1536, 2:3) */
+const TENTATIVI = [['gpt-image-2', '832x2080'], ['gpt-image-2', '1024x1536'], ['gpt-image-1', '1024x1536']];
+let riuscito = null;   /* [modello, misura] che ha funzionato per il giorno: le altre luci usano lo stesso */
+async function chiama(url, opzioni, tentativi, prepara){
   let ultimo = '';
-  for (const modello of modelli){
-    const r = await fetch(url, Object.assign({}, opzioni, {body: prepara(modello)}));
-    if (r.ok){ const j = await r.json(); const b64 = j.data && j.data[0] && j.data[0].b64_json; if (b64) return b64; ultimo = 'Risposta senza immagine.'; continue; }
+  for (const t of tentativi){
+    const r = await fetch(url, Object.assign({}, opzioni, {body: prepara(t[0], t[1])}));
+    if (r.ok){ const j = await r.json(); const b64 = j.data && j.data[0] && j.data[0].b64_json; if (b64) return [b64, t]; ultimo = 'Risposta senza immagine.'; continue; }
     ultimo = await errOpenAI(r);
-    if (!(r.status === 404 || (r.status === 400 && /model/i.test(ultimo)))) break;   /* modello non disponibile: prova il successivo */
+    if (!(r.status === 404 || (r.status === 400 && /model|size|dimension|resolution/i.test(ultimo)))) break;   /* modello o misura non accettati: prova il successivo */
   }
   throw new Error(ultimo);
 }
-const MODELLI = ['gpt-image-2', 'gpt-image-1'];
-function crea(chiave, prompt){
-  return chiama('https://api.openai.com/v1/images/generations',
-    {method:'POST', headers:{'Authorization':'Bearer ' + chiave, 'Content-Type':'application/json'}}, MODELLI,
-    m => JSON.stringify({model:m, prompt, size:'1024x1536', quality:'high', n:1}));
+async function crea(chiave, prompt){
+  const [b64, t] = await chiama('https://api.openai.com/v1/images/generations',
+    {method:'POST', headers:{'Authorization':'Bearer ' + chiave, 'Content-Type':'application/json'}}, TENTATIVI,
+    (m, misura) => JSON.stringify({model:m, prompt, size:misura, quality:'high', n:1}));
+  riuscito = t; return b64;
 }
-function modifica(chiave, prompt, png){
-  return chiama('https://api.openai.com/v1/images/edits',
-    {method:'POST', headers:{'Authorization':'Bearer ' + chiave}}, MODELLI,
-    m => { const f = new FormData(); f.append('model', m); f.append('prompt', prompt); f.append('size', '1024x1536'); f.append('quality', 'high'); f.append('n', '1');
+async function modifica(chiave, prompt, png){
+  const [b64] = await chiama('https://api.openai.com/v1/images/edits',
+    {method:'POST', headers:{'Authorization':'Bearer ' + chiave}}, riuscito ? [riuscito] : TENTATIVI,
+    (m, misura) => { const f = new FormData(); f.append('model', m); f.append('prompt', prompt); f.append('size', misura); f.append('quality', 'high'); f.append('n', '1');
            f.append('image', png, 'giorno.png'); if (m === 'gpt-image-1') f.append('input_fidelity', 'high'); return f; });
+  return b64;
 }
 function b64aBlob(b64, tipo){ const s = atob(b64), a = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) a[i] = s.charCodeAt(i); return new Blob([a], {type:tipo}); }
 async function inJpeg(blob){
