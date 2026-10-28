@@ -5,7 +5,7 @@
    Non c'è un elenco a parte: tutto sta nel nome dei file, così la libreria si ricostruisce
    da qualsiasi telefono (e un domani da DMaster):
 
-     <id>_<tipo>_<nome>~<parole.chiave>_<parte>.<est>
+     <id>_<tipo>_<nome>@<parole.chiave>_<parte>.<est>   (Supabase non accetta «~» nei nomi)
        tipo   painterly | inked | classic_oil (dipinti AI) · foto · video (YouTube)
        parte  giorno | alba | tramonto | notte        (.jpg)  le luci del giorno
               profondita                               (.png)  la mappa di profondità
@@ -47,9 +47,9 @@ function nomeFile(p, parte, est = 'jpg'){
   const parole = (p.parole || []).filter(x => !/^fx\d+$/.test(x));
   if (p.fuoco && p.fuoco.x != null && Math.abs(p.fuoco.x - .5) > .005) parole.push('fx' + Math.round(p.fuoco.x * 100));
   const kw = parole.map(x => slug(x, 20)).filter(Boolean).join('.');
-  return `${p.id}_${p.tipo}_${slug(p.nome) || 'paesaggio'}${kw ? '~' + kw : ''}_${parte}.${est}`;
+  return `${p.id}_${p.tipo}_${slug(p.nome) || 'paesaggio'}${kw ? '@' + kw : ''}_${parte}.${est}`;
 }
-const MODELLO_NOME = /^([a-z0-9]+)_(painterly|inked|classic_oil|foto|video)_([a-z0-9-]+)(?:~([a-z0-9.-]+))?_(giorno|alba|tramonto|notte|profondita|anim-(?:giorno|alba|tramonto|notte)|yt-[0-9a-f]{22})\.(jpg|png|mp4)$/;
+const MODELLO_NOME = /^([a-z0-9]+)_(painterly|inked|classic_oil|foto|video)_([a-z0-9-]+)(?:@([a-z0-9.-]+))?_(giorno|alba|tramonto|notte|profondita|anim-(?:giorno|alba|tramonto|notte)|yt-[0-9a-f]{22})\.(jpg|png|mp4)$/;
 
 /* l'elenco dei paesaggi, il più recente per primo:
    [{id, tipo, nome, parole[], immagini:{giorno, alba, tramonto, notte, profondita}, animati:{giorno…}, yt, file[]}] */

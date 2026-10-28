@@ -39,7 +39,7 @@ const SCENA_PRED = {acceso:true, yt:'', t:0, immagini:null, animati:null, paesag
 let scena = Object.assign({}, SCENA_PRED, leggi('finestre-scena', {}));
 let assetto = leggi('finestre-fori', null);
 let schermo = leggi('finestre-schermo', {w:1080, h:1920});
-let collegate = 0, mostraBordi = false;
+let collegate = 0, mostraBordi = false, rimanda = false;
 function assettoOPredefinito(){
   if (assetto && assetto.fori && assetto.fori.length) return assetto;
   const H = .9, W = H * schermo.h * 2 / 5 / schermo.w;
@@ -54,6 +54,7 @@ const canale = apriCanale(casa, {
     if (d.assetto && d.assetto.fori) { assetto = d.assetto; scrivi('finestre-fori', assetto); }
     if (d.schermo) { schermo = d.schermo; scrivi('finestre-schermo', schermo); }
     if (!leggi('finestre-scena', null) && d.scena){ scena = Object.assign({}, SCENA_PRED, d.scena); scrivi('finestre-scena', scena); }
+    else if (rimanda){ rimanda = false; canale.manda('scena', scena); canale.manda('fori', Object.assign({mostra: mostraBordi}, assettoOPredefinito())); }   /* dopo «Ricarica», la scena di questo telefono */
     aggiornaSpia(); impaginaAnteprima(); if (scheda === 'finestre') aggiornaFinestre(); if (scheda === 'impostazioni') disegnaScheda();
   },
   suStato(ok){ aggiornaSpia(); if (ok) canale.manda('chi'); }
@@ -665,7 +666,7 @@ const AZIONI = {
   },
   bordi: () => { mostraBordi = !mostraBordi; canale.manda('fori', Object.assign({mostra: mostraBordi}, assettoOPredefinito())); disegnaImpostazioni(); },
   copia: v => { navigator.clipboard?.writeText(v).then(() => avviso('Link copiato')).catch(() => avviso(v)); },
-  ricaricaFinestre: () => { if (canale.manda('ricarica')) avviso('Le finestre si ricaricano'); else avviso('Non collegato', true); },
+  ricaricaFinestre: () => { if (canale.manda('ricarica')){ rimanda = true; avviso('Le finestre si ricaricano'); } else avviso('Non collegato', true); },
 };
 document.addEventListener('click', e => {
   const b = e.target.closest('[data-fai]'); if (!b || b.disabled) return;
