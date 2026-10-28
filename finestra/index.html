@@ -6,170 +6,246 @@
 <title>Finestra</title>
 <style>
   html,body{margin:0;height:100%;background:#000;overflow:hidden;cursor:none}
-  canvas{position:absolute;display:block}
-  #video{position:absolute;overflow:hidden;background:#000}
-  #video iframe{position:absolute;border:0;pointer-events:none}
-  #guida{position:absolute;border:2px dashed #d4af37;pointer-events:none;display:none}
+  canvas{position:absolute;inset:0;width:100%;height:100%;display:block;z-index:2}
+  .video{position:absolute;overflow:hidden;background:#000;z-index:1}
+  .video iframe{position:absolute;border:0;pointer-events:none}
+  .bordo{position:absolute;border:2px dashed #d4af37;pointer-events:none;z-index:3;box-sizing:border-box}
+  .bordo span{position:absolute;top:6px;left:8px;font:600 14px system-ui;color:#d4af37}
 </style>
 </head>
 <body>
-<div id="video"></div>
 <canvas id="c"></canvas>
-<div id="guida"></div>
 <script src="../js/supabase.js"></script>
-<script src="../js/motore.js"></script>
 <script src="../js/canale.js"></script>
+<script src="../js/vista.js"></script>
 <script>
-/* Pagina mostrata dal Raspberry dietro il traforo.
-   Parametri dell'indirizzo:
-   casa=CHIAVE            collega la finestra al telecomando di questa casa
-   lato=sinistra|destra   quale finestra (cambia la prospettiva)
-   x,y,w,h                rettangolo del foro sullo schermo, in pixel (se mancano: centrato, 2:5)
-   scena, ora, meteo      scena di partenza (ora=vera segue l'orologio)
-   yt=ID_YOUTUBE (t, zoom, vx)  un video di YouTube (muto, in loop) come paesaggio
-   foto=URL (fx, fy)      una foto al posto del paesaggio
-   forza=1                usa i parametri dell'indirizzo anche se c'e' una scena memorizzata
-   demo=1                 cambia ora e meteo da sola, per le prove
-   calibra=1              mostra il bordo del rettangolo per allinearlo al foro
-   L'ultima scena ricevuta resta memorizzata: se il Raspberry si riavvia riparte da li'. */
+/* ═══════════════════════════════════════════════════════════════════════════
+   La pagina che il Raspberry mostra dietro il traforo.
+   Indirizzo: ?casa=CODICE   (collega la finestra al telecomando della casa)
+   Facoltativi: lato=sinistra|destra (una finestra per uscita), x,y,w,h (un foro, in pixel),
+                anteprima=1 (dentro l'app: niente canale, la scena arriva dalla pagina che la contiene),
+                forza=1 (usa i parametri dell'indirizzo anche se c'è una scena memorizzata).
+   I fori, la scena e la calibrazione arrivano dal telefono e restano memorizzati qui.
+   ═══════════════════════════════════════════════════════════════════════════ */
 const q = new URLSearchParams(location.search);
-const lato = q.get('lato') === 'sinistra' ? -1 : 1;
-const casa = (String(q.get('casa') || '').match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i) || [null])[0];
-const MEMORIA = 'finestre-scena';
+const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
+const casa = (String(q.get('casa') || '').match(UUID) || [null])[0];
+const anteprima = q.get('anteprima') === '1';
+const latoUrl = q.get('lato') === 'sinistra' ? -1 : q.get('lato') === 'destra' ? 1 : 0;
+const leggi = (k, d) => { if (anteprima) return d; try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
+const scrivi = (k, v) => { if (anteprima) return; try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 
-/* scena completa: quello che il telecomando manda */
-const PREDEFINITA = {yt:'', t:0, zoom:1, vx:0, foto:'', scena:'valle', ora:'vera', meteo:'sereno', luceGiorno:70, luceNotte:30, prospettiva:true, acceso:true};
-let scena = Object.assign({}, PREDEFINITA);
-let memorizzata = null;
-try { memorizzata = JSON.parse(localStorage.getItem(MEMORIA) || 'null'); } catch(e) {}
-if (memorizzata && !q.get('forza')) Object.assign(scena, memorizzata);   /* l'ultima scena del telecomando vince sull'indirizzo */
-else {
-  for (const k of ['yt','foto','scena','ora','meteo']) if (q.has(k)) scena[k] = q.get(k);
-  for (const k of ['t','zoom','vx']) if (q.has(k)) scena[k] = +q.get(k);
+/* ── la scena: quello che il telecomando manda ─────────────────────────────── */
+const PREDEFINITA = {acceso:true, yt:'', t:0, immagini:null, animati:null, paesaggio:'', ora:'vera', meteo:'sereno',
+  intensita:.75, vento:null, fuoco:null, movimento:true, luceGiorno:70, luceNotte:30, prospettiva:true, zoom:1, vx:0};
+let scena = Object.assign({}, PREDEFINITA, leggi('finestre-scena', null) || {});
+if (!leggi('finestre-scena', null) || q.get('forza')){
+  if (q.get('yt')) scena.yt = q.get('yt');
+  if (q.get('ora')) scena.ora = q.get('ora');
+  if (q.get('meteo')) scena.meteo = q.get('meteo');
 }
 
-const c = document.getElementById('c'), ctx = c.getContext('2d'), guida = document.getElementById('guida'), vbox = document.getElementById('video');
-let rett = {x:0, y:0, w:0, h:0}, ytInVista = null, paesaggioInVista = null, inCambio = false;
-let scuro = 1, scuroVerso = 0;            /* dissolvenza: parte dal nero e si apre */
+/* ── i fori: dove sono sullo schermo (frazioni dello schermo) e come si dividono il paesaggio ── */
+function foroPredefinito(){ const H = .9, W = H * innerHeight * 2 / 5 / innerWidth; return {x:(1 - W) / 2, y:(1 - H) / 2, w:W, h:H}; }
+let assetto = leggi('finestre-fori', null) || {modo:'unica', fori:[foroPredefinito()]};
+if (q.get('w') && q.get('h')) assetto = {modo:'unica', fori:[{x:+q.get('x') / innerWidth, y:+q.get('y') / innerHeight, w:+q.get('w') / innerWidth, h:+q.get('h') / innerHeight}]};
+let mostraBordi = false;
 
-function oraDi(s){ return s.ora === 'vera' ? oraVera() : s.ora; }
-function luceDi(s){ return oraDi(s) === 'notte' ? s.luceNotte : s.luceGiorno; }
+const c = document.getElementById('c');
+let vista = null;
+try { vista = new Vista(c); } catch(e) { document.body.innerHTML = '<p style="color:#d4af37;font:20px system-ui;padding:40px">Questa finestra non riesce a usare la grafica (WebGL): ' + e.message + '</p>'; throw e; }
 
-function mettiVideo(id, t){
-  vbox.innerHTML = '';
-  ytInVista = id || null;
-  FOTO.trasparente = !!id;
-  if (!id) return;
-  const fr = document.createElement('iframe');
-  fr.allow = 'autoplay; encrypted-media';
-  fr.src = 'https://www.youtube-nocookie.com/embed/' + encodeURIComponent(id) +
-    '?autoplay=1&mute=1&loop=1&playlist=' + encodeURIComponent(id) +
+let geom = [];      /* i fori in pixel, con la loro mappa */
+function impagina(){
+  const W = Math.round(innerWidth), H = Math.round(innerHeight);
+  if (c.width !== W || c.height !== H){ c.width = W; c.height = H; }
+  const px = assetto.fori.map(f => ({x:Math.round(f.x * W), y:Math.round(f.y * H), w:Math.max(2, Math.round(f.w * W)), h:Math.max(2, Math.round(f.h * H))}));
+  const ux = Math.min(...px.map(f => f.x)), uy = Math.min(...px.map(f => f.y));
+  const uw = Math.max(...px.map(f => f.x + f.w)) - ux, uh = Math.max(...px.map(f => f.y + f.h)) - uy;
+  const ordine = px.map((f, i) => [f.x, i]).sort((a, b) => a[0] - b[0]).map(x => x[1]);
+  const zoom = Math.max(1, scena.zoom || 1), vx = scena.vx || 0;
+  geom = px.map((f, i) => {
+    let map, aspetto, lato;
+    if (assetto.modo === 'doppia' && px.length > 1){
+      /* ogni foro ha il paesaggio intero, con la sua prospettiva: sinistra e destra */
+      map = [0, 0, 1, 1]; aspetto = f.w / f.h; lato = ordine.indexOf(i) === 0 ? -1 : 1;
+    } else {
+      /* un paesaggio solo dietro tutti i fori, come una vista vera divisa dalla colonnina */
+      map = [(f.x - ux) / uw, (f.y - uy) / uh, f.w / uw, f.h / uh]; aspetto = uw / uh; lato = px.length > 1 ? 0 : latoUrl;
+    }
+    /* ingrandimento e spostamento dal telefono */
+    map = [.5 + (map[0] - .5) / zoom + vx, .5 + (map[1] - .5) / zoom, map[2] / zoom, map[3] / zoom];
+    return Object.assign(f, {map, aspetto, lato});
+  });
+  geom.unione = {x:ux, y:uy, w:uw, h:uh};
+  disegnaBordi(); impaginaVideo();
+}
+addEventListener('resize', impagina);
+
+function disegnaBordi(){
+  document.querySelectorAll('.bordo').forEach(e => e.remove());
+  if (!mostraBordi) return;
+  geom.forEach((f, i) => { const d = document.createElement('div'); d.className = 'bordo';
+    Object.assign(d.style, {left:f.x + 'px', top:f.y + 'px', width:f.w + 'px', height:f.h + 'px'});
+    d.innerHTML = '<span>' + (geom.length > 1 ? (i === 0 ? 'Foro 1' : 'Foro 2') : 'Foro') + '</span>'; document.body.appendChild(d); });
+}
+
+/* ── i video di YouTube: sotto il disegno, ritagliati sui fori ─────────────── */
+function iframeYT(id, t){
+  const fr = document.createElement('iframe'); fr.allow = 'autoplay; encrypted-media';
+  fr.src = 'https://www.youtube-nocookie.com/embed/' + encodeURIComponent(id) + '?autoplay=1&mute=1&loop=1&playlist=' + encodeURIComponent(id) +
     '&controls=0&disablekb=1&fs=0&iv_load_policy=3&modestbranding=1&playsinline=1&rel=0' + (t ? '&start=' + (+t) : '');
-  vbox.appendChild(fr);
-  piazza();
+  return fr;
 }
-/* quale immagine mostrare: i paesaggi dipinti hanno una versione per ogni momento del giorno */
-function fotoDi(s){
-  if (s.yt) return null;
-  if (s.immagini) return s.immagini[oraDi(s)] || s.immagini.giorno || null;
-  return s.foto || null;
+function mettiVideo(id, t){
+  document.querySelectorAll('.video').forEach(e => e.remove());
+  if (id){
+    const n = assetto.modo === 'doppia' && geom.length > 1 ? geom.length : 1;
+    for (let i = 0; i < n; i++){ const v = document.createElement('div'); v.className = 'video'; v.appendChild(iframeYT(id, t)); document.body.appendChild(v); }
+  }
+  impaginaVideo();
 }
-function paesaggioDi(s){
-  return s.yt ? 'yt:' + s.yt + ':' + (s.t || 0) : s.immagini ? 'ai:' + (s.paesaggio || s.immagini.giorno) : s.foto ? 'foto:' + s.foto : 'disegno:' + s.scena;
-}
-function mettiFoto(url, dur = 0){
-  if (url) caricaFoto(url, +(q.get('fx') || .5), +(q.get('fy') || .5), dur); else togliFoto();
+function impaginaVideo(){
+  const scatole = [...document.querySelectorAll('.video')];
+  if (!scatole.length || !geom.length) return;
+  const zoom = Math.max(1, scena.zoom || 1);
+  const metti = (box, r, fori) => {
+    Object.assign(box.style, {left:r.x + 'px', top:r.y + 'px', width:r.w + 'px', height:r.h + 'px'});
+    /* il riquadro del video copre il rettangolo con un 15% in più (via titolo e loghi), 16:9 */
+    let vh = r.h * 1.15 * zoom, vw = vh * 16 / 9;
+    if (vw < r.w * 1.15 * zoom){ vw = r.w * 1.15 * zoom; vh = vw * 9 / 16; }
+    const sposta = (scena.vx || 0) * vw;
+    Object.assign(box.firstChild.style, {width:vw + 'px', height:vh + 'px', left:((r.w - vw) / 2 - sposta) + 'px', top:((r.h - vh) / 2) + 'px'});
+    box.style.clipPath = 'path("' + fori.map(f => `M${f.x - r.x} ${f.y - r.y}h${f.w}v${f.h}h${-f.w}z`).join(' ') + '")';
+  };
+  if (scatole.length > 1) scatole.forEach((b, i) => metti(b, geom[i], [geom[i]]));
+  else metti(scatole[0], geom.unione, geom);
 }
 
-/* applica una scena; se cambia il paesaggio passa dal buio */
-let attesa = null;
+/* ── scena in vista ────────────────────────────────────────────────────────── */
+function oraDi(s){ return s.ora === 'vera' ? oraVera() : s.ora; }
+function fonteDi(s){
+  if (!s.immagini || s.yt) return null;
+  const o = oraDi(s), url = s.immagini[o] || s.immagini.giorno;
+  if (!url) return null;
+  const an = s.animati || {};
+  const video = an[o] || (!s.immagini[o] || o === 'giorno' ? an.giorno : null) || null;
+  return {url, profondita: s.immagini.profondita || null, video, fuoco: s.fuoco || null};
+}
+function chiaveFonte(f){ return f ? f.url + '|' + (f.video || '') : null; }
+function paesaggioDi(s){ return s.yt ? 'yt:' + s.yt + ':' + (s.t || 0) : s.immagini ? 'img:' + (s.paesaggio || s.immagini.giorno) : 'niente'; }
+
+let paesaggioInVista = null, inCambio = false, attesa = null, scuroVerso = 1, scuro = 1, assettoVideo = null;
 function applica(nuova, salva = true){
   scena = Object.assign({}, PREDEFINITA, nuova);
-  if (salva) try { localStorage.setItem(MEMORIA, JSON.stringify(scena)); } catch(e) {}
-  stato.scena = SCENE[scena.scena] ? scena.scena : 'valle';
-  stato.ora = oraDi(scena);
-  stato.meteo = METEO[scena.meteo] ? scena.meteo : 'sereno';
-  stato.prospettiva = scena.prospettiva !== false;
+  if (salva) scrivi('finestre-scena', scena);
   if (paesaggioDi(scena) !== paesaggioInVista){
-    /* paesaggio nuovo: passa dal buio */
+    /* paesaggio nuovo: si spegne, cambia, si riaccende */
     inCambio = true; scuroVerso = 1; clearTimeout(attesa);
-    attesa = setTimeout(() => {
-      paesaggioInVista = paesaggioDi(scena);
+    const mio = paesaggioDi(scena);
+    attesa = setTimeout(async () => {
+      if (mio !== paesaggioDi(scena)) return;
+      paesaggioInVista = mio;
       mettiVideo(scena.yt, scena.t);
-      mettiFoto(fotoDi(scena)); scenaInVista = stato.scena;
-      attesa = setTimeout(() => { scuroVerso = scena.acceso ? 0 : 1; inCambio = false; }, scena.yt ? 1800 : 500);   /* il video o l'immagine hanno bisogno di un attimo */
-    }, 900);
+      const f = fonteDi(scena);
+      try { if (f) await vista.mostra(f, 0); else vista.togli(); } catch(e) { console.warn(e); }
+      impagina();
+      setTimeout(() => { scuroVerso = scena.acceso ? 0 : 1; inCambio = false; }, scena.yt ? 1800 : 150);
+    }, 950);
   } else {
-    /* stesso paesaggio: se cambia l'ora, la luce sfuma in pochi secondi */
-    const u = fotoDi(scena); if (u && u !== FOTO.url) mettiFoto(u, 3);
+    /* stesso paesaggio: se cambia l'ora la luce sfuma in pochi secondi */
+    const f = fonteDi(scena);
+    if (f && vista.urlInVista && vista.urlInVista !== chiaveFonte(f)) vista.mostra(f, 3.5).catch(console.warn);
+    else if (f && vista.fonti[0].ok) vista.fonti[0].fuoco = f.fuoco;
     scuroVerso = scena.acceso ? 0 : 1;
-    piazza();
+    impagina();
   }
 }
 
-function piazza(){
-  const W = innerWidth, H = innerHeight;
-  let w = +q.get('w'), h = +q.get('h'), x = +q.get('x'), y = +q.get('y');
-  if (!w || !h){ h = Math.round(H * 0.9); w = Math.round(h * 2 / 5); if (w > W){ w = W; h = Math.round(w * 5 / 2); } }
-  if (!q.has('x')) x = Math.round((W - w) / 2);
-  if (!q.has('y')) y = Math.round((H - h) / 2);
-  rett = {x, y, w, h};
-  Object.assign(vbox.style, {left:x+'px', top:y+'px', width:w+'px', height:h+'px'});
-  if (vbox.firstChild){
-    const zoom = +(scena.zoom || 1), vh = h * zoom * 1.15, vw = vh * 16 / 9;   /* 15% in piu': nasconde titolo e loghi */
-    const sposta = (stato.prospettiva ? lato : 0) * w * 0.04 + (+(scena.vx || 0)) * vw;
-    Object.assign(vbox.firstChild.style, {width:vw+'px', height:vh+'px', left:((w - vw) / 2 - sposta)+'px', top:((h - vh) / 2)+'px'});
-  }
-  for (const el of [c, guida]) Object.assign(el.style, {left:x+'px', top:y+'px', width:w+'px', height:h+'px'});
-  const dpr = Math.min(2, devicePixelRatio || 1);
-  c.width = Math.round(w * dpr); c.height = Math.round(h * dpr);
-  guida.style.display = q.get('calibra') ? 'block' : 'none';
+/* ── tempo atmosferico, lampi, luce ────────────────────────────────────────── */
+const METEO = {
+  sereno:   {coperto:0,   nebbia:0,   pioggia:0, neve:0, tempesta:0, vento:.2},
+  nuvoloso: {coperto:.55, nebbia:.08, pioggia:0, neve:0, tempesta:0, vento:.35},
+  nebbia:   {coperto:.4,  nebbia:.85, pioggia:0, neve:0, tempesta:0, vento:.05},
+  pioggia:  {coperto:.85, nebbia:.22, pioggia:.8, neve:0, tempesta:.15, vento:.45},
+  temporale:{coperto:1,   nebbia:.18, pioggia:1, neve:0, tempesta:1, vento:.9},
+  neve:     {coperto:.75, nebbia:.3,  pioggia:0, neve:.9, tempesta:0, vento:.2}
+};
+const NEBBIA_ORA = {alba:[.86,.74,.68], giorno:[.74,.77,.8], tramonto:[.78,.6,.52], notte:[.09,.11,.16]};
+const met = Object.assign({}, METEO.sereno), nebCol = [...NEBBIA_ORA.giorno];
+let notteFinta = 0, luce = .7, lampo = null, prossimoLampo = 0, lampoX = .5;
+
+function scocca(){ lampo = {t:performance.now(), forza:.75 + Math.random() * .5}; lampoX = .15 + Math.random() * .7; }
+function intensitaLampo(ora){
+  if (!lampo) return 0;
+  const dt = ora - lampo.t; if (dt > 1400){ lampo = null; return 0; }
+  /* due o tre impulsi, come un lampo vero, poi la coda che si spegne */
+  const k = dt < 70 ? 1 : dt < 140 ? .12 : dt < 210 ? .8 : dt < 300 ? .18 : dt < 360 ? .55 : Math.max(0, .45 * (1 - (dt - 360) / 1040));
+  return k * lampo.forza;
 }
-addEventListener('resize', piazza);
 
-/* partenza: la scena memorizzata, senza dissolvenza lunga */
-stato.ora = oraDi(scena); stato.meteo = METEO[scena.meteo] ? scena.meteo : 'sereno';
-Object.assign(cur, paletteDi(stato.ora)); Object.assign(met, METEO[stato.meteo]);
-applica(scena, false);
-
-/* collegamento al telecomando */
+/* ── collegamento ──────────────────────────────────────────────────────────── */
+function calibra(d){
+  const prima = JSON.stringify(assetto.modo) + assetto.fori.length;
+  if (d.fori && d.fori.length) assetto = {modo: d.modo === 'doppia' ? 'doppia' : 'unica', fori: d.fori.slice(0, 2)};
+  else if (d.modo) assetto.modo = d.modo === 'doppia' ? 'doppia' : 'unica';
+  if (d.salva !== false) scrivi('finestre-fori', assetto);
+  if ('mostra' in d) mostraBordi = !!d.mostra;
+  impagina();
+  if (prima !== JSON.stringify(assetto.modo) + assetto.fori.length && scena.yt) mettiVideo(scena.yt, scena.t);
+}
 let canale = null;
-if (casa && window.supabase){
+if (anteprima){
+  addEventListener('message', e => { const d = e.data || {}; if (d.tipo === 'scena') applica(d.scena, false); else if (d.tipo === 'fori') calibra(Object.assign({}, d, {salva:false})); else if (d.tipo === 'lampo') scocca(); });
+} else if (casa && window.supabase){
+  const chi = () => ({assetto, scena, schermo:{w:innerWidth, h:innerHeight}});
   canale = apriCanale(casa, {
     suMessaggio(evento, dati){
       if (evento === 'scena') applica(dati);
       else if (evento === 'lampo') scocca();
-      else if (evento === 'chi') canale.manda('eccomi', {lato: lato < 0 ? 'sinistra' : 'destra', scena});
+      else if (evento === 'fori') calibra(dati);
+      else if (evento === 'ricarica') location.reload();
+      else if (evento === 'chi') canale.manda('eccomi', chi());
     },
-    suStato(ok){ if (ok) canale.manda('eccomi', {lato: lato < 0 ? 'sinistra' : 'destra', scena}); }
+    suStato(ok){ if (ok) canale.manda('eccomi', chi()); }
   });
 }
 
-/* prova automatica: ore e meteo che girano */
-if (q.get('demo')){
-  const ore = ['alba','giorno','tramonto','notte'], meteo = ['sereno','nebbia','pioggia','temporale','neve','sereno'];
-  let i = 0, j = 0;
-  setInterval(() => { i = (i + 1) % ore.length; scena.ora = ore[i]; }, 45000);
-  setInterval(() => { j = (j + 1) % meteo.length; scena.meteo = stato.meteo = meteo[j]; if (stato.meteo === 'temporale') scocca(); }, 30000);
-}
-
-let prima = performance.now();
-function ciclo(ora){
-  const dt = Math.min(.1, (ora - prima) / 1000); prima = ora; const t = ora / 1000;
-  stato.ora = oraDi(scena);
-  stato.luce = luceDi(scena);
-  /* con «Come fuori» l'ora cambia da sola: la luce del paesaggio dipinto sfuma piano, in un minuto e mezzo */
-  if (!inCambio && scena.immagini){ const u = fotoDi(scena); if (u && u !== FOTO.url) mettiFoto(u, 90); }
-  const obj = paletteDi(stato.ora), k = 1 - Math.exp(-dt * 0.35);
-  for (const key in obj){ if (Array.isArray(obj[key])) cur[key] = mix(cur[key], obj[key], k); else cur[key] = lerp(cur[key], obj[key], k); }
-  const mo = METEO[stato.meteo]; for (const key in mo) met[key] = lerp(met[key], mo[key], k);
-  if (stato.meteo === 'temporale' && ora > prossimoLampo){ if (prossimoLampo) scocca(); prossimoLampo = ora + 5000 + Math.random() * 9000; }
+/* ── il giro ───────────────────────────────────────────────────────────────── */
+impagina();
+applica(scena, false);
+let prima = performance.now(), lento = 0, qualita = 1;
+function giro(ora){
+  const dt = Math.min(.1, (ora - prima) / 1000); prima = ora;
+  /* se il Raspberry fa fatica, toglie gli strati più costosi */
+  lento = lento * .97 + (dt > .026 ? 1 : 0) * .03;
+  if (lento > .6 && qualita) qualita = 0; else if (lento < .1 && !qualita) qualita = 1;
+  const k = 1 - Math.exp(-dt * .45);
+  const o = oraDi(scena), tgt = METEO[scena.meteo] || METEO.sereno, intens = scena.intensita == null ? .75 : scena.intensita;
+  for (const key in tgt){
+    let v = tgt[key];
+    if (key === 'pioggia' || key === 'neve') v *= .35 + intens * .9;
+    if (key === 'vento' && scena.vento != null) v = scena.vento;
+    met[key] += (v - met[key]) * k;
+  }
+  const nc = NEBBIA_ORA[o];
+  for (let i = 0; i < 3; i++){ const grigio = o === 'notte' ? .1 : .6; nebCol[i] += (nc[i] + (grigio - nc[i]) * met.coperto * .35 - nebCol[i]) * k; }
+  const finta = o === 'notte' && scena.immagini && !scena.immagini.notte && !scena.yt ? 1 : 0;
+  notteFinta += (finta - notteFinta) * k;
+  const luceTgt = (o === 'notte' ? scena.luceNotte : scena.luceGiorno) / 100;
+  luce += (luceTgt - luce) * Math.min(1, dt * 3);
   scuro += (scuroVerso - scuro) * Math.min(1, dt * 3.2);
-  buio = scuro;
-  disegna(ctx, c.width, c.height, lato, t);
-  requestAnimationFrame(ciclo);
+  if (scena.meteo === 'temporale' && ora > prossimoLampo){ if (prossimoLampo) scocca(); prossimoLampo = ora + 4000 + Math.random() * 11000; }
+  /* con «Come fuori» l'ora cambia da sola: la luce del paesaggio sfuma piano, in un minuto e mezzo */
+  if (!inCambio){ const f = fonteDi(scena); if (f && vista.urlInVista && vista.urlInVista !== chiaveFonte(f) && !vista.inArrivo) vista.mostra(f, 90).catch(() => {}); }
+  vista.disegna(geom, {
+    t: ora / 1000, trasparente: !!scena.yt, movimento: scena.movimento !== false, prospettiva: scena.prospettiva !== false,
+    coperto: met.coperto, nebbia: met.nebbia, pioggia: met.pioggia, neve: met.neve, tempesta: met.tempesta, vento: met.vento,
+    lampo: intensitaLampo(ora), lampoX, notteFinta, luce, buio: scuro, qualita, colNebbia: nebCol
+  });
+  requestAnimationFrame(giro);
 }
-requestAnimationFrame(ciclo);
+requestAnimationFrame(giro);
 </script>
 </body>
 </html>
