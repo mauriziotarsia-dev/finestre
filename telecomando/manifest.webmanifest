@@ -1,0 +1,13 @@
+{
+  "name": "Finestre",
+  "short_name": "Finestre",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#14110d",
+  "theme_color": "#14110d",
+  "icons": [
+    {"src": "icona-192.png", "sizes": "192x192", "type": "image/png"},
+    {"src": "icona.png", "sizes": "512x512", "type": "image/png"}
+  ]
+}

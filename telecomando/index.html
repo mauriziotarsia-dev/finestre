@@ -1,0 +1,215 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#14110d">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Finestre">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icona.png">
+<title>Finestre</title>
+<style>
+  :root{
+    --fondo:#14110d; --carta:#1e1a14; --carta2:#272219; --bordo:#3a3226;
+    --testo:#efe6d6; --tenue:#a99c86; --oro:#d4af37; --oro-scuro:#8a7224; --ok:#7fb069; --no:#c8553d;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--fondo);color:var(--testo);font:16px/1.4 system-ui,-apple-system,"Segoe UI",sans-serif;-webkit-tap-highlight-color:transparent}
+  body{padding:max(16px,env(safe-area-inset-top)) 16px max(24px,env(safe-area-inset-bottom))}
+  main{max-width:520px;margin:0 auto}
+  header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:18px}
+  h1{font:600 22px/1.1 Georgia,"Times New Roman",serif;margin:0;letter-spacing:.3px}
+  .spia{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--tenue)}
+  .spia i{width:10px;height:10px;border-radius:50%;background:var(--no);display:inline-block;box-shadow:0 0 0 3px rgba(200,85,61,.15)}
+  .spia.ok i{background:var(--ok);box-shadow:0 0 0 3px rgba(127,176,105,.15)}
+  section{background:var(--carta);border:1px solid var(--bordo);border-radius:14px;padding:14px;margin-bottom:14px}
+  h2{font:600 13px/1 system-ui,sans-serif;text-transform:uppercase;letter-spacing:1.2px;color:var(--tenue);margin:0 0 12px}
+  .griglia{display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:8px}
+  button{font:inherit;color:inherit;background:var(--carta2);border:1px solid var(--bordo);border-radius:10px;padding:12px 8px;min-height:48px;cursor:pointer}
+  button[aria-pressed="true"]{border-color:var(--oro);background:#2f2716;color:#fff3cf}
+  button:active{transform:scale(.98)}
+  .grande{width:100%;font-weight:600}
+  .riga{display:flex;align-items:center;gap:12px;margin:10px 0}
+  .riga label{flex:0 0 92px;color:var(--tenue);font-size:14px}
+  .riga output{flex:0 0 40px;text-align:right;font-variant-numeric:tabular-nums}
+  input[type=range]{flex:1;accent-color:var(--oro);height:32px}
+  input[type=text]{width:100%;font:inherit;color:var(--testo);background:var(--carta2);border:1px solid var(--bordo);border-radius:10px;padding:12px}
+  .video{display:flex;flex-direction:column;gap:8px}
+  .voce{display:flex;gap:8px;align-items:stretch}
+  .voce button.scegli{flex:1;text-align:left;padding:10px 12px;display:flex;gap:10px;align-items:center}
+  .voce img{width:64px;height:36px;object-fit:cover;border-radius:6px;flex:none;background:#000}
+  .voce button.togli{flex:0 0 48px;color:var(--tenue)}
+  .aggiungi{display:flex;gap:8px;margin-top:10px}
+  .aggiungi button{flex:0 0 auto;padding:0 16px}
+  .nota{font-size:13px;color:var(--tenue);margin:8px 0 0}
+  .interruttore{display:flex;gap:8px}
+  .interruttore button{flex:1}
+  details summary{cursor:pointer;color:var(--tenue);font-size:14px}
+  code{font-size:12px;word-break:break-all;color:var(--tenue)}
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Finestre</h1>
+    <div class="spia" id="spia"><i></i><span>Collegamento…</span></div>
+  </header>
+
+  <section>
+    <div class="interruttore">
+      <button id="accendi" aria-pressed="true">Accese</button>
+      <button id="spegni" aria-pressed="false">Spente</button>
+    </div>
+  </section>
+
+  <section>
+    <h2>Paesaggio</h2>
+    <div class="video" id="video"></div>
+    <div class="aggiungi">
+      <input type="text" id="nuovoLink" placeholder="Incolla un link di YouTube" inputmode="url" autocomplete="off">
+      <button id="aggiungi">Aggiungi</button>
+    </div>
+    <p class="nota">Il video gira muto e in loop, ritagliato sul foro del traforo.</p>
+  </section>
+
+  <section>
+    <h2>Ora</h2>
+    <div class="griglia" id="ora"></div>
+  </section>
+
+  <section>
+    <h2>Tempo</h2>
+    <div class="griglia" id="meteo"></div>
+    <button class="grande" id="lampo" style="margin-top:10px">Lampo</button>
+  </section>
+
+  <section>
+    <h2>Luce</h2>
+    <div class="riga"><label for="luceGiorno">Di giorno</label><input type="range" id="luceGiorno" min="5" max="100"><output id="oGiorno"></output></div>
+    <div class="riga"><label for="luceNotte">Di notte</label><input type="range" id="luceNotte" min="2" max="100"><output id="oNotte"></output></div>
+    <div class="riga"><label for="zoom">Ingrandisci</label><input type="range" id="zoom" min="100" max="250"><output id="oZoom"></output></div>
+    <div class="riga"><label for="vx">Sposta</label><input type="range" id="vx" min="-30" max="30"><output id="oVx"></output></div>
+  </section>
+
+  <section>
+    <details>
+      <summary>Collegamento della casa</summary>
+      <p class="nota">Questo telefono e le finestre parlano su un canale privato. Indirizzo da aprire sul Raspberry:</p>
+      <code id="indirizzo"></code>
+    </details>
+  </section>
+</main>
+
+<script src="../js/supabase.js"></script>
+<script src="../js/canale.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
+const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
+
+/* chiave della casa: arriva una volta dal link (?casa=...) e resta sul telefono */
+const q = new URLSearchParams(location.search);
+let casa = q.get('casa') || leggi('finestre-casa', null);
+if (!casa){ casa = crypto.randomUUID(); }
+scrivi('finestre-casa', casa);
+if (q.has('casa')) history.replaceState(null, '', location.pathname);
+$('indirizzo').textContent = new URL('../finestra/?casa=' + casa, location.href).href;
+
+const ORE = [['vera','Come fuori'],['alba','Alba'],['giorno','Giorno'],['tramonto','Tramonto'],['notte','Notte']];
+const METEO = [['sereno','Sereno'],['nebbia','Nebbia'],['pioggia','Pioggia'],['temporale','Temporale'],['neve','Neve']];
+let video = leggi('finestre-video', [{id:'bOIKVz0u74U', nome:'Paesaggio di prova'}]);
+let scena = Object.assign({yt:'bOIKVz0u74U', t:0, zoom:1, vx:0, foto:'', scena:'valle', ora:'vera', meteo:'sereno', luceGiorno:70, luceNotte:30, prospettiva:true, acceso:true}, leggi('finestre-scena', {}));
+
+function idDa(link){
+  const m = String(link).trim().match(/(?:youtu\.be\/|v=|\/embed\/|\/shorts\/|\/live\/)([\w-]{11})/) || String(link).trim().match(/^([\w-]{11})$/);
+  return m ? m[1] : null;
+}
+function tempoDa(link){ const m = String(link).match(/[?&]t=(\d+)/); return m ? +m[1] : 0; }
+
+function bottoni(contenitore, voci, chiave){
+  const el = $(contenitore); el.innerHTML = '';
+  for (const [v, testo] of voci){
+    const b = document.createElement('button'); b.textContent = testo; b.dataset.v = v;
+    b.onclick = () => cambia({[chiave]: v});
+    el.appendChild(b);
+  }
+}
+bottoni('ora', ORE, 'ora');
+bottoni('meteo', METEO, 'meteo');
+
+function disegnaVideo(){
+  const el = $('video'); el.innerHTML = '';
+  video.forEach((v, i) => {
+    const r = document.createElement('div'); r.className = 'voce';
+    const b = document.createElement('button'); b.className = 'scegli';
+    b.setAttribute('aria-pressed', String(scena.yt === v.id));
+    const img = document.createElement('img'); img.alt = ''; img.src = 'https://i.ytimg.com/vi/' + v.id + '/mqdefault.jpg';
+    const s = document.createElement('span'); s.textContent = v.nome;
+    b.append(img, s); b.onclick = () => cambia({yt: v.id, t: v.t || 0});
+    const x = document.createElement('button'); x.className = 'togli'; x.textContent = '✕'; x.setAttribute('aria-label', 'Togli ' + v.nome);
+    x.onclick = () => { if (video.length > 1){ video.splice(i, 1); scrivi('finestre-video', video); disegnaVideo(); } };
+    r.append(b, x); el.appendChild(r);
+  });
+}
+
+function aggiorna(){
+  for (const b of $('ora').children) b.setAttribute('aria-pressed', String(b.dataset.v === scena.ora));
+  for (const b of $('meteo').children) b.setAttribute('aria-pressed', String(b.dataset.v === scena.meteo));
+  $('accendi').setAttribute('aria-pressed', String(scena.acceso));
+  $('spegni').setAttribute('aria-pressed', String(!scena.acceso));
+  $('luceGiorno').value = scena.luceGiorno; $('oGiorno').textContent = scena.luceGiorno + '%';
+  $('luceNotte').value = scena.luceNotte; $('oNotte').textContent = scena.luceNotte + '%';
+  $('zoom').value = Math.round(scena.zoom * 100); $('oZoom').textContent = Math.round(scena.zoom * 100) + '%';
+  $('vx').value = Math.round(scena.vx * 100); $('oVx').textContent = Math.round(scena.vx * 100);
+  disegnaVideo();
+}
+
+let invio = null;
+function cambia(parte, subito = true){
+  Object.assign(scena, parte); scrivi('finestre-scena', scena); aggiorna();
+  clearTimeout(invio);
+  if (subito) canale.manda('scena', scena);
+  else invio = setTimeout(() => canale.manda('scena', scena), 120);   /* i cursori mandano mentre scorrono, senza intasare */
+}
+
+$('accendi').onclick = () => cambia({acceso: true});
+$('spegni').onclick = () => cambia({acceso: false});
+$('lampo').onclick = () => canale.manda('lampo');
+$('luceGiorno').oninput = e => cambia({luceGiorno: +e.target.value}, false);
+$('luceNotte').oninput = e => cambia({luceNotte: +e.target.value}, false);
+$('zoom').oninput = e => cambia({zoom: +e.target.value / 100}, false);
+$('vx').oninput = e => cambia({vx: +e.target.value / 100}, false);
+$('aggiungi').onclick = () => {
+  const link = $('nuovoLink').value, id = idDa(link);
+  if (!id){ $('nuovoLink').setCustomValidity('Link di YouTube non riconosciuto'); $('nuovoLink').reportValidity(); return; }
+  $('nuovoLink').setCustomValidity('');
+  const nome = prompt('Nome del paesaggio', 'Paesaggio ' + (video.length + 1)) || ('Paesaggio ' + (video.length + 1));
+  video.push({id, nome, t: tempoDa(link)}); scrivi('finestre-video', video);
+  $('nuovoLink').value = '';
+  cambia({yt: id, t: tempoDa(link)});
+};
+
+/* spia: verde quando almeno una finestra ha risposto da poco */
+let ultimaRisposta = 0;
+function spia(){
+  const ok = canale && canale.pronto && Date.now() - ultimaRisposta < 45000;
+  $('spia').classList.toggle('ok', !!ok);
+  $('spia').querySelector('span').textContent = !canale || !canale.pronto ? 'Collegamento…' : ok ? 'Finestre collegate' : 'Finestre non raggiungibili';
+}
+const canale = apriCanale(casa, {
+  suMessaggio(evento, dati){
+    if (evento !== 'eccomi') return;
+    ultimaRisposta = Date.now(); spia();
+    /* telefono nuovo: prende la scena che le finestre stanno mostrando */
+    if (!leggi('finestre-scena', null) && dati.scena){ Object.assign(scena, dati.scena); scrivi('finestre-scena', scena); aggiorna(); }
+  },
+  suStato(ok){ spia(); if (ok) canale.manda('chi'); }
+});
+setInterval(() => { if (canale.pronto) canale.manda('chi'); spia(); }, 20000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden && canale.pronto) canale.manda('chi'); });
+aggiorna();
+</script>
+</body>
+</html>

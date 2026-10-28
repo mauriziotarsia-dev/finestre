@@ -16,53 +16,94 @@
 <div id="video"></div>
 <canvas id="c"></canvas>
 <div id="guida"></div>
+<script src="../js/supabase.js"></script>
 <script src="../js/motore.js"></script>
+<script src="../js/canale.js"></script>
 <script>
 /* Pagina mostrata dal Raspberry dietro il traforo.
    Parametri dell'indirizzo:
+   casa=CHIAVE            collega la finestra al telecomando di questa casa
    lato=sinistra|destra   quale finestra (cambia la prospettiva)
    x,y,w,h                rettangolo del foro sullo schermo, in pixel (se mancano: centrato, 2:5)
-   scena, ora, meteo, luce  scena di partenza
-   foto=castelbouc|URL     una foto vera al posto del paesaggio disegnato
-   yt=ID_YOUTUBE          un video di YouTube (muto, in loop) al posto del paesaggio
+   scena, ora, meteo      scena di partenza (ora=vera segue l'orologio)
+   yt=ID_YOUTUBE (t, zoom, vx)  un video di YouTube (muto, in loop) come paesaggio
+   foto=URL (fx, fy)      una foto al posto del paesaggio
    demo=1                 cambia ora e meteo da sola, per le prove
-   calibra=1              mostra il bordo del rettangolo per allinearlo al foro */
+   calibra=1              mostra il bordo del rettangolo per allinearlo al foro
+   L'ultima scena ricevuta resta memorizzata: se il Raspberry si riavvia riparte da li'. */
 const q = new URLSearchParams(location.search);
 const lato = q.get('lato') === 'sinistra' ? -1 : 1;
-for (const k of ['scena','ora','meteo']) if (q.get(k)) stato[k] = q.get(k);
-if (q.get('luce')) stato.luce = +q.get('luce');
-scenaInVista = stato.scena;
-/* foto vere, con licenza libera (vedi README) */
-const FOTO_PRONTE = {
-  castelbouc: {url:'https://thumb.wikimedia.org/wikipedia/commons/thumb/c/c3/Castelbouc_gorges_du_Tarn.jpg/1920px-Castelbouc_gorges_du_Tarn.jpg', fx:.45, fy:.55}
-};
-const f = q.get('foto');
-if (f){ const p = FOTO_PRONTE[f] || {url:f, fx:+(q.get('fx')||.5), fy:+(q.get('fy')||.5)}; caricaFoto(p.url, p.fx, p.fy); }
-Object.assign(cur, paletteDi(stato.ora));
-Object.assign(met, METEO[stato.meteo]);
+const casa = q.get('casa');
+const MEMORIA = 'finestre-scena';
 
-/* video di YouTube: il riquadro del video e' piu' grande del foro e centrato, cosi' si vede solo la parte in mezzo */
-const yt = q.get('yt'), vbox = document.getElementById('video');
-if (yt){
-  FOTO.trasparente = true;
+/* scena completa: quello che il telecomando manda */
+const PREDEFINITA = {yt:'', t:0, zoom:1, vx:0, foto:'', scena:'valle', ora:'vera', meteo:'sereno', luceGiorno:70, luceNotte:30, prospettiva:true, acceso:true};
+let scena = Object.assign({}, PREDEFINITA);
+try { Object.assign(scena, JSON.parse(localStorage.getItem(MEMORIA) || '{}')); } catch(e) {}
+for (const k of ['yt','foto','scena','ora','meteo']) if (q.has(k)) scena[k] = q.get(k);
+for (const k of ['t','zoom','vx']) if (q.has(k)) scena[k] = +q.get(k);
+
+const c = document.getElementById('c'), ctx = c.getContext('2d'), guida = document.getElementById('guida'), vbox = document.getElementById('video');
+let rett = {x:0, y:0, w:0, h:0}, ytInVista = null, fotoInVista = null;
+let scuro = 1, scuroVerso = 0;            /* dissolvenza: parte dal nero e si apre */
+
+function oraDi(s){ return s.ora === 'vera' ? oraVera() : s.ora; }
+function luceDi(s){ return oraDi(s) === 'notte' ? s.luceNotte : s.luceGiorno; }
+
+function mettiVideo(id, t){
+  vbox.innerHTML = '';
+  ytInVista = id || null;
+  FOTO.trasparente = !!id;
+  if (!id) return;
   const fr = document.createElement('iframe');
   fr.allow = 'autoplay; encrypted-media';
-  fr.src = 'https://www.youtube-nocookie.com/embed/' + encodeURIComponent(yt) +
-    '?autoplay=1&mute=1&loop=1&playlist=' + encodeURIComponent(yt) +
-    '&controls=0&disablekb=1&fs=0&iv_load_policy=3&modestbranding=1&playsinline=1&rel=0' + (q.get('t') ? '&start=' + (+q.get('t')) : '');
+  fr.src = 'https://www.youtube-nocookie.com/embed/' + encodeURIComponent(id) +
+    '?autoplay=1&mute=1&loop=1&playlist=' + encodeURIComponent(id) +
+    '&controls=0&disablekb=1&fs=0&iv_load_policy=3&modestbranding=1&playsinline=1&rel=0' + (t ? '&start=' + (+t) : '');
   vbox.appendChild(fr);
+  piazza();
 }
-const c = document.getElementById('c'), ctx = c.getContext('2d'), guida = document.getElementById('guida');
+function mettiFoto(url){
+  fotoInVista = url || null;
+  if (url) caricaFoto(url, +(q.get('fx') || .5), +(q.get('fy') || .5)); else { FOTO.ok = false; FOTO.img = null; }
+}
+
+/* applica una scena; se cambia il paesaggio passa dal buio */
+let attesa = null;
+function applica(nuova, salva = true){
+  const vecchia = scena;
+  scena = Object.assign({}, PREDEFINITA, nuova);
+  if (salva) try { localStorage.setItem(MEMORIA, JSON.stringify(scena)); } catch(e) {}
+  stato.scena = SCENE[scena.scena] ? scena.scena : 'valle';
+  stato.ora = oraDi(scena);
+  stato.meteo = METEO[scena.meteo] ? scena.meteo : 'sereno';
+  stato.prospettiva = scena.prospettiva !== false;
+  const cambiaPaesaggio = (scena.yt || '') !== (ytInVista || '') || (scena.foto || '') !== (fotoInVista || '') ||
+                          (!scena.yt && !scena.foto && stato.scena !== scenaInVista) ||
+                          (scena.yt && (vecchia.t !== scena.t));
+  if (cambiaPaesaggio){
+    scuroVerso = 1; clearTimeout(attesa);
+    attesa = setTimeout(() => {
+      mettiVideo(scena.yt, scena.t); mettiFoto(scena.foto); scenaInVista = stato.scena;
+      attesa = setTimeout(() => { scuroVerso = scena.acceso ? 0 : 1; }, scena.yt ? 1800 : 300);   /* il video ha bisogno di un attimo per partire */
+    }, 900);
+  } else {
+    scuroVerso = scena.acceso ? 0 : 1;
+    piazza();
+  }
+}
+
 function piazza(){
   const W = innerWidth, H = innerHeight;
   let w = +q.get('w'), h = +q.get('h'), x = +q.get('x'), y = +q.get('y');
   if (!w || !h){ h = Math.round(H * 0.9); w = Math.round(h * 2 / 5); if (w > W){ w = W; h = Math.round(w * 5 / 2); } }
   if (!q.has('x')) x = Math.round((W - w) / 2);
   if (!q.has('y')) y = Math.round((H - h) / 2);
-  if (yt){
-    Object.assign(vbox.style, {left:x+'px', top:y+'px', width:w+'px', height:h+'px'});
-    const zoom = +(q.get('zoom') || 1), vh = h * zoom * 1.15, vw = vh * 16 / 9;   /* 15% in piu': nasconde il titolo in alto e i loghi in basso */
-    const sposta = (stato.prospettiva ? lato : 0) * w * 0.04 + (+(q.get('vx') || 0)) * vw;
+  rett = {x, y, w, h};
+  Object.assign(vbox.style, {left:x+'px', top:y+'px', width:w+'px', height:h+'px'});
+  if (vbox.firstChild){
+    const zoom = +(scena.zoom || 1), vh = h * zoom * 1.15, vw = vh * 16 / 9;   /* 15% in piu': nasconde titolo e loghi */
+    const sposta = (stato.prospettiva ? lato : 0) * w * 0.04 + (+(scena.vx || 0)) * vw;
     Object.assign(vbox.firstChild.style, {width:vw+'px', height:vh+'px', left:((w - vw) / 2 - sposta)+'px', top:((h - vh) / 2)+'px'});
   }
   for (const el of [c, guida]) Object.assign(el.style, {left:x+'px', top:y+'px', width:w+'px', height:h+'px'});
@@ -70,23 +111,45 @@ function piazza(){
   c.width = Math.round(w * dpr); c.height = Math.round(h * dpr);
   guida.style.display = q.get('calibra') ? 'block' : 'none';
 }
-addEventListener('resize', piazza); piazza();
+addEventListener('resize', piazza);
+
+/* partenza: la scena memorizzata, senza dissolvenza lunga */
+stato.ora = oraDi(scena); stato.meteo = METEO[scena.meteo] ? scena.meteo : 'sereno';
+Object.assign(cur, paletteDi(stato.ora)); Object.assign(met, METEO[stato.meteo]);
+applica(scena, false);
+
+/* collegamento al telecomando */
+let canale = null;
+if (casa && window.supabase){
+  canale = apriCanale(casa, {
+    suMessaggio(evento, dati){
+      if (evento === 'scena') applica(dati);
+      else if (evento === 'lampo') scocca();
+      else if (evento === 'chi') canale.manda('eccomi', {lato: lato < 0 ? 'sinistra' : 'destra', scena});
+    },
+    suStato(ok){ if (ok) canale.manda('eccomi', {lato: lato < 0 ? 'sinistra' : 'destra', scena}); }
+  });
+}
 
 /* prova automatica: ore e meteo che girano */
 if (q.get('demo')){
   const ore = ['alba','giorno','tramonto','notte'], meteo = ['sereno','nebbia','pioggia','temporale','neve','sereno'];
-  let i = ore.indexOf(stato.ora), j = 0;
-  setInterval(() => { i = (i + 1) % ore.length; stato.ora = ore[i]; }, 45000);
-  setInterval(() => { j = (j + 1) % meteo.length; stato.meteo = meteo[j]; if (stato.meteo === 'temporale') scocca(); }, 30000);
+  let i = 0, j = 0;
+  setInterval(() => { i = (i + 1) % ore.length; scena.ora = ore[i]; }, 45000);
+  setInterval(() => { j = (j + 1) % meteo.length; scena.meteo = stato.meteo = meteo[j]; if (stato.meteo === 'temporale') scocca(); }, 30000);
 }
 
 let prima = performance.now();
 function ciclo(ora){
   const dt = Math.min(.1, (ora - prima) / 1000); prima = ora; const t = ora / 1000;
+  stato.ora = oraDi(scena);
+  stato.luce = luceDi(scena);
   const obj = paletteDi(stato.ora), k = 1 - Math.exp(-dt * 0.35);
   for (const key in obj){ if (Array.isArray(obj[key])) cur[key] = mix(cur[key], obj[key], k); else cur[key] = lerp(cur[key], obj[key], k); }
   const mo = METEO[stato.meteo]; for (const key in mo) met[key] = lerp(met[key], mo[key], k);
-  if (stato.meteo === 'temporale' && ora > prossimoLampo){ scocca(); prossimoLampo = ora + 5000 + Math.random() * 9000; }
+  if (stato.meteo === 'temporale' && ora > prossimoLampo){ if (prossimoLampo) scocca(); prossimoLampo = ora + 5000 + Math.random() * 9000; }
+  scuro += (scuroVerso - scuro) * Math.min(1, dt * 3.2);
+  buio = scuro;
   disegna(ctx, c.width, c.height, lato, t);
   requestAnimationFrame(ciclo);
 }
