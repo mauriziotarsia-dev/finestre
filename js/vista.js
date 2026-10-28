@@ -51,7 +51,7 @@ float prof(sampler2D d, vec4 crop, vec2 uv, float ha){
 }
 float cielo(vec3 c, float n, float y, float ha){
   float l = dot(c, vec3(.299, .587, .114));
-  if (ha > .5) return smoothstep(.07, .015, n) * smoothstep(.85, .45, y);
+  if (ha > .5) return smoothstep(.04, .008, n) * smoothstep(.85, .45, y);   /* il cielo della mappa è quasi nero: i monti lontani no */
   /* senza mappa: in alto, chiaro e poco saturo o azzurro */
   float az = clamp((c.b - c.r) * 2.5 + .3, 0., 1.);
   return smoothstep(.55, .2, y) * smoothstep(.25, .55, l) * max(az, smoothstep(.6, .85, l));
