@@ -28,6 +28,7 @@
    scena, ora, meteo      scena di partenza (ora=vera segue l'orologio)
    yt=ID_YOUTUBE (t, zoom, vx)  un video di YouTube (muto, in loop) come paesaggio
    foto=URL (fx, fy)      una foto al posto del paesaggio
+   forza=1                usa i parametri dell'indirizzo anche se c'e' una scena memorizzata
    demo=1                 cambia ora e meteo da sola, per le prove
    calibra=1              mostra il bordo del rettangolo per allinearlo al foro
    L'ultima scena ricevuta resta memorizzata: se il Raspberry si riavvia riparte da li'. */
@@ -39,9 +40,13 @@ const MEMORIA = 'finestre-scena';
 /* scena completa: quello che il telecomando manda */
 const PREDEFINITA = {yt:'', t:0, zoom:1, vx:0, foto:'', scena:'valle', ora:'vera', meteo:'sereno', luceGiorno:70, luceNotte:30, prospettiva:true, acceso:true};
 let scena = Object.assign({}, PREDEFINITA);
-try { Object.assign(scena, JSON.parse(localStorage.getItem(MEMORIA) || '{}')); } catch(e) {}
-for (const k of ['yt','foto','scena','ora','meteo']) if (q.has(k)) scena[k] = q.get(k);
-for (const k of ['t','zoom','vx']) if (q.has(k)) scena[k] = +q.get(k);
+let memorizzata = null;
+try { memorizzata = JSON.parse(localStorage.getItem(MEMORIA) || 'null'); } catch(e) {}
+if (memorizzata && !q.get('forza')) Object.assign(scena, memorizzata);   /* l'ultima scena del telecomando vince sull'indirizzo */
+else {
+  for (const k of ['yt','foto','scena','ora','meteo']) if (q.has(k)) scena[k] = q.get(k);
+  for (const k of ['t','zoom','vx']) if (q.has(k)) scena[k] = +q.get(k);
+}
 
 const c = document.getElementById('c'), ctx = c.getContext('2d'), guida = document.getElementById('guida'), vbox = document.getElementById('video');
 let rett = {x:0, y:0, w:0, h:0}, ytInVista = null, fotoInVista = null;
