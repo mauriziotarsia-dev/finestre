@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Finestra</title>
+<style>
+  html,body{margin:0;height:100%;background:#000;overflow:hidden;cursor:none}
+  canvas{position:absolute;display:block}
+  #guida{position:absolute;border:2px dashed #d4af37;pointer-events:none;display:none}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="guida"></div>
+<script src="../js/motore.js"></script>
+<script>
+/* Pagina mostrata dal Raspberry dietro il traforo.
+   Parametri dell'indirizzo:
+   lato=sinistra|destra   quale finestra (cambia la prospettiva)
+   x,y,w,h                rettangolo del foro sullo schermo, in pixel (se mancano: centrato, 2:5)
+   scena, ora, meteo, luce  scena di partenza
+   demo=1                 cambia ora e meteo da sola, per le prove
+   calibra=1              mostra il bordo del rettangolo per allinearlo al foro */
+const q = new URLSearchParams(location.search);
+const lato = q.get('lato') === 'sinistra' ? -1 : 1;
+for (const k of ['scena','ora','meteo']) if (q.get(k)) stato[k] = q.get(k);
+if (q.get('luce')) stato.luce = +q.get('luce');
+scenaInVista = stato.scena;
+Object.assign(cur, paletteDi(stato.ora));
+Object.assign(met, METEO[stato.meteo]);
+
+const c = document.getElementById('c'), ctx = c.getContext('2d'), guida = document.getElementById('guida');
+function piazza(){
+  const W = innerWidth, H = innerHeight;
+  let w = +q.get('w'), h = +q.get('h'), x = +q.get('x'), y = +q.get('y');
+  if (!w || !h){ h = Math.round(H * 0.9); w = Math.round(h * 2 / 5); if (w > W){ w = W; h = Math.round(w * 5 / 2); } }
+  if (!q.has('x')) x = Math.round((W - w) / 2);
+  if (!q.has('y')) y = Math.round((H - h) / 2);
+  for (const el of [c, guida]) Object.assign(el.style, {left:x+'px', top:y+'px', width:w+'px', height:h+'px'});
+  const dpr = Math.min(2, devicePixelRatio || 1);
+  c.width = Math.round(w * dpr); c.height = Math.round(h * dpr);
+  guida.style.display = q.get('calibra') ? 'block' : 'none';
+}
+addEventListener('resize', piazza); piazza();
+
+/* prova automatica: ore e meteo che girano */
+if (q.get('demo')){
+  const ore = ['alba','giorno','tramonto','notte'], meteo = ['sereno','nebbia','pioggia','temporale','neve','sereno'];
+  let i = ore.indexOf(stato.ora), j = 0;
+  setInterval(() => { i = (i + 1) % ore.length; stato.ora = ore[i]; }, 45000);
+  setInterval(() => { j = (j + 1) % meteo.length; stato.meteo = meteo[j]; if (stato.meteo === 'temporale') scocca(); }, 30000);
+}
+
+let prima = performance.now();
+function ciclo(ora){
+  const dt = Math.min(.1, (ora - prima) / 1000); prima = ora; const t = ora / 1000;
+  const obj = paletteDi(stato.ora), k = 1 - Math.exp(-dt * 0.35);
+  for (const key in obj){ if (Array.isArray(obj[key])) cur[key] = mix(cur[key], obj[key], k); else cur[key] = lerp(cur[key], obj[key], k); }
+  const mo = METEO[stato.meteo]; for (const key in mo) met[key] = lerp(met[key], mo[key], k);
+  if (stato.meteo === 'temporale' && ora > prossimoLampo){ scocca(); prossimoLampo = ora + 5000 + Math.random() * 9000; }
+  disegna(ctx, c.width, c.height, lato, t);
+  requestAnimationFrame(ciclo);
+}
+requestAnimationFrame(ciclo);
+</script>
+</body>
+</html>
