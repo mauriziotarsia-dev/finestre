@@ -34,7 +34,7 @@
    L'ultima scena ricevuta resta memorizzata: se il Raspberry si riavvia riparte da li'. */
 const q = new URLSearchParams(location.search);
 const lato = q.get('lato') === 'sinistra' ? -1 : 1;
-const casa = q.get('casa');
+const casa = (String(q.get('casa') || '').match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i) || [null])[0];
 const MEMORIA = 'finestre-scena';
 
 /* scena completa: quello che il telecomando manda */

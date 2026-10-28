@@ -111,7 +111,9 @@ const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } c
 
 /* chiave della casa: arriva una volta dal link (?casa=...) e resta sul telefono */
 const q = new URLSearchParams(location.search);
-let casa = q.get('casa') || leggi('finestre-casa', null);
+/* dal link si prende solo il codice (36 caratteri): i caratteri in più che a volte si attaccano copiando il link non contano */
+const pulisci = v => (String(v || '').match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i) || [null])[0];
+let casa = pulisci(q.get('casa')) || pulisci(leggi('finestre-casa', null));
 if (!casa){ casa = crypto.randomUUID(); }
 scrivi('finestre-casa', casa);
 if (q.has('casa')) history.replaceState(null, '', location.pathname);
