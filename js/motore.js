@@ -68,7 +68,7 @@ const GOCCE = (()=>{const r=rnd(103);return Array.from({length:240},()=>({x:r(),
 const FIOCCHI = (()=>{const r=rnd(107);return Array.from({length:150},()=>({x:r(),y:r(),r:.6+r()*1.8,v:.05+r()*.06,f:r()*6}))})();
 
 /* ---------- foto vera ---------- */
-const FOTO={img:null,ok:false,fx:.5,fy:.5};
+const FOTO={img:null,ok:false,fx:.5,fy:.5,trasparente:false};  /* trasparente: sotto c'e' un video */
 function caricaFoto(url,fx=.5,fy=.5){const im=new Image();
   im.onload=()=>{FOTO.img=im;FOTO.ok=true;FOTO.fx=fx;FOTO.fy=fy};im.src=url}
 function disegnaFoto(ctx,w,h,lato,cop){
@@ -98,7 +98,7 @@ function disegna(ctx,w,h,lato,t){
   const cielo=mix(cur.cielo,mix(grigio,cur.cielo,.35),cop*.8), orizz=mix(cur.orizz,mix(grigio,cur.orizz,.4),cop*.75);
   let g;
   const nebbiaCol=mix(orizz,hex('#9aa3ad'),.4);
-  if(FOTO.ok){ disegnaFoto(ctx,w,h,lato,cop); } else {
+  if(FOTO.trasparente){ ctx.clearRect(0,0,w,h); } else if(FOTO.ok){ disegnaFoto(ctx,w,h,lato,cop); } else {
   /* cielo */
   g=ctx.createLinearGradient(0,0,0,h*.7);g.addColorStop(0,css(cielo));g.addColorStop(1,css(orizz));
   ctx.fillStyle=g;ctx.fillRect(0,0,w,h);

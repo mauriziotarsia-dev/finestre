@@ -7,10 +7,13 @@
 <style>
   html,body{margin:0;height:100%;background:#000;overflow:hidden;cursor:none}
   canvas{position:absolute;display:block}
+  #video{position:absolute;overflow:hidden;background:#000}
+  #video iframe{position:absolute;border:0;pointer-events:none}
   #guida{position:absolute;border:2px dashed #d4af37;pointer-events:none;display:none}
 </style>
 </head>
 <body>
+<div id="video"></div>
 <canvas id="c"></canvas>
 <div id="guida"></div>
 <script src="../js/motore.js"></script>
@@ -21,6 +24,7 @@
    x,y,w,h                rettangolo del foro sullo schermo, in pixel (se mancano: centrato, 2:5)
    scena, ora, meteo, luce  scena di partenza
    foto=castelbouc|URL     una foto vera al posto del paesaggio disegnato
+   yt=ID_YOUTUBE          un video di YouTube (muto, in loop) al posto del paesaggio
    demo=1                 cambia ora e meteo da sola, per le prove
    calibra=1              mostra il bordo del rettangolo per allinearlo al foro */
 const q = new URLSearchParams(location.search);
@@ -37,6 +41,17 @@ if (f){ const p = FOTO_PRONTE[f] || {url:f, fx:+(q.get('fx')||.5), fy:+(q.get('f
 Object.assign(cur, paletteDi(stato.ora));
 Object.assign(met, METEO[stato.meteo]);
 
+/* video di YouTube: il riquadro del video e' piu' grande del foro e centrato, cosi' si vede solo la parte in mezzo */
+const yt = q.get('yt'), vbox = document.getElementById('video');
+if (yt){
+  FOTO.trasparente = true;
+  const fr = document.createElement('iframe');
+  fr.allow = 'autoplay; encrypted-media';
+  fr.src = 'https://www.youtube-nocookie.com/embed/' + encodeURIComponent(yt) +
+    '?autoplay=1&mute=1&loop=1&playlist=' + encodeURIComponent(yt) +
+    '&controls=0&disablekb=1&fs=0&iv_load_policy=3&modestbranding=1&playsinline=1&rel=0' + (q.get('t') ? '&start=' + (+q.get('t')) : '');
+  vbox.appendChild(fr);
+}
 const c = document.getElementById('c'), ctx = c.getContext('2d'), guida = document.getElementById('guida');
 function piazza(){
   const W = innerWidth, H = innerHeight;
@@ -44,6 +59,12 @@ function piazza(){
   if (!w || !h){ h = Math.round(H * 0.9); w = Math.round(h * 2 / 5); if (w > W){ w = W; h = Math.round(w * 5 / 2); } }
   if (!q.has('x')) x = Math.round((W - w) / 2);
   if (!q.has('y')) y = Math.round((H - h) / 2);
+  if (yt){
+    Object.assign(vbox.style, {left:x+'px', top:y+'px', width:w+'px', height:h+'px'});
+    const zoom = +(q.get('zoom') || 1), vh = h * zoom * 1.15, vw = vh * 16 / 9;   /* 15% in piu': nasconde il titolo in alto e i loghi in basso */
+    const sposta = (stato.prospettiva ? lato : 0) * w * 0.04 + (+(q.get('vx') || 0)) * vw;
+    Object.assign(vbox.firstChild.style, {width:vw+'px', height:vh+'px', left:((w - vw) / 2 - sposta)+'px', top:((h - vh) / 2)+'px'});
+  }
   for (const el of [c, guida]) Object.assign(el.style, {left:x+'px', top:y+'px', width:w+'px', height:h+'px'});
   const dpr = Math.min(2, devicePixelRatio || 1);
   c.width = Math.round(w * dpr); c.height = Math.round(h * dpr);
