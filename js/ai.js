@@ -11,10 +11,10 @@ const MODELLI_IMMAGINE = [
   {id:'google:gemini-3-pro-image-preview', nome:'Nano Banana Pro', fornitore:'google', note:'Google, molto realistico. Verticale 9:16.', costo:{alta:.14, media:.14, bassa:.14}},
   {id:'google:gemini-2.5-flash-image',     nome:'Nano Banana',     fornitore:'google', note:'Google, veloce ed economico. Verticale 9:16.', costo:{alta:.039, media:.039, bassa:.039}},
 ];
-const MODELLI_VIDEO = [
-  {id:'sora-2',     nome:'Sora 2',     misura:'720x1280',  euroSecondo:.10, note:'720p, buono per nuvole e acqua.'},
-  {id:'sora-2-pro', nome:'Sora 2 Pro', misura:'1024x1792', euroSecondo:.50, note:'Più definito: si vede meglio da vicino. Costa cinque volte tanto.'},
-];
+/* Animazioni: l'API Sora di OpenAI è stata spenta il 24 settembre 2026 e le Veo 3.1 «preview» di Google il 22 ottobre.
+   L'erede è Gemini Omni Flash (Google, Interactions API): da collegare appena verificato il formato delle richieste.
+   Finché l'elenco è vuoto, l'app nasconde le animazioni; il movimento lo fa la finestra da sé (nuvole, alberi). */
+const MODELLI_VIDEO = [];
 
 const Ai = {
   modello(id){ return MODELLI_IMMAGINE.find(m => m.id === id) || MODELLI_IMMAGINE[0]; },

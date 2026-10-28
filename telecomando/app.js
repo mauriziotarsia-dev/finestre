@@ -31,6 +31,7 @@ const imp = Object.assign({}, IMP_PRED, leggi('finestre-impostazioni', {}));
 imp.chiavi = Object.assign({}, IMP_PRED.chiavi, imp.chiavi || {});
 imp.video = Object.assign({}, IMP_PRED.video, imp.video || {});
 if (!imp.chiavi.openai && leggi('finestre-chiave-openai', '')) imp.chiavi.openai = leggi('finestre-chiave-openai', '');   /* dalla versione di prima */
+if (!MODELLI_VIDEO.length) imp.anima = false;
 const salvaImp = () => scrivi('finestre-impostazioni', imp);
 
 /* ── la scena e i fori ───────────────────────────────────────────────────── */
@@ -282,7 +283,7 @@ function apriPaesaggio(p){
     ${p.yt ? '' : `<div class="pannello" style="margin-top:12px;padding:6px 14px">${cursore('inquadra', 'mirino', 'Inquadratura', 0, 100, Math.round(fx * 100), fx === .5 ? 'centro' : Math.round(fx * 100) + '%')}
       <p class="nota" style="margin:0 0 6px">Se l'immagine è più larga del foro, scegli quale parte si vede. Le finestre la seguono dal vivo.</p></div>`}
     <div class="azioni">
-      ${p.yt ? '' : `<button class="btn" data-fai="anima" data-v="${p.id}">${icona('anima', 18)}Anima</button>`}
+      ${p.yt || !MODELLI_VIDEO.length ? '' : `<button class="btn" data-fai="anima" data-v="${p.id}">${icona('anima', 18)}Anima</button>`}
       ${mancano.length ? `<button class="btn" data-fai="luci" data-v="${p.id}">${icona('alba', 18)}Luci (${mancano.length})</button>` : ''}
       ${p.yt ? '' : `<button class="btn" data-fai="riadatta" data-v="${p.id}">${icona('mirino', 18)}Riadatta</button>`}
       ${!p.yt && !p.immagini.profondita ? `<button class="btn" data-fai="profondita" data-v="${p.id}">${icona('livelli', 18)}Profondità</button>` : ''}
@@ -455,7 +456,7 @@ async function crea(){
 }
 
 function disegnaCrea(){
-  const s = $('#s-crea'); const m = Ai.modello(imp.modello), mv = MODELLI_VIDEO.find(x => x.id === imp.video.modello) || MODELLI_VIDEO[0];
+  const s = $('#s-crea'); const m = Ai.modello(imp.modello), mv = MODELLI_VIDEO.find(x => x.id === imp.video.modello) || MODELLI_VIDEO[0] || {nome:'', euroSecondo:0};
   const nLuci = ['alba','tramonto','notte'].filter(o => imp.luci[o]).length;
   const costo = (m.costo[imp.qualita] || m.costo.alta) * (1 + nLuci * 1.15) + (imp.anima ? mv.euroSecondo * imp.video.secondi : 0);
   const desc = $('#creaDesc') ? $('#creaDesc').value : '', nome = $('#creaNome') ? $('#creaNome').value : '';
@@ -470,10 +471,10 @@ function disegnaCrea(){
     <div class="sezione">${titolo('alba', 'Le luci del giorno')}
       <div class="scelte c4">${['giorno','alba','tramonto','notte'].map(o => `<button class="scelta" data-fai="luce" data-v="${o}" aria-pressed="${o === 'giorno' || !!imp.luci[o]}" ${o === 'giorno' ? 'disabled style="opacity:1"' : ''}>${icona(o === 'giorno' ? 'sole' : o === 'notte' ? 'luna' : o, 22)}<span>${NOME_ORA[o]}</span></button>`).join('')}</div>
       <p class="nota">Alba, tramonto e notte sono lo stesso paesaggio con un'altra luce: quando cambia l'ora, le finestre sfumano dall'una all'altra senza cambiare vista.</p></div>
-    <div class="sezione">${titolo('anima', 'Movimento vero')}
+    ${MODELLI_VIDEO.length ? `<div class="sezione">${titolo('anima', 'Movimento vero')}
       <div class="pannello" style="padding:2px 14px">${interruttore('animaToggle', 'anima', 'Animalo con ' + mv.nome, `${imp.video.secondi} secondi in loop · ≈ ${euro(mv.euroSecondo * imp.video.secondi)}`, imp.anima)}
-        ${imp.anima ? `<div class="pillole" style="margin:0 0 12px">${ELEMENTI.map(([v, ic, t]) => `<button class="pillola" data-fai="elemento" data-v="${v}" aria-pressed="${imp.elementi.includes(v)}">${icona(ic, 15)}${t}</button>`).join('')}</div>` : ''}</div>
-      <p class="nota">Anche senza, le finestre muovono da sé nuvole e alberi. Con Sora il movimento è un video vero: acqua che scorre, fumo, foglie.</p></div>
+        ${imp.anima ? `<div class="pillole" style="margin:0 0 12px">${ELEMENTI.map(([v, ic, t]) => `<button class="pillola" data-fai="elemento" data-v="${v}" aria-pressed="${imp.elementi.includes(v)}">${icona(ic, 15)}${t}</button>`).join('')}</div>` : ''}</div></div>`
+      : `<div class="sezione">${titolo('nuvola', 'Movimento')}<p class="nota" style="margin-top:0">Le finestre muovono da sé nuvole e alberi su ogni paesaggio. I video brevi in loop fatti dall'AI arrivano appena è pronto il nuovo modello di Google.</p></div>`}
     <div class="sezione">
       <button class="btn oro piena" data-fai="crea" ${lavoro && !lavoro.finito ? 'disabled' : ''}>${icona('scintilla', 18)}Crea · ≈ ${euro(costo)}</button>
       <p class="nota">Ci vogliono 1-3 minuti${imp.anima ? ' più qualche minuto per l\'animazione' : ''}: tieni il telefono acceso su questa pagina.</p>
@@ -499,13 +500,13 @@ function disegnaImpostazioni(){
       <div class="segmenti" style="margin-top:10px">${['alta','media','bassa'].map(v => `<button data-fai="qualita" data-v="${v}" aria-pressed="${imp.qualita === v}">Qualità ${v}</button>`).join('')}</div>
       <p class="nota">Prezzi indicativi per un'immagine; le luci del giorno costano un po' di più (c'è anche l'immagine in ingresso).</p></div>
     <div class="sezione">${titolo('anima', 'AI per le animazioni')}
-      <div class="scelte">${MODELLI_VIDEO.map(m => `<button class="scelta riga" data-fai="modelloVideo" data-v="${m.id}" aria-pressed="${imp.video.modello === m.id}">${icona('anima', 22)}<span><b>${esc(m.nome)}</b><small>${esc(m.note)} ${esc(m.misura.replace('x', '×'))}</small></span><span class="prezzo">${euro(m.euroSecondo)}/s</span></button>`).join('')}</div>
-      <div class="segmenti" style="margin-top:10px">${[4, 8, 12].map(v => `<button data-fai="secondi" data-v="${v}" aria-pressed="${imp.video.secondi === v}">${v} secondi</button>`).join('')}</div>
-      <p class="nota">Sora usa la chiave OpenAI. Serve un account a consumo di livello 2 o più; se non l'hai, OpenAI lo dice al primo tentativo.</p></div>
+      ${MODELLI_VIDEO.length ? `<div class="scelte">${MODELLI_VIDEO.map(m => `<button class="scelta riga" data-fai="modelloVideo" data-v="${m.id}" aria-pressed="${imp.video.modello === m.id}">${icona('anima', 22)}<span><b>${esc(m.nome)}</b><small>${esc(m.note)}</small></span><span class="prezzo">${euro(m.euroSecondo)}/s</span></button>`).join('')}</div>
+      <div class="segmenti" style="margin-top:10px">${[4, 8].map(v => `<button data-fai="secondi" data-v="${v}" aria-pressed="${imp.video.secondi === v}">${v} secondi</button>`).join('')}</div>`
+      : `<p class="nota" style="margin-top:0">OpenAI ha spento l'API di Sora (24 settembre 2026) e Google le Veo «preview» (22 ottobre). Il successore è Gemini Omni Flash di Google: lo collego appena verificato. Userà la chiave Google qui sotto.</p>`}</div>
     <div class="sezione">${titolo('chiave', 'Chiavi', 'restano su questo telefono')}
       <div class="pannello">
-        ${campoChiave('kOpenai', 'OpenAI', 'sk-…', imp.chiavi.openai, 'La stessa di DMaster. Per GPT Image e Sora.')}
-        ${campoChiave('kGoogle', 'Google (Gemini)', 'AIza…', imp.chiavi.google, 'Per Nano Banana. Si crea gratis su <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com</a>.')}
+        ${campoChiave('kOpenai', 'OpenAI', 'sk-…', imp.chiavi.openai, 'La stessa di DMaster. Per GPT Image.')}
+        ${campoChiave('kGoogle', 'Google (Gemini)', 'AIza…', imp.chiavi.google, 'Per Nano Banana (e presto le animazioni). Si crea gratis su <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com</a>.')}
         ${campoChiave('kPexels', 'Pexels (facoltativa)', 'chiave Pexels', imp.chiavi.pexels, 'Foto vere gratuite e verticali. Si chiede su <a href="https://www.pexels.com/api/" target="_blank" rel="noopener">pexels.com/api</a>.')}
       </div></div>
     <div class="sezione">${titolo('porta', 'I fori sullo schermo')}
