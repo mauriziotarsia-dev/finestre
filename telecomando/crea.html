@@ -40,6 +40,9 @@
   .anteprime figure{margin:0} .anteprime img{width:100%;aspect-ratio:2/5;object-fit:cover;border-radius:6px;background:#000;display:block}
   .anteprime figcaption{font-size:12px;color:var(--tenue);text-align:center;margin-top:3px}
   .errore{color:var(--no);font-size:14px}
+  .completa{display:flex!important;flex-direction:row!important;gap:10px;align-items:center}
+  .completa img{width:40px;aspect-ratio:2/5;object-fit:cover;border-radius:4px;flex:none}
+  .completa span{display:flex;flex-direction:column;gap:2px}
   .riga{display:flex;gap:8px} .riga > *{flex:1}
 </style>
 </head>
@@ -70,6 +73,11 @@
     <h2>Momenti del giorno</h2>
     <div class="momenti" id="momenti"></div>
     <p class="nota">Il giorno si crea sempre. Gli altri sono lo stesso paesaggio con un'altra luce, così quando cambia l'ora le finestre sfumano da una all'altra senza cambiare vista.</p>
+  </section>
+
+  <section id="boxCompleta" hidden>
+    <h2>Da completare</h2>
+    <div id="daCompletare" class="stili"></div>
   </section>
 
   <section>
@@ -181,27 +189,78 @@ async function errOpenAI(r){
    se il modello o la misura non sono accettati, la verticale più stretta che c'è (1024×1536, 2:3) */
 const TENTATIVI = [['gpt-image-2', '832x2080'], ['gpt-image-2', '1024x1536'], ['gpt-image-1', '1024x1536']];
 let riuscito = null;   /* [modello, misura] che ha funzionato per il giorno: le altre luci usano lo stesso */
-async function chiama(url, opzioni, tentativi, prepara){
+let senzaFlusso = false;
+
+/* La risposta arriva «a flusso»: OpenAI manda prima delle bozze e poi l'immagine finita.
+   Serve perché Safari sul telefono chiude una richiesta che resta muta per più di un minuto
+   («Load failed»), e un'immagine in alta qualità ci mette di più. */
+async function leggiFlusso(r, bozza){
+  const lettore = r.body.getReader(), dec = new TextDecoder();
+  let resto = '', finale = null, ultima = null;
+  for (;;){
+    const {value, done} = await lettore.read();
+    if (done) break;
+    resto += dec.decode(value, {stream:true});
+    let i;
+    while ((i = resto.indexOf('\n\n')) >= 0){
+      const blocco = resto.slice(0, i); resto = resto.slice(i + 2);
+      const dati = blocco.split('\n').filter(l => l.startsWith('data:')).map(l => l.slice(5).trim()).join('');
+      if (!dati || dati === '[DONE]') continue;
+      let ev; try { ev = JSON.parse(dati); } catch(e) { continue; }
+      if (ev.error) throw new Error(ev.error.message || 'Errore da OpenAI');
+      if (!ev.b64_json) continue;
+      if (/completed$/.test(ev.type || '')) finale = ev.b64_json;
+      else { ultima = ev.b64_json; bozza && bozza(ev.b64_json); }
+    }
+  }
+  return finale || ultima;
+}
+
+async function chiama(url, chiave, tentativi, prepara, bozza){
   let ultimo = '';
   for (const t of tentativi){
-    const r = await fetch(url, Object.assign({}, opzioni, {body: prepara(t[0], t[1])}));
-    if (r.ok){ const j = await r.json(); const b64 = j.data && j.data[0] && j.data[0].b64_json; if (b64) return [b64, t]; ultimo = 'Risposta senza immagine.'; continue; }
-    ultimo = await errOpenAI(r);
-    if (!(r.status === 404 || (r.status === 400 && /model|size|dimension|resolution/i.test(ultimo)))) break;   /* modello o misura non accettati: prova il successivo */
+    for (let giro = 0; giro < 2; giro++){            /* se la rete cade, riprova una volta */
+      let r;
+      try {
+        r = await fetch(url, {method:'POST', headers:prepara.json ? {'Authorization':'Bearer ' + chiave, 'Content-Type':'application/json'} : {'Authorization':'Bearer ' + chiave},
+                              body: prepara(t[0], t[1], !senzaFlusso)});
+        if (r.ok){
+          const b64 = (!senzaFlusso && /event-stream/.test(r.headers.get('content-type') || '')) ? await leggiFlusso(r, bozza)
+                    : ((j => j.data && j.data[0] && j.data[0].b64_json)(await r.json()));
+          if (b64) return [b64, t];
+          ultimo = 'Risposta senza immagine.'; break;
+        }
+      } catch(e) {
+        ultimo = 'La connessione con OpenAI si è interrotta (' + e.message + ').';
+        if (giro === 0) continue; else throw new Error(ultimo);
+      }
+      ultimo = await errOpenAI(r);
+      if (r.status === 400 && /stream|partial/i.test(ultimo) && !senzaFlusso){ senzaFlusso = true; giro--; continue; }
+      break;
+    }
+    if (!/model|size|dimension|resolution|Risposta senza/i.test(ultimo)) break;   /* modello o misura non accettati: prova il successivo */
   }
   throw new Error(ultimo);
 }
-async function crea(chiave, prompt){
-  const [b64, t] = await chiama('https://api.openai.com/v1/images/generations',
-    {method:'POST', headers:{'Authorization':'Bearer ' + chiave, 'Content-Type':'application/json'}}, TENTATIVI,
-    (m, misura) => JSON.stringify({model:m, prompt, size:misura, quality:'high', n:1}));
+function datiCrea(prompt){
+  const f = (m, misura, flusso) => JSON.stringify(Object.assign({model:m, prompt, size:misura, quality:'high', n:1}, flusso ? {stream:true, partial_images:2} : {}));
+  f.json = true; return f;
+}
+function datiModifica(prompt, foto){
+  return (m, misura, flusso) => {
+    const f = new FormData(); f.append('model', m); f.append('prompt', prompt); f.append('size', misura); f.append('quality', 'high'); f.append('n', '1');
+    f.append('image', foto, 'giorno.jpg'); if (m === 'gpt-image-1') f.append('input_fidelity', 'high');
+    if (flusso){ f.append('stream', 'true'); f.append('partial_images', '2'); }
+    return f;
+  };
+}
+async function crea(chiave, prompt, bozza){
+  const [b64, t] = await chiama('https://api.openai.com/v1/images/generations', chiave, TENTATIVI, datiCrea(prompt), bozza);
   riuscito = t; return b64;
 }
-async function modifica(chiave, prompt, png){
-  const [b64] = await chiama('https://api.openai.com/v1/images/edits',
-    {method:'POST', headers:{'Authorization':'Bearer ' + chiave}}, riuscito ? [riuscito] : TENTATIVI,
-    (m, misura) => { const f = new FormData(); f.append('model', m); f.append('prompt', prompt); f.append('size', misura); f.append('quality', 'high'); f.append('n', '1');
-           f.append('image', png, 'giorno.png'); if (m === 'gpt-image-1') f.append('input_fidelity', 'high'); return f; });
+async function modifica(chiave, prompt, foto, misura, bozza){
+  const tent = riuscito ? [riuscito] : misura ? TENTATIVI.filter(t => t[1] === misura) : TENTATIVI;
+  const [b64] = await chiama('https://api.openai.com/v1/images/edits', chiave, tent, datiModifica(prompt, foto), bozza);
   return b64;
 }
 function b64aBlob(b64, tipo){ const s = atob(b64), a = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) a[i] = s.charCodeAt(i); return new Blob([a], {type:tipo}); }
@@ -211,51 +270,87 @@ async function inJpeg(blob){
   c.getContext('2d').drawImage(bmp, 0, 0);
   return await new Promise(r => c.toBlob(r, 'image/jpeg', .9));
 }
+const bozzaDi = ora => b64 => anteprima(ora, 'data:image/png;base64,' + b64, true);
 
 /* passi a schermo */
 function passo(id, testo){ let li = $('p-' + id); if (!li){ li = document.createElement('li'); li.id = 'p-' + id; $('passi').appendChild(li); } li.textContent = testo; return li; }
 function stato(id, cls, testo){ const li = passo(id, testo); li.className = cls; }
-function anteprima(ora, url){
+function anteprima(ora, url, bozza){
   let f = $('a-' + ora);
   if (!f){ f = document.createElement('figure'); f.id = 'a-' + ora; f.innerHTML = '<img alt=""><figcaption></figcaption>'; f.querySelector('figcaption').textContent = NOMI_ORE[ora]; $('anteprime').appendChild(f); }
-  f.querySelector('img').src = url;
+  f.querySelector('img').src = url; f.style.opacity = bozza ? .6 : 1;
 }
+
+/* le altre luci, una dopo l'altra (in parallelo il telefono rischia di perdere la connessione) */
+async function faiLuci(chiave, p, foto, ore, misura){
+  for (const ora of ore){
+    stato(ora, 'ora', '◌ ' + NOMI_ORE[ora] + ': stessa vista, altra luce…');
+    try {
+      const v = await modifica(chiave, promptVariante(ora), foto, misura, bozzaDi(ora));
+      p.immagini[ora] = await caricaImmagine(casa, nomeFile(p.id, p.stile, p.nome, ora), await inJpeg(b64aBlob(v, 'image/png')));
+      anteprima(ora, p.immagini[ora]); stato(ora, 'fatto', '✓ ' + NOMI_ORE[ora]);
+    } catch(e) { stato(ora, 'errore', '✕ ' + NOMI_ORE[ora] + ': ' + e.message); }
+  }
+}
+function inizia(){
+  $('errore').hidden = true; $('crea').disabled = true; $('fine').hidden = true;
+  $('passi').hidden = false; $('passi').innerHTML = ''; $('anteprime').innerHTML = '';
+}
+let blocco = null;
+async function tieniAcceso(){ try { blocco = await navigator.wakeLock?.request('screen'); } catch(e) {} }
+function finisci(){ $('crea').disabled = false; try { blocco && blocco.release(); } catch(e) {} blocco = null; disegnaDaCompletare(); }
+function sbaglio(t){ $('errore').textContent = t; $('errore').hidden = false; }
 
 let fatto = null;
 $('crea').onclick = async () => {
   const chiave = $('chiave').value.trim(), descrizione = $('descrizione').value.trim();
   const nome = $('nome').value.trim() || descrizione.split(/[,.]/)[0].slice(0, 40) || 'Paesaggio';
-  $('errore').hidden = true;
-  if (!chiave){ $('errore').textContent = 'Serve la chiave OpenAI.'; $('errore').hidden = false; $('chiave').focus(); return; }
-  if (!descrizione){ $('errore').textContent = 'Scrivi che cosa si vede, o tocca un\'idea.'; $('errore').hidden = false; return; }
-  $('crea').disabled = true; $('fine').hidden = true; $('passi').hidden = false; $('passi').innerHTML = ''; $('anteprime').innerHTML = '';
-  let blocco = null; try { blocco = await navigator.wakeLock?.request('screen'); } catch(e) {}
-  const id = Date.now().toString(36), ore = ['giorno', ...['alba','tramonto','notte'].filter(o => momenti[o])];
-  const immagini = {};
+  if (!chiave){ sbaglio('Serve la chiave OpenAI.'); $('chiave').focus(); return; }
+  if (!descrizione){ sbaglio('Scrivi che cosa si vede, o tocca un\'idea.'); return; }
+  inizia(); await tieniAcceso();
+  const p = {id: Date.now().toString(36), stile, nome, immagini:{}};
   try {
     stato('giorno', 'ora', '◌ Giorno: lo sto dipingendo…');
-    const b64 = await crea(chiave, promptBase(descrizione));
-    const png = b64aBlob(b64, 'image/png');
-    immagini.giorno = await caricaImmagine(casa, nomeFile(id, stile, nome, 'giorno'), await inJpeg(png));
-    anteprima('giorno', immagini.giorno); stato('giorno', 'fatto', '✓ Giorno');
-    /* le altre luci insieme, partendo dal giorno */
-    await Promise.all(ore.slice(1).map(async ora => {
-      stato(ora, 'ora', '◌ ' + NOMI_ORE[ora] + ': stessa vista, altra luce…');
-      try {
-        const v = await modifica(chiave, promptVariante(ora), png);
-        immagini[ora] = await caricaImmagine(casa, nomeFile(id, stile, nome, ora), await inJpeg(b64aBlob(v, 'image/png')));
-        anteprima(ora, immagini[ora]); stato(ora, 'fatto', '✓ ' + NOMI_ORE[ora]);
-      } catch(e) { stato(ora, 'errore', '✕ ' + NOMI_ORE[ora] + ': ' + e.message); }
-    }));
-    fatto = {id, stile, nome, immagini};
-    $('fine').hidden = false;
-  } catch(e) {
-    $('errore').textContent = e.message; $('errore').hidden = false;
-  } finally {
-    $('crea').disabled = false;
-    try { blocco && blocco.release(); } catch(e) {}
-  }
+    const b64 = await crea(chiave, promptBase(descrizione), bozzaDi('giorno'));
+    const jpg = await inJpeg(b64aBlob(b64, 'image/png'));
+    p.immagini.giorno = await caricaImmagine(casa, nomeFile(p.id, stile, nome, 'giorno'), jpg);
+    anteprima('giorno', p.immagini.giorno); stato('giorno', 'fatto', '✓ Giorno');
+    await faiLuci(chiave, p, jpg, ['alba','tramonto','notte'].filter(o => momenti[o]));
+    fatto = p; $('fine').hidden = false;
+  } catch(e) { stato('giorno', 'errore', '✕ Giorno: ' + e.message); sbaglio(e.message); }
+  finally { finisci(); }
 };
+
+/* paesaggi a cui mancano delle luci (per esempio se la connessione è caduta): si completano senza rifare il giorno */
+let libreria = [];
+function disegnaDaCompletare(){
+  const box = $('boxCompleta'), el = $('daCompletare'); el.innerHTML = '';
+  const manca = libreria.filter(p => ['alba','tramonto','notte'].some(o => !p.immagini[o]));
+  box.hidden = !manca.length;
+  for (const p of manca){
+    const mancano = ['alba','tramonto','notte'].filter(o => !p.immagini[o]);
+    const b = document.createElement('button'); b.className = 'completa';
+    b.innerHTML = '<img alt=""><span><b></b><small></small></span>';
+    b.querySelector('img').src = p.immagini.giorno; b.querySelector('b').textContent = p.nome;
+    b.querySelector('small').textContent = 'Aggiungi ' + mancano.map(o => NOMI_ORE[o].toLowerCase()).join(', ') + ' · ≈ ' + (mancano.length * COSTO_MODIFICA).toFixed(2).replace('.', ',') + ' $';
+    b.onclick = async () => {
+      const chiave = $('chiave').value.trim();
+      if (!chiave){ sbaglio('Serve la chiave OpenAI.'); $('chiave').focus(); return; }
+      inizia(); await tieniAcceso();
+      try {
+        anteprima('giorno', p.immagini.giorno); stato('giorno', 'fatto', '✓ Giorno (c\'era già)');
+        const jpg = await (await fetch(p.immagini.giorno)).blob();
+        const bmp = await createImageBitmap(jpg), misura = bmp.width + 'x' + bmp.height;
+        riuscito = null;
+        await faiLuci(chiave, p, jpg, mancano, misura);
+        fatto = p; $('fine').hidden = false;
+      } catch(e) { sbaglio(e.message); }
+      finally { finisci(); }
+    };
+    el.appendChild(b);
+  }
+}
+leggiLibreria(casa).then(l => { libreria = l; disegnaDaCompletare(); }).catch(() => {});
 
 /* manda alle finestre: il telecomando ascolta lo stesso canale, quindi basta aggiornare la scena salvata e trasmetterla */
 const canale = apriCanale(casa, {});
