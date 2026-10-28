@@ -68,15 +68,27 @@ const GOCCE = (()=>{const r=rnd(103);return Array.from({length:240},()=>({x:r(),
 const FIOCCHI = (()=>{const r=rnd(107);return Array.from({length:150},()=>({x:r(),y:r(),r:.6+r()*1.8,v:.05+r()*.06,f:r()*6}))})();
 
 /* ---------- foto vera ---------- */
-const FOTO={img:null,ok:false,fx:.5,fy:.5,trasparente:false};  /* trasparente: sotto c'e' un video */
-function caricaFoto(url,fx=.5,fy=.5){const im=new Image();
-  im.onload=()=>{FOTO.img=im;FOTO.ok=true;FOTO.fx=fx;FOTO.fy=fy};im.src=url}
-function disegnaFoto(ctx,w,h,lato,cop){
-  const im=FOTO.img,iw=im.naturalWidth,ih=im.naturalHeight;
+const FOTO={img:null,ok:false,fx:.5,fy:.5,trasparente:false,url:null,prec:null,t0:0,dur:0};  /* trasparente: sotto c'e' un video */
+/* carica una foto; con dur>0 sfuma dalla precedente in dur secondi (cambio d'ora: stessa vista, altra luce) */
+function caricaFoto(url,fx=.5,fy=.5,dur=0){
+  if(url===FOTO.url)return; FOTO.url=url;
+  const im=new Image(); im.crossOrigin='anonymous';
+  im.onload=()=>{ if(FOTO.url!==url)return;
+    FOTO.prec=(dur>0&&FOTO.ok)?FOTO.img:null; FOTO.t0=performance.now(); FOTO.dur=dur*1000;
+    FOTO.img=im;FOTO.ok=true;FOTO.fx=fx;FOTO.fy=fy};
+  im.src=url}
+function togliFoto(){FOTO.url=null;FOTO.img=null;FOTO.prec=null;FOTO.ok=false}
+function disegnaUna(ctx,im,w,h,lato,a){
+  const iw=im.naturalWidth,ih=im.naturalHeight;
   const sc=Math.max(w/iw,h/ih)*1.06, sw=w/sc, sh=h/sc;     /* un po' di margine per la prospettiva */
   const spost=stato.prospettiva?lato*.022*iw:0;
   const sx=Math.min(iw-sw,Math.max(0,(iw-sw)*FOTO.fx+spost)), sy=Math.min(ih-sh,Math.max(0,(ih-sh)*FOTO.fy));
-  ctx.drawImage(im,sx,sy,sw,sh,0,0,w,h);
+  ctx.globalAlpha=a; ctx.drawImage(im,sx,sy,sw,sh,0,0,w,h); ctx.globalAlpha=1;
+}
+function disegnaFoto(ctx,w,h,lato,cop){
+  let k=1;
+  if(FOTO.prec){k=Math.min(1,(performance.now()-FOTO.t0)/Math.max(1,FOTO.dur)); k=k*k*(3-2*k); if(k>=1)FOTO.prec=null; else disegnaUna(ctx,FOTO.prec,w,h,lato,1)}
+  disegnaUna(ctx,FOTO.img,w,h,lato,k);
   if(cop>.02){ctx.save();ctx.globalCompositeOperation='saturation';ctx.fillStyle=`rgba(128,128,128,${cop*.55})`;ctx.fillRect(0,0,w,h);ctx.restore()}
 }
 

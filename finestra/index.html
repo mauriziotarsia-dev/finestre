@@ -49,7 +49,7 @@ else {
 }
 
 const c = document.getElementById('c'), ctx = c.getContext('2d'), guida = document.getElementById('guida'), vbox = document.getElementById('video');
-let rett = {x:0, y:0, w:0, h:0}, ytInVista = null, fotoInVista = null;
+let rett = {x:0, y:0, w:0, h:0}, ytInVista = null, paesaggioInVista = null, inCambio = false;
 let scuro = 1, scuroVerso = 0;            /* dissolvenza: parte dal nero e si apre */
 
 function oraDi(s){ return s.ora === 'vera' ? oraVera() : s.ora; }
@@ -68,31 +68,40 @@ function mettiVideo(id, t){
   vbox.appendChild(fr);
   piazza();
 }
-function mettiFoto(url){
-  fotoInVista = url || null;
-  if (url) caricaFoto(url, +(q.get('fx') || .5), +(q.get('fy') || .5)); else { FOTO.ok = false; FOTO.img = null; }
+/* quale immagine mostrare: i paesaggi dipinti hanno una versione per ogni momento del giorno */
+function fotoDi(s){
+  if (s.yt) return null;
+  if (s.immagini) return s.immagini[oraDi(s)] || s.immagini.giorno || null;
+  return s.foto || null;
+}
+function paesaggioDi(s){
+  return s.yt ? 'yt:' + s.yt + ':' + (s.t || 0) : s.immagini ? 'ai:' + (s.paesaggio || s.immagini.giorno) : s.foto ? 'foto:' + s.foto : 'disegno:' + s.scena;
+}
+function mettiFoto(url, dur = 0){
+  if (url) caricaFoto(url, +(q.get('fx') || .5), +(q.get('fy') || .5), dur); else togliFoto();
 }
 
 /* applica una scena; se cambia il paesaggio passa dal buio */
 let attesa = null;
 function applica(nuova, salva = true){
-  const vecchia = scena;
   scena = Object.assign({}, PREDEFINITA, nuova);
   if (salva) try { localStorage.setItem(MEMORIA, JSON.stringify(scena)); } catch(e) {}
   stato.scena = SCENE[scena.scena] ? scena.scena : 'valle';
   stato.ora = oraDi(scena);
   stato.meteo = METEO[scena.meteo] ? scena.meteo : 'sereno';
   stato.prospettiva = scena.prospettiva !== false;
-  const cambiaPaesaggio = (scena.yt || '') !== (ytInVista || '') || (scena.foto || '') !== (fotoInVista || '') ||
-                          (!scena.yt && !scena.foto && stato.scena !== scenaInVista) ||
-                          (scena.yt && (vecchia.t !== scena.t));
-  if (cambiaPaesaggio){
-    scuroVerso = 1; clearTimeout(attesa);
+  if (paesaggioDi(scena) !== paesaggioInVista){
+    /* paesaggio nuovo: passa dal buio */
+    inCambio = true; scuroVerso = 1; clearTimeout(attesa);
     attesa = setTimeout(() => {
-      mettiVideo(scena.yt, scena.t); mettiFoto(scena.foto); scenaInVista = stato.scena;
-      attesa = setTimeout(() => { scuroVerso = scena.acceso ? 0 : 1; }, scena.yt ? 1800 : 300);   /* il video ha bisogno di un attimo per partire */
+      paesaggioInVista = paesaggioDi(scena);
+      mettiVideo(scena.yt, scena.t);
+      mettiFoto(fotoDi(scena)); scenaInVista = stato.scena;
+      attesa = setTimeout(() => { scuroVerso = scena.acceso ? 0 : 1; inCambio = false; }, scena.yt ? 1800 : 500);   /* il video o l'immagine hanno bisogno di un attimo */
     }, 900);
   } else {
+    /* stesso paesaggio: se cambia l'ora, la luce sfuma in pochi secondi */
+    const u = fotoDi(scena); if (u && u !== FOTO.url) mettiFoto(u, 3);
     scuroVerso = scena.acceso ? 0 : 1;
     piazza();
   }
@@ -149,6 +158,8 @@ function ciclo(ora){
   const dt = Math.min(.1, (ora - prima) / 1000); prima = ora; const t = ora / 1000;
   stato.ora = oraDi(scena);
   stato.luce = luceDi(scena);
+  /* con «Come fuori» l'ora cambia da sola: la luce del paesaggio dipinto sfuma piano, in un minuto e mezzo */
+  if (!inCambio && scena.immagini){ const u = fotoDi(scena); if (u && u !== FOTO.url) mettiFoto(u, 90); }
   const obj = paletteDi(stato.ora), k = 1 - Math.exp(-dt * 0.35);
   for (const key in obj){ if (Array.isArray(obj[key])) cur[key] = mix(cur[key], obj[key], k); else cur[key] = lerp(cur[key], obj[key], k); }
   const mo = METEO[stato.meteo]; for (const key in mo) met[key] = lerp(met[key], mo[key], k);

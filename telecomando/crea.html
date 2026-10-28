@@ -1,0 +1,266 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#14110d">
+<link rel="apple-touch-icon" href="icona.png">
+<title>Crea un paesaggio · Finestre</title>
+<style>
+  :root{--fondo:#14110d;--carta:#1e1a14;--carta2:#272219;--bordo:#3a3226;--testo:#efe6d6;--tenue:#a99c86;--oro:#d4af37;--ok:#7fb069;--no:#e08a78}
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--fondo);color:var(--testo);font:16px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif;-webkit-tap-highlight-color:transparent}
+  body{padding:max(16px,env(safe-area-inset-top)) 16px max(24px,env(safe-area-inset-bottom))}
+  main{max-width:520px;margin:0 auto}
+  header{display:flex;align-items:center;gap:12px;margin-bottom:18px}
+  header a{color:var(--tenue);text-decoration:none;font-size:15px;padding:8px 0}
+  h1{font:600 22px/1.1 Georgia,"Times New Roman",serif;margin:0}
+  section{background:var(--carta);border:1px solid var(--bordo);border-radius:14px;padding:14px;margin-bottom:14px}
+  h2{font:600 13px/1 system-ui,sans-serif;text-transform:uppercase;letter-spacing:1.2px;color:var(--tenue);margin:0 0 12px}
+  button{font:inherit;color:inherit;background:var(--carta2);border:1px solid var(--bordo);border-radius:10px;padding:12px;min-height:48px;cursor:pointer}
+  button[aria-pressed="true"]{border-color:var(--oro);background:#2f2716;color:#fff3cf}
+  button:disabled{opacity:.45;cursor:default}
+  button[aria-pressed="true"]:disabled{opacity:1}
+  [hidden]{display:none !important}
+  .principale{width:100%;font-weight:600;background:#3a2f12;border-color:var(--oro);color:#fff3cf}
+  .stili{display:flex;flex-direction:column;gap:8px}
+  .stili button{text-align:left;display:flex;flex-direction:column;gap:2px}
+  .stili b{font-weight:600}
+  .stili small{color:var(--tenue);font-size:13px}
+  .idee{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+  .idee button{min-height:40px;padding:8px 12px;font-size:14px;border-radius:20px}
+  textarea,input[type=password],input[type=text]{width:100%;font:inherit;color:var(--testo);background:var(--carta2);border:1px solid var(--bordo);border-radius:10px;padding:12px}
+  textarea{min-height:96px;resize:vertical}
+  .momenti{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .nota{font-size:13px;color:var(--tenue);margin:8px 0 0}
+  .costo{font-variant-numeric:tabular-nums;color:var(--testo)}
+  .passi{list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:6px;font-size:15px}
+  .passi li{color:var(--tenue)} .passi li.fatto{color:var(--ok)} .passi li.ora{color:var(--testo)} .passi li.errore{color:var(--no)}
+  .anteprime{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-top:12px}
+  .anteprime figure{margin:0} .anteprime img{width:100%;aspect-ratio:2/5;object-fit:cover;border-radius:6px;background:#000;display:block}
+  .anteprime figcaption{font-size:12px;color:var(--tenue);text-align:center;margin-top:3px}
+  .errore{color:var(--no);font-size:14px}
+  .riga{display:flex;gap:8px} .riga > *{flex:1}
+</style>
+</head>
+<body>
+<main>
+  <header><a href="./" id="indietro">‹ Telecomando</a></header>
+  <h1 style="margin-bottom:16px">Crea un paesaggio</h1>
+
+  <section id="boxChiave">
+    <h2>Chiave OpenAI</h2>
+    <input type="password" id="chiave" placeholder="sk-…" autocomplete="off" spellcheck="false">
+    <p class="nota">È la stessa chiave che usi in DMaster. Resta solo su questo telefono e va direttamente a OpenAI: non passa da nessun altro.</p>
+  </section>
+
+  <section>
+    <h2>Stile</h2>
+    <div class="stili" id="stili"></div>
+  </section>
+
+  <section>
+    <h2>Che cosa si vede</h2>
+    <input type="text" id="nome" placeholder="Nome (es. Valle col castello)" maxlength="40" style="margin-bottom:8px">
+    <textarea id="descrizione" placeholder="Descrivi il paesaggio fuori dalla finestra, anche in poche parole."></textarea>
+    <div class="idee" id="idee"></div>
+  </section>
+
+  <section>
+    <h2>Momenti del giorno</h2>
+    <div class="momenti" id="momenti"></div>
+    <p class="nota">Il giorno si crea sempre. Gli altri sono lo stesso paesaggio con un'altra luce, così quando cambia l'ora le finestre sfumano da una all'altra senza cambiare vista.</p>
+  </section>
+
+  <section>
+    <button class="principale" id="crea">✨ Crea</button>
+    <p class="nota">Costo stimato <span class="costo" id="costo"></span> sul tuo account OpenAI · ci vogliono 1-3 minuti: tieni il telefono acceso su questa pagina.</p>
+    <p class="errore" id="errore" hidden></p>
+    <ol class="passi" id="passi" hidden></ol>
+    <div class="anteprime" id="anteprime"></div>
+    <div class="riga" style="margin-top:12px" id="fine" hidden>
+      <button class="principale" id="manda">Mostralo alle finestre</button>
+    </div>
+  </section>
+</main>
+
+<script src="../js/supabase.js"></script>
+<script src="../js/canale.js"></script>
+<script src="../js/libreria.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
+const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
+const daLink = (new URLSearchParams(location.search).get('casa') || '').match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i);
+const casa = daLink ? daLink[0] : leggi('finestre-casa', null);
+if (!casa) location.replace('./');
+$('indietro').href = './?casa=' + casa;
+
+/* gli stili sono quelli di DMaster (src/lib/image-styles.js), stesse parole */
+const STILI = [
+  {id:'painterly', nome:'Pittorico', nota:'Realismo cinematografico, luce calda. Il più vicino a una finestra vera.',
+   prefisso:'Cinematic painterly fantasy art, photorealistic detail, warm palette with golden hour lighting, dramatic atmosphere, hyperrealistic textures, oil-painted highlights'},
+  {id:'classic_oil', nome:'Olio classico', nota:'Pennellate visibili, toni ambra e oro, romantico. Si vede che è un dipinto.',
+   prefisso:'Classic oil painting on canvas, visible impasto brushstrokes, rich amber and gold palette, romantic landscape composition, evocative of Frank Frazetta and Caspar David Friedrich'},
+  {id:'inked', nome:'A china', nota:'Xilografia gotica, bianco e nero con accenti rossi. Per serate a tema, non per realismo.',
+   prefisso:'Dark ink illustration in the style of woodcut engraving, dense crosshatching, monochrome with red accents, gothic etched line art, evocative of Berserk and Gustave Doré'}
+];
+const IDEE = [
+  ['Valle col castello', 'Una valle verde con un castello medievale su una collina, un fiume che serpeggia, colline e boschi fino all\'orizzonte'],
+  ['Campagna romana', 'Campagna laziale con resti di un acquedotto romano, pini marittimi, pecore lontane, colli all\'orizzonte'],
+  ['Borgo sul lago', 'Un borgo medievale di pietra sulla riva di un lago tra le montagne, tetti di coppi, un campanile'],
+  ['Foresta antica', 'Una foresta di querce e faggi secolari, un ruscello tra le rocce, luce che filtra tra i rami'],
+  ['Scogliera sul mare', 'Una costa rocciosa con il mare aperto, una torre di avvistamento sul promontorio, onde che si infrangono'],
+  ['Montagne innevate', 'Picchi innevati sopra una valle alpina, un villaggio di legno con il fumo dai camini, abeti']
+];
+const LUCI = {
+  giorno:'Time of day: clear daytime, soft natural daylight from a high sun.',
+  alba:'Change only the time of day to dawn: the sun just rising at the horizon, warm pink and orange light, long soft shadows, light mist in the valleys.',
+  tramonto:'Change only the time of day to sunset: low golden-orange sun near the horizon, warm glowing sky, long shadows, deepening blue on the opposite side.',
+  notte:'Change only the time of day to night: a clear night lit by moonlight, deep blue tones, stars visible, very dark but readable shapes; if there are buildings, a few windows glow with warm candlelight.'
+};
+const NOMI_ORE = {giorno:'Giorno', alba:'Alba', tramonto:'Tramonto', notte:'Notte'};
+/* prezzi indicativi gpt-image-2, qualità alta, 1024×1536 (le modifiche costano un po' di più per l'immagine in ingresso) */
+const COSTO_CREA = 0.17, COSTO_MODIFICA = 0.2;
+
+let stile = leggi('finestre-stile', 'painterly');
+let momenti = leggi('finestre-momenti', {alba:true, tramonto:true, notte:true});
+$('chiave').value = leggi('finestre-chiave-openai', '');
+$('chiave').oninput = e => scrivi('finestre-chiave-openai', e.target.value.trim());
+
+function disegnaStili(){
+  $('stili').innerHTML = '';
+  for (const s of STILI){
+    const b = document.createElement('button');
+    b.setAttribute('aria-pressed', String(s.id === stile));
+    b.innerHTML = '<b></b><small></small>'; b.querySelector('b').textContent = s.nome; b.querySelector('small').textContent = s.nota;
+    b.onclick = () => { stile = s.id; scrivi('finestre-stile', stile); disegnaStili(); };
+    $('stili').appendChild(b);
+  }
+}
+function disegnaMomenti(){
+  $('momenti').innerHTML = '';
+  for (const o of ORE_IMMAGINI){
+    const b = document.createElement('button'); b.textContent = NOMI_ORE[o];
+    const acceso = o === 'giorno' || !!momenti[o];
+    b.setAttribute('aria-pressed', String(acceso)); b.disabled = o === 'giorno';
+    b.onclick = () => { momenti[o] = !momenti[o]; scrivi('finestre-momenti', momenti); disegnaMomenti(); };
+    $('momenti').appendChild(b);
+  }
+  const n = ['alba','tramonto','notte'].filter(o => momenti[o]).length;
+  $('costo').textContent = '≈ ' + (COSTO_CREA + n * COSTO_MODIFICA).toFixed(2).replace('.', ',') + ' $';
+}
+for (const [nome, testo] of IDEE){
+  const b = document.createElement('button'); b.textContent = nome;
+  b.onclick = () => { $('nome').value = nome; $('descrizione').value = testo; };
+  $('idee').appendChild(b);
+}
+disegnaStili(); disegnaMomenti();
+
+function promptBase(descrizione){
+  const s = STILI.find(x => x.id === stile);
+  return `${s.prefisso}.
+A tall vertical view of the landscape seen from a high window of a medieval house, looking out at: ${descrizione}.
+The picture IS the view itself: no window frame, no walls, no curtains, no sill, nothing of the room in the foreground.
+Natural eye-level perspective with the horizon slightly above the middle, sky in the upper part, believable scale and deep atmospheric distance with several layers (near, middle, far).
+No people in the foreground, no text, no signature, no watermark, no border, no vignette.
+${LUCI.giorno}`;
+}
+function promptVariante(ora){
+  return `Same exact view and composition as the input image: every hill, building, tree and river stays in the same place, same framing, same style. ${LUCI[ora]} Do not add a window frame, text or borders.`;
+}
+
+async function errOpenAI(r){
+  let m = ''; try { const j = await r.json(); m = j.error && j.error.message || ''; } catch(e) {}
+  if (r.status === 401) return 'La chiave OpenAI non è valida.';
+  if (r.status === 429) return 'OpenAI dice che hai finito il credito o che stai facendo troppe richieste. ' + m;
+  if (/safety|moderation/i.test(m)) return 'OpenAI ha rifiutato la descrizione. Prova a cambiarla.';
+  return 'OpenAI ha risposto con un errore (' + r.status + '). ' + m;
+}
+async function chiama(url, opzioni, modelli, prepara){
+  let ultimo = '';
+  for (const modello of modelli){
+    const r = await fetch(url, Object.assign({}, opzioni, {body: prepara(modello)}));
+    if (r.ok){ const j = await r.json(); const b64 = j.data && j.data[0] && j.data[0].b64_json; if (b64) return b64; ultimo = 'Risposta senza immagine.'; continue; }
+    ultimo = await errOpenAI(r);
+    if (!(r.status === 404 || (r.status === 400 && /model/i.test(ultimo)))) break;   /* modello non disponibile: prova il successivo */
+  }
+  throw new Error(ultimo);
+}
+const MODELLI = ['gpt-image-2', 'gpt-image-1'];
+function crea(chiave, prompt){
+  return chiama('https://api.openai.com/v1/images/generations',
+    {method:'POST', headers:{'Authorization':'Bearer ' + chiave, 'Content-Type':'application/json'}}, MODELLI,
+    m => JSON.stringify({model:m, prompt, size:'1024x1536', quality:'high', n:1}));
+}
+function modifica(chiave, prompt, png){
+  return chiama('https://api.openai.com/v1/images/edits',
+    {method:'POST', headers:{'Authorization':'Bearer ' + chiave}}, MODELLI,
+    m => { const f = new FormData(); f.append('model', m); f.append('prompt', prompt); f.append('size', '1024x1536'); f.append('quality', 'high'); f.append('n', '1');
+           f.append('image', png, 'giorno.png'); if (m === 'gpt-image-1') f.append('input_fidelity', 'high'); return f; });
+}
+function b64aBlob(b64, tipo){ const s = atob(b64), a = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) a[i] = s.charCodeAt(i); return new Blob([a], {type:tipo}); }
+async function inJpeg(blob){
+  const bmp = await createImageBitmap(blob);
+  const c = document.createElement('canvas'); c.width = bmp.width; c.height = bmp.height;
+  c.getContext('2d').drawImage(bmp, 0, 0);
+  return await new Promise(r => c.toBlob(r, 'image/jpeg', .9));
+}
+
+/* passi a schermo */
+function passo(id, testo){ let li = $('p-' + id); if (!li){ li = document.createElement('li'); li.id = 'p-' + id; $('passi').appendChild(li); } li.textContent = testo; return li; }
+function stato(id, cls, testo){ const li = passo(id, testo); li.className = cls; }
+function anteprima(ora, url){
+  let f = $('a-' + ora);
+  if (!f){ f = document.createElement('figure'); f.id = 'a-' + ora; f.innerHTML = '<img alt=""><figcaption></figcaption>'; f.querySelector('figcaption').textContent = NOMI_ORE[ora]; $('anteprime').appendChild(f); }
+  f.querySelector('img').src = url;
+}
+
+let fatto = null;
+$('crea').onclick = async () => {
+  const chiave = $('chiave').value.trim(), descrizione = $('descrizione').value.trim();
+  const nome = $('nome').value.trim() || descrizione.split(/[,.]/)[0].slice(0, 40) || 'Paesaggio';
+  $('errore').hidden = true;
+  if (!chiave){ $('errore').textContent = 'Serve la chiave OpenAI.'; $('errore').hidden = false; $('chiave').focus(); return; }
+  if (!descrizione){ $('errore').textContent = 'Scrivi che cosa si vede, o tocca un\'idea.'; $('errore').hidden = false; return; }
+  $('crea').disabled = true; $('fine').hidden = true; $('passi').hidden = false; $('passi').innerHTML = ''; $('anteprime').innerHTML = '';
+  let blocco = null; try { blocco = await navigator.wakeLock?.request('screen'); } catch(e) {}
+  const id = Date.now().toString(36), ore = ['giorno', ...['alba','tramonto','notte'].filter(o => momenti[o])];
+  const immagini = {};
+  try {
+    stato('giorno', 'ora', '◌ Giorno: lo sto dipingendo…');
+    const b64 = await crea(chiave, promptBase(descrizione));
+    const png = b64aBlob(b64, 'image/png');
+    immagini.giorno = await caricaImmagine(casa, nomeFile(id, stile, nome, 'giorno'), await inJpeg(png));
+    anteprima('giorno', immagini.giorno); stato('giorno', 'fatto', '✓ Giorno');
+    /* le altre luci insieme, partendo dal giorno */
+    await Promise.all(ore.slice(1).map(async ora => {
+      stato(ora, 'ora', '◌ ' + NOMI_ORE[ora] + ': stessa vista, altra luce…');
+      try {
+        const v = await modifica(chiave, promptVariante(ora), png);
+        immagini[ora] = await caricaImmagine(casa, nomeFile(id, stile, nome, ora), await inJpeg(b64aBlob(v, 'image/png')));
+        anteprima(ora, immagini[ora]); stato(ora, 'fatto', '✓ ' + NOMI_ORE[ora]);
+      } catch(e) { stato(ora, 'errore', '✕ ' + NOMI_ORE[ora] + ': ' + e.message); }
+    }));
+    fatto = {id, stile, nome, immagini};
+    $('fine').hidden = false;
+  } catch(e) {
+    $('errore').textContent = e.message; $('errore').hidden = false;
+  } finally {
+    $('crea').disabled = false;
+    try { blocco && blocco.release(); } catch(e) {}
+  }
+};
+
+/* manda alle finestre: il telecomando ascolta lo stesso canale, quindi basta aggiornare la scena salvata e trasmetterla */
+const canale = apriCanale(casa, {});
+$('manda').onclick = () => {
+  if (!fatto) return;
+  const scena = Object.assign(leggi('finestre-scena', {}), {yt:'', foto:'', immagini: fatto.immagini, paesaggio: fatto.id});
+  scrivi('finestre-scena', scena);
+  if (canale.manda('scena', scena)) { $('manda').textContent = '✓ Mandato'; setTimeout(() => location.href = './?casa=' + casa, 900); }
+  else $('manda').textContent = 'Non collegato, riprova tra un attimo';
+};
+</script>
+</body>
+</html>

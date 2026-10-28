@@ -7,7 +7,6 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Finestre">
-<link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icona.png">
 <title>Finestre</title>
 <style>
@@ -16,6 +15,7 @@
     --testo:#efe6d6; --tenue:#a99c86; --oro:#d4af37; --oro-scuro:#8a7224; --ok:#7fb069; --no:#c8553d;
   }
   *{box-sizing:border-box}
+  [hidden]{display:none !important}
   html,body{margin:0;background:var(--fondo);color:var(--testo);font:16px/1.4 system-ui,-apple-system,"Segoe UI",sans-serif;-webkit-tap-highlight-color:transparent}
   body{padding:max(16px,env(safe-area-inset-top)) 16px max(24px,env(safe-area-inset-bottom))}
   main{max-width:520px;margin:0 auto}
@@ -46,6 +46,11 @@
   .nota{font-size:13px;color:var(--tenue);margin:8px 0 0}
   .interruttore{display:flex;gap:8px}
   .interruttore button{flex:1}
+  .dipinti{display:grid;grid-template-columns:repeat(auto-fill,minmax(88px,1fr));gap:8px;margin-bottom:10px}
+  .dipinti button{padding:4px;display:flex;flex-direction:column;gap:4px;font-size:13px;line-height:1.2;text-align:left}
+  .dipinti img{width:100%;aspect-ratio:2/5;object-fit:cover;border-radius:6px;background:#000;display:block}
+  .dipinti .nota{grid-column:1/-1;margin:0}
+  a.crea{display:block;text-align:center;text-decoration:none;color:#fff3cf;background:#3a2f12;border:1px solid var(--oro);border-radius:10px;padding:13px;font-weight:600}
   details summary{cursor:pointer;color:var(--tenue);font-size:14px}
   code{font-size:12px;word-break:break-all;color:var(--tenue)}
 </style>
@@ -65,7 +70,13 @@
   </section>
 
   <section>
-    <h2>Paesaggio</h2>
+    <h2>Paesaggi dipinti con l'AI</h2>
+    <div class="dipinti" id="dipinti"><p class="nota" id="dipintiNota">Carico…</p></div>
+    <a class="crea" href="crea.html" id="linkCrea">✨ Crea un paesaggio</a>
+  </section>
+
+  <section>
+    <h2>Video</h2>
     <div class="video" id="video"></div>
     <div class="aggiungi">
       <input type="text" id="nuovoLink" placeholder="Incolla un link di YouTube" inputmode="url" autocomplete="off">
@@ -104,6 +115,7 @@
 
 <script src="../js/supabase.js"></script>
 <script src="../js/canale.js"></script>
+<script src="../js/libreria.js"></script>
 <script>
 const $ = id => document.getElementById(id);
 const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
@@ -113,10 +125,17 @@ const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } c
 const q = new URLSearchParams(location.search);
 /* dal link si prende solo il codice (36 caratteri): i caratteri in più che a volte si attaccano copiando il link non contano */
 const pulisci = v => (String(v || '').match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i) || [null])[0];
+/* il codice resta anche nell'indirizzo: così «Aggiungi alla schermata Home» se lo porta dietro
+   (l'app sulla Home ha una memoria sua, separata da quella di Safari) */
 let casa = pulisci(q.get('casa')) || pulisci(leggi('finestre-casa', null));
-if (!casa){ casa = crypto.randomUUID(); }
-scrivi('finestre-casa', casa);
-if (q.has('casa')) history.replaceState(null, '', location.pathname);
+if (casa){
+  scrivi('finestre-casa', casa);
+  if (pulisci(q.get('casa')) !== q.get('casa')) history.replaceState(null, '', location.pathname + '?casa=' + casa);
+} else {
+  document.querySelector('main').innerHTML = '<h1>Finestre</h1><p class="nota" style="font-size:16px">Questo telefono non è ancora collegato alle finestre. Apri il link della casa che ti ho mandato, poi da lì aggiungi l\'app alla schermata Home.</p>';
+  throw new Error('senza casa');
+}
+$('linkCrea').href = 'crea.html?casa=' + casa;
 $('indirizzo').textContent = new URL('../finestra/?casa=' + casa, location.href).href;
 
 const ORE = [['vera','Come fuori'],['alba','Alba'],['giorno','Giorno'],['tramonto','Tramonto'],['notte','Notte']];
@@ -149,12 +168,29 @@ function disegnaVideo(){
     b.setAttribute('aria-pressed', String(scena.yt === v.id));
     const img = document.createElement('img'); img.alt = ''; img.src = 'https://i.ytimg.com/vi/' + v.id + '/mqdefault.jpg';
     const s = document.createElement('span'); s.textContent = v.nome;
-    b.append(img, s); b.onclick = () => cambia({yt: v.id, t: v.t || 0});
+    b.append(img, s); b.onclick = () => cambia({yt: v.id, t: v.t || 0, immagini: null, paesaggio: ''});
     const x = document.createElement('button'); x.className = 'togli'; x.textContent = '✕'; x.setAttribute('aria-label', 'Togli ' + v.nome);
     x.onclick = () => { if (video.length > 1){ video.splice(i, 1); scrivi('finestre-video', video); disegnaVideo(); } };
     r.append(b, x); el.appendChild(r);
   });
 }
+
+/* paesaggi dipinti: la libreria sta nel deposito, la vede ogni telefono della casa */
+let dipinti = [];
+function disegnaDipinti(){
+  const el = $('dipinti'); el.innerHTML = '';
+  if (!dipinti.length){ el.innerHTML = '<p class="nota">Ancora nessuno: creane uno qui sotto.</p>'; return; }
+  for (const p of dipinti){
+    const b = document.createElement('button');
+    b.setAttribute('aria-pressed', String(!scena.yt && scena.paesaggio === p.id));
+    const img = document.createElement('img'); img.alt = ''; img.loading = 'lazy'; img.src = p.immagini.giorno;
+    const s = document.createElement('span'); s.textContent = p.nome;
+    b.append(img, s);
+    b.onclick = () => cambia({yt:'', foto:'', immagini:p.immagini, paesaggio:p.id});
+    el.appendChild(b);
+  }
+}
+leggiLibreria(casa).then(l => { dipinti = l; disegnaDipinti(); }).catch(e => { $('dipinti').innerHTML = '<p class="nota"></p>'; $('dipinti').firstChild.textContent = e.message; });
 
 function aggiorna(){
   for (const b of $('ora').children) b.setAttribute('aria-pressed', String(b.dataset.v === scena.ora));
@@ -166,6 +202,7 @@ function aggiorna(){
   $('zoom').value = Math.round(scena.zoom * 100); $('oZoom').textContent = Math.round(scena.zoom * 100) + '%';
   $('vx').value = Math.round(scena.vx * 100); $('oVx').textContent = Math.round(scena.vx * 100);
   disegnaVideo();
+  if (dipinti.length) disegnaDipinti();
 }
 
 let invio = null;
