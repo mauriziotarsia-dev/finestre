@@ -20,6 +20,7 @@
    lato=sinistra|destra   quale finestra (cambia la prospettiva)
    x,y,w,h                rettangolo del foro sullo schermo, in pixel (se mancano: centrato, 2:5)
    scena, ora, meteo, luce  scena di partenza
+   foto=castelbouc|URL     una foto vera al posto del paesaggio disegnato
    demo=1                 cambia ora e meteo da sola, per le prove
    calibra=1              mostra il bordo del rettangolo per allinearlo al foro */
 const q = new URLSearchParams(location.search);
@@ -27,6 +28,12 @@ const lato = q.get('lato') === 'sinistra' ? -1 : 1;
 for (const k of ['scena','ora','meteo']) if (q.get(k)) stato[k] = q.get(k);
 if (q.get('luce')) stato.luce = +q.get('luce');
 scenaInVista = stato.scena;
+/* foto vere, con licenza libera (vedi README) */
+const FOTO_PRONTE = {
+  castelbouc: {url:'https://thumb.wikimedia.org/wikipedia/commons/thumb/c/c3/Castelbouc_gorges_du_Tarn.jpg/1920px-Castelbouc_gorges_du_Tarn.jpg', fx:.45, fy:.55}
+};
+const f = q.get('foto');
+if (f){ const p = FOTO_PRONTE[f] || {url:f, fx:+(q.get('fx')||.5), fy:+(q.get('fy')||.5)}; caricaFoto(p.url, p.fx, p.fy); }
 Object.assign(cur, paletteDi(stato.ora));
 Object.assign(met, METEO[stato.meteo]);
 

@@ -67,6 +67,23 @@ const NUVOLE = (()=>{const r=rnd(101);return Array.from({length:7},()=>({u:r(),y
 const GOCCE = (()=>{const r=rnd(103);return Array.from({length:240},()=>({x:r(),y:r(),l:.03+r()*.04,v:1.4+r()*.8}))})();
 const FIOCCHI = (()=>{const r=rnd(107);return Array.from({length:150},()=>({x:r(),y:r(),r:.6+r()*1.8,v:.05+r()*.06,f:r()*6}))})();
 
+/* ---------- foto vera ---------- */
+const FOTO={img:null,ok:false,fx:.5,fy:.5};
+function caricaFoto(url,fx=.5,fy=.5){const im=new Image();
+  im.onload=()=>{FOTO.img=im;FOTO.ok=true;FOTO.fx=fx;FOTO.fy=fy};im.src=url}
+function disegnaFoto(ctx,w,h,lato,cop){
+  const im=FOTO.img,iw=im.naturalWidth,ih=im.naturalHeight;
+  const sc=Math.max(w/iw,h/ih)*1.06, sw=w/sc, sh=h/sc;     /* un po' di margine per la prospettiva */
+  const spost=stato.prospettiva?lato*.022*iw:0;
+  const sx=Math.min(iw-sw,Math.max(0,(iw-sw)*FOTO.fx+spost)), sy=Math.min(ih-sh,Math.max(0,(ih-sh)*FOTO.fy));
+  ctx.drawImage(im,sx,sy,sw,sh,0,0,w,h);
+  if(cop>.02){ctx.save();ctx.globalCompositeOperation='saturation';ctx.fillStyle=`rgba(128,128,128,${cop*.55})`;ctx.fillRect(0,0,w,h);ctx.restore()}
+}
+
+/* ---------- pioggia a strati ---------- */
+const STRATI_PIOGGIA=(()=>{const r=rnd(211);const fai=(n)=>Array.from({length:n},()=>({x:r(),y:r(),l:.7+r()*.6,v:.85+r()*.3}));
+  return [{gocce:fai(420),l:.035,v:2.2,a:.18,sp:.0012},{gocce:fai(200),l:.07,v:3.4,a:.28,sp:.0022},{gocce:fai(60),l:.14,v:5.2,a:.38,sp:.0038}]})();
+
 /* ---------- lampi ---------- */
 let lampo = null, prossimoLampo = 0;
 function scocca(){const r=rnd((performance.now()*1000)|0);const pts=[];let u=.3+r()*.4,y=0;pts.push([u,y]);
@@ -79,8 +96,11 @@ function disegna(ctx,w,h,lato,t){
   const X=(u,p)=>((u-.17-spost(p))/.66)*w;  /* il mondo è largo 1, la finestra ne mostra il 66% */
   const cop=met.coperto, grigio=hex('#6b7280');
   const cielo=mix(cur.cielo,mix(grigio,cur.cielo,.35),cop*.8), orizz=mix(cur.orizz,mix(grigio,cur.orizz,.4),cop*.75);
+  let g;
+  const nebbiaCol=mix(orizz,hex('#9aa3ad'),.4);
+  if(FOTO.ok){ disegnaFoto(ctx,w,h,lato,cop); } else {
   /* cielo */
-  let g=ctx.createLinearGradient(0,0,0,h*.7);g.addColorStop(0,css(cielo));g.addColorStop(1,css(orizz));
+  g=ctx.createLinearGradient(0,0,0,h*.7);g.addColorStop(0,css(cielo));g.addColorStop(1,css(orizz));
   ctx.fillStyle=g;ctx.fillRect(0,0,w,h);
   /* stelle */
   const sa=cur.stelle*(1-cop);
@@ -103,7 +123,6 @@ function disegna(ctx,w,h,lato,t){
     if(vis>.1){const ax=X(cur.ax,0);for(let i=0;i<26;i++){const y=my+((i*37+t*8)%(h-my));const lw=w*(.03+.12*(1-(y-my)/(h-my)))*(.6+.4*Math.sin(t*2+i));
       ctx.fillStyle=css(cur.astro,.35*vis);ctx.fillRect(ax-lw/2+Math.sin(t+i)*4,y,lw,1.5)}}}
   /* strati */
-  const nebbiaCol=mix(orizz,hex('#9aa3ad'),.4);
   sc.strati.forEach(s=>{
     let col=mix(cur.lontano,cur.vicino,s.p);col=mix(col,grigio,cop*.15*(1-s.p));
     col=mix(col,nebbiaCol,met.nebbia*(1-s.p)*.85);
@@ -121,26 +140,36 @@ function disegna(ctx,w,h,lato,t){
       if(cur.stelle>.3){ctx.fillStyle=`rgba(255,190,90,${cur.stelle*(.75+.25*Math.sin(t*3))})`;
         [[-1.9,1.2],[-.25,2.6],[-.25,1.4],[1.5,1.6],[.6,1]].forEach(([dx,dy])=>ctx.fillRect(cx+dx*u,cy-dy*u,u*.28,u*.4))}}
   });
+  }
   /* nebbia che scorre */
   if(met.nebbia>.02){for(let i=0;i<4;i++){const y=h*(.5+i*.12),off=((t*(6+i*3)*(ridotto?.2:1))%w);
     g=ctx.createLinearGradient(0,y-h*.08,0,y+h*.08);g.addColorStop(0,css(nebbiaCol,0));g.addColorStop(.5,css(nebbiaCol,met.nebbia*.45));g.addColorStop(1,css(nebbiaCol,0));
     ctx.fillStyle=g;ctx.fillRect(-off,y-h*.08,w*2,h*.16)}}
   /* buio del brutto tempo */
   const scuro=cop*.28+met.tempesta*.22;if(scuro>0){ctx.fillStyle=`rgba(5,8,15,${scuro})`;ctx.fillRect(0,0,w,h)}
-  /* pioggia */
-  const ng=Math.round(GOCCE.length*met.pioggia);
-  if(ng){ctx.strokeStyle=css(mix(orizz,hex('#ffffff'),.5),.45);ctx.lineWidth=Math.max(1,w/220);ctx.beginPath();
-    for(let i=0;i<ng;i++){const d=GOCCE[i],y=((d.y+t*d.v*(ridotto?.25:1))%1.1)-.05,x=((d.x+y*.08)%1)*w;ctx.moveTo(x,y*h);ctx.lineTo(x-d.l*h*.08,y*h+d.l*h)}ctx.stroke()}
+  /* pioggia: tre profondita', le gocce vicine piu' lunghe, chiare e veloci */
+  if(met.pioggia>.01){
+    const col=mix(orizz,hex('#dfe6ee'),.6), vento=.12+met.tempesta*.1, rid=ridotto?.3:1;
+    for(const L of STRATI_PIOGGIA){
+      const n=Math.round(L.gocce.length*met.pioggia);if(!n)continue;
+      ctx.strokeStyle=css(col,L.a*(.6+.4*met.pioggia));ctx.lineWidth=Math.max(.6,w*L.sp);ctx.beginPath();
+      for(let i=0;i<n;i++){const d=L.gocce[i],len=L.l*d.l;
+        const y=((d.y+t*L.v*d.v*rid)%(1+len))-len, x=(((d.x+y*vento)%1)+1)%1;
+        ctx.moveTo(x*w,y*h);ctx.lineTo((x+len*vento)*w,(y+len)*h)}
+      ctx.stroke()}
+    /* foschia della pioggia lontana */
+    ctx.fillStyle=css(mix(orizz,hex('#8a939e'),.5),.12*met.pioggia);ctx.fillRect(0,0,w,h);
+  }
   /* neve */
   const nf=Math.round(FIOCCHI.length*met.neve);
   if(nf){ctx.fillStyle='rgba(245,248,255,.85)';for(let i=0;i<nf;i++){const f=FIOCCHI[i],y=((f.y+t*f.v*(ridotto?.3:1))%1.05),x=((f.x+Math.sin(t*.8+f.f)*.02)%1)*w;
     ctx.beginPath();ctx.arc(x,y*h,f.r*w/200,0,7);ctx.fill()}}
-  /* lampo */
-  if(lampo){const dt=performance.now()-lampo.t;if(dt<900){
-    const k=dt<120?1:dt<200?.25:dt<280?.8:Math.max(0,1-(dt-280)/620);
-    ctx.fillStyle=`rgba(225,232,255,${.55*k})`;ctx.fillRect(0,0,w,h);
-    if(dt<220){ctx.strokeStyle='rgba(255,255,255,.95)';ctx.lineWidth=Math.max(1.5,w/110);ctx.beginPath();
-      lampo.pts.forEach(([u,y],i)=>{const x=X(u,.05);i?ctx.lineTo(x,y*h):ctx.moveTo(x,y*h)});ctx.stroke()}}}
+  /* lampo: il cielo si accende, due o tre impulsi come un lampo vero */
+  if(lampo){const dt=performance.now()-lampo.t;if(dt<1100){
+    const k=dt<90?1:dt<170?.15:dt<250?.75:dt<330?.2:Math.max(0,.5*(1-(dt-330)/770));
+    ctx.save();ctx.globalCompositeOperation='screen';
+    g=ctx.createLinearGradient(0,0,0,h);g.addColorStop(0,`rgba(215,225,255,${.75*k})`);g.addColorStop(1,`rgba(215,225,255,${.25*k})`);
+    ctx.fillStyle=g;ctx.fillRect(0,0,w,h);ctx.restore()}}
   /* luce del monitor e cambio scena */
   const spento=(1-stato.luce/100)*.85+buio*(1-(1-stato.luce/100)*.85);
   if(spento>0){ctx.fillStyle=`rgba(0,0,0,${spento})`;ctx.fillRect(0,0,w,h)}

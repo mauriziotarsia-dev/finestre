@@ -6,3 +6,6 @@ Le due finestrelle della stanza medievale: due schermi in cantina dietro il traf
 - `js/motore.js` — il disegno della scena (paesaggio, ora del giorno, meteo, lampi)
 
 Prima versione di prova: paesaggi disegnati dal codice. Seguiranno il telecomando sul telefono, i paesaggi dipinti con l'AI e il collegamento con DMaster Stage.
+
+## Crediti delle foto
+- *Castelbouc, gorges du Tarn* — foto di Myrabella, Wikimedia Commons, licenza CC BY-SA 3.0
