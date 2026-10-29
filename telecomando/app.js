@@ -224,9 +224,33 @@ function aggiornaFinestre(){
 
 /* ═══════════ PAESAGGI: libreria, foto dal web, YouTube ══════════════════ */
 let libreria = [], libreriaStato = 'da caricare', vistaPaesaggi = 'miei', filtroTesto = '', filtroTipo = 'tutti', risultatiWeb = [], cercaWebTesto = '', cercaWebStato = '';
+/* la profondità si calcola da sola, in sottofondo, per ogni paesaggio che non ce l'ha:
+   uno alla volta, solo quando non c'è un altro lavoro in corso, una prova sola per sessione */
+const provatiProfondita = new Set();
+let profonditaInCorso = false;
+async function profonditaInSottofondo(){
+  if (profonditaInCorso) return;
+  profonditaInCorso = true;
+  try {
+    for (;;){
+      if (lavoro && !lavoro.finito){ setTimeout(() => { profonditaInCorso = false; profonditaInSottofondo(); }, 15000); return; }
+      const p = libreria.find(x => !x.yt && x.immagini.giorno && !x.immagini.profondita && !provatiProfondita.has(x.id));
+      if (!p) break;
+      provatiProfondita.add(p.id);
+      try {
+        const foto = await (await fetch(p.immagini.giorno)).blob();
+        const png = await calcolaProfondita(foto);
+        p.immagini.profondita = await caricaProfondita(casa, p, png);
+        aggiornaInLibreria(p);
+        if (foglioAperto === p.id) apriPaesaggio(p);
+      } catch(e) { console.warn('profondità non calcolata per', p.nome, e); }
+    }
+  } finally { profonditaInCorso = false; }
+}
+
 async function caricaLibreria(){
   libreriaStato = 'carico';
-  try { libreria = await leggiLibreria(casa); libreriaStato = 'ok'; }
+  try { libreria = await leggiLibreria(casa); libreriaStato = 'ok'; setTimeout(profonditaInSottofondo, 1500); }
   catch(e) { libreriaStato = e.message; }
   if (scheda === 'paesaggi') disegnaPaesaggi(); if (scheda === 'finestre') aggiornaFinestre();
 }
@@ -414,7 +438,7 @@ async function conLavoro(nome, fn){
   let blocco = null; try { blocco = await navigator.wakeLock?.request('screen'); } catch(e) {}
   try { await fn(lavoro); lavoro.fatto = true; }
   catch(e) { lavoro.errore = e.message; segnala(e); }
-  finally { lavoro.finito = true; lavoro.av = null; try { blocco && blocco.release(); } catch(e) {} disegnaLavoro(); }
+  finally { lavoro.finito = true; lavoro.av = null; try { blocco && blocco.release(); } catch(e) {} disegnaLavoro(); setTimeout(profonditaInSottofondo, 3000); }
 }
 const misuraDi = async blob => { const b = await createImageBitmap(blob); return {w:b.width, h:b.height, openai: Math.abs(b.width / b.height - .4) < .03 ? '832x2080' : '1024x1536'}; };
 
