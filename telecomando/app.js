@@ -305,7 +305,7 @@ function apriPaesaggio(p){
       ${p.yt || !MODELLI_VIDEO.length ? '' : `<button class="btn" data-fai="anima" data-v="${p.id}">${icona('anima', 18)}Anima</button>`}
       ${mancano.length ? `<button class="btn" data-fai="luci" data-v="${p.id}">${icona('alba', 18)}Luci (${mancano.length})</button>` : ''}
       ${p.yt ? '' : `<button class="btn" data-fai="riadatta" data-v="${p.id}">${icona('mirino', 18)}Riadatta</button>`}
-      ${!p.yt && !p.immagini.profondita ? `<button class="btn" data-fai="profondita" data-v="${p.id}">${icona('livelli', 18)}Profondità</button>` : ''}
+      ${p.yt ? '' : `<button class="btn" data-fai="profondita" data-v="${p.id}">${icona('livelli', 18)}${p.immagini.profondita ? 'Rifai profondità' : 'Profondità'}</button>`}
       <button class="btn" data-fai="modifica" data-v="${p.id}">${icona('matita', 18)}Modifica</button>
       <button class="btn pericolo" data-fai="elimina" data-v="${p.id}">${icona('cestino', 18)}Elimina</button>
     </div>
