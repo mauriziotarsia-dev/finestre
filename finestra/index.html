@@ -15,9 +15,9 @@
 </head>
 <body>
 <canvas id="c"></canvas>
-<script src="../js/supabase.js?v=2.0.8"></script>
-<script src="../js/canale.js?v=2.0.8"></script>
-<script src="../js/vista.js?v=2.0.8"></script>
+<script src="../js/supabase.js?v=2.0.9"></script>
+<script src="../js/canale.js?v=2.0.9"></script>
+<script src="../js/vista.js?v=2.0.9"></script>
 <script>
 /* ═══════════════════════════════════════════════════════════════════════════
    La pagina che il Raspberry mostra dietro il traforo.
@@ -47,7 +47,18 @@ if (!leggi('finestre-scena', null) || q.get('forza')){
 
 /* ── i fori: dove sono sullo schermo (frazioni dello schermo) e come si dividono il paesaggio ── */
 function foroPredefinito(){ const H = .9, W = H * innerHeight * 2 / 5 / innerWidth; return {x:(1 - W) / 2, y:(1 - H) / 2, w:W, h:H}; }
-let assetto = leggi('finestre-fori', null) || {modo:'unica', fori:[foroPredefinito()]};
+/* Le finestre della casa sono una o due, ognuna sul suo schermo (a due metri l'una dall'altra):
+   questa pagina è quella della finestra «sinistra» o «destra» (?lato=…; senza, «sinistra»).
+   Il telefono manda {n, finestre:{sinistra:{x,y,w,h}, destra:{…}}}; ogni pagina usa il suo foro. */
+const mio = q.get('lato') === 'destra' ? 'destra' : 'sinistra';
+function normalizza(a){
+  if (a && a.finestre) return {n: a.n === 2 ? 2 : 1, finestre: a.finestre};
+  if (a && a.fori && a.fori.length === 1) return {n:1, finestre:{sinistra:a.fori[0]}};   /* formato di prima */
+  return {n:1, finestre:{}};
+}
+let casaFori = normalizza(leggi('finestre-fori', null));
+const derivato = () => ({modo:'singola', fori:[(casaFori.finestre || {})[mio] || foroPredefinito()]});
+let assetto = derivato();
 if (q.get('w') && q.get('h')) assetto = {modo:'unica', fori:[{x:+q.get('x') / innerWidth, y:+q.get('y') / innerHeight, w:+q.get('w') / innerWidth, h:+q.get('h') / innerHeight}]};
 let mostraBordi = false;
 
@@ -66,7 +77,10 @@ function impagina(){
   const zoom = Math.max(1, scena.zoom || 1), vx = scena.vx || 0;
   geom = px.map((f, i) => {
     let map, aspetto, lato;
-    if (assetto.modo === 'doppia' && px.length > 1){
+    if (assetto.modo === 'singola'){
+      /* la finestra di questo schermo: il paesaggio intero, con la prospettiva del suo lato se le finestre sono due */
+      map = [0, 0, 1, 1]; aspetto = f.w / f.h; lato = casaFori.n === 2 ? (mio === 'destra' ? 1 : -1) : latoUrl;
+    } else if (assetto.modo === 'doppia' && px.length > 1){
       /* ogni foro ha il paesaggio intero, con la sua prospettiva: sinistra e destra */
       map = [0, 0, 1, 1]; aspetto = f.w / f.h; lato = ordine.indexOf(i) === 0 ? -1 : 1;
     } else {
@@ -87,7 +101,7 @@ function disegnaBordi(){
   if (!mostraBordi) return;
   geom.forEach((f, i) => { const d = document.createElement('div'); d.className = 'bordo';
     Object.assign(d.style, {left:f.x + 'px', top:f.y + 'px', width:f.w + 'px', height:f.h + 'px'});
-    d.innerHTML = '<span>' + (geom.length > 1 ? (i === 0 ? 'Foro 1' : 'Foro 2') : 'Foro') + '</span>'; document.body.appendChild(d); });
+    d.innerHTML = '<span>' + (casaFori.n === 2 ? 'Finestra ' + mio : 'Finestra') + '</span>'; document.body.appendChild(d); });
 }
 
 /* ── i video di YouTube: sotto il disegno, ritagliati sui fori ─────────────── */
@@ -187,9 +201,8 @@ function intensitaLampo(ora){
 /* ── collegamento ──────────────────────────────────────────────────────────── */
 function calibra(d){
   const prima = JSON.stringify(assetto.modo) + assetto.fori.length;
-  if (d.fori && d.fori.length) assetto = {modo: d.modo === 'doppia' ? 'doppia' : 'unica', fori: d.fori.slice(0, 2)};
-  else if (d.modo) assetto.modo = d.modo === 'doppia' ? 'doppia' : 'unica';
-  if (d.salva !== false) scrivi('finestre-fori', assetto);
+  if (d.finestre){ casaFori = normalizza(d); if (d.salva !== false) scrivi('finestre-fori', casaFori); assetto = derivato(); }
+  else if (d.fori && d.fori.length) assetto = {modo: d.modo === 'doppia' ? 'doppia' : 'unica', fori: d.fori.slice(0, 2)};   /* l'anteprima dell'app */
   if ('mostra' in d) mostraBordi = !!d.mostra;
   impagina();
   if (prima !== JSON.stringify(assetto.modo) + assetto.fori.length && scena.yt) mettiVideo(scena.yt, scena.t);
@@ -198,7 +211,7 @@ let canale = null;
 if (anteprima){
   addEventListener('message', e => { const d = e.data || {}; if (d.tipo === 'scena') applica(d.scena, false); else if (d.tipo === 'fori') calibra(Object.assign({}, d, {salva:false})); else if (d.tipo === 'lampo') scocca(); });
 } else if (casa && window.supabase){
-  const chi = () => ({assetto, scena, schermo:{w:innerWidth, h:innerHeight}});
+  const chi = () => ({lato: mio, assetto: casaFori, scena, schermo:{w:innerWidth, h:innerHeight}});
   canale = apriCanale(casa, {
     suMessaggio(evento, dati){
       if (evento === 'scena') applica(dati);

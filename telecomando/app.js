@@ -39,13 +39,22 @@ const salvaImp = () => scrivi('finestre-impostazioni', imp);
 const SCENA_PRED = {acceso:true, yt:'', t:0, immagini:null, animati:null, paesaggio:'', fuoco:null, ora:'vera', meteo:'sereno',
   intensita:.75, vento:null, movimento:true, luceGiorno:70, luceNotte:30, prospettiva:true, zoom:1, vx:0};
 let scena = Object.assign({}, SCENA_PRED, leggi('finestre-scena', {}));
-let assetto = leggi('finestre-fori', null);
-let schermo = leggi('finestre-schermo', {w:1080, h:1920});
+/* le finestre della casa: una o due, ognuna sul suo schermo (sono a due metri l'una dall'altra) */
+function normalizzaFori(a){
+  if (a && a.finestre) return {n: a.n === 2 ? 2 : 1, finestre: Object.assign({}, a.finestre)};
+  if (a && a.fori && a.fori.length === 1) return {n:1, finestre:{sinistra:a.fori[0]}};   /* formato di prima */
+  return {n:1, finestre:{}};
+}
+let assetto = normalizzaFori(leggi('finestre-fori', null));
+let schermi = leggi('finestre-schermi', {});
+const schermoDi = lato => schermi[lato] || schermi.sinistra || {w:1080, h:1920};
+let schermo = schermoDi('sinistra');
 let collegate = 0, mostraBordi = false, rimanda = false;
+function foroPredefinito(sch){ const H = .9, W = H * sch.h * 2 / 5 / sch.w; return {x:(1 - W) / 2, y:(1 - H) / 2, w:W, h:H}; }
 function assettoOPredefinito(){
-  if (assetto && assetto.fori && assetto.fori.length) return assetto;
-  const H = .9, W = H * schermo.h * 2 / 5 / schermo.w;
-  return {modo:'unica', fori:[{x:(1 - W) / 2, y:(1 - H) / 2, w:W, h:H}]};
+  return {n: assetto.n === 2 ? 2 : 1, finestre:{
+    sinistra: assetto.finestre.sinistra || foroPredefinito(schermoDi('sinistra')),
+    destra: assetto.finestre.destra || foroPredefinito(schermoDi('destra'))}};
 }
 
 /* ── canale con le finestre ──────────────────────────────────────────────── */
@@ -53,8 +62,8 @@ const canale = apriCanale(casa, {
   suMessaggio(evento, d){
     if (evento !== 'eccomi') return;
     collegate = Date.now();
-    if (d.assetto && d.assetto.fori) { assetto = d.assetto; scrivi('finestre-fori', assetto); }
-    if (d.schermo) { schermo = d.schermo; scrivi('finestre-schermo', schermo); }
+    if (d.assetto && (d.assetto.finestre || d.assetto.fori)){ const a = normalizzaFori(d.assetto); if (d.assetto.finestre || !leggi('finestre-fori', null)){ assetto = a; scrivi('finestre-fori', assetto); } }
+    if (d.schermo){ schermi[d.lato || 'sinistra'] = d.schermo; scrivi('finestre-schermi', schermi); schermo = schermoDi('sinistra'); }
     if (!leggi('finestre-scena', null) && d.scena){ scena = Object.assign({}, SCENA_PRED, d.scena); scrivi('finestre-scena', scena); }
     else if (rimanda){ rimanda = false; canale.manda('scena', scena); canale.manda('fori', Object.assign({mostra: mostraBordi}, assettoOPredefinito())); }   /* dopo «Ricarica», la scena di questo telefono */
     aggiornaSpia(); impaginaAnteprima(); if (scheda === 'finestre') aggiornaFinestre(); if (scheda === 'impostazioni') disegnaScheda();
@@ -80,7 +89,7 @@ let invioFori = null;
 function mandaFori(){
   scrivi('finestre-fori', assetto); impaginaAnteprima();
   clearTimeout(invioFori);
-  invioFori = setTimeout(() => canale.manda('fori', Object.assign({mostra: mostraBordi}, assetto)), 90);
+  invioFori = setTimeout(() => canale.manda('fori', Object.assign({mostra: mostraBordi}, assettoOPredefinito())), 90);
 }
 
 /* ── problemi di credito o di chiave: un avviso che resta finché non si risolve ── */
@@ -149,12 +158,12 @@ const NOME_ORA = {vera:'come fuori', alba:'alba', giorno:'giorno', tramonto:'tra
 let anteprimaPronta = false, anteprimaFrame = null;
 function postaAnteprima(m){ if (anteprimaFrame && anteprimaPronta) anteprimaFrame.contentWindow.postMessage(m, '*'); }
 function forieAnteprima(){
-  /* l'anteprima mostra solo la zona dei fori, nella proporzione vera dello schermo */
-  const a = assettoOPredefinito(), W = schermo.w, H = schermo.h;
-  const px = a.fori.map(f => ({x:f.x * W, y:f.y * H, w:f.w * W, h:f.h * H}));
-  const ux = Math.min(...px.map(f => f.x)), uy = Math.min(...px.map(f => f.y));
-  const uw = Math.max(...px.map(f => f.x + f.w)) - ux, uh = Math.max(...px.map(f => f.y + f.h)) - uy;
-  return {aspetto: uw / uh, fori: px.map(f => ({x:(f.x - ux) / uw, y:(f.y - uy) / uh, w:f.w / uw, h:f.h / uh})), modo: a.modo};
+  /* l'anteprima mostra le finestre nella loro forma vera; se sono due, una accanto all'altra con un po' di muro in mezzo */
+  const a = assettoOPredefinito(), f = a.finestre.sinistra, sch = schermoDi('sinistra');
+  const asp = (f.w * sch.w) / (f.h * sch.h);
+  if (a.n === 1) return {aspetto: asp, fori:[{x:0, y:0, w:1, h:1}], modo:'doppia'};
+  const muro = asp * .45, tot = 2 * asp + muro;
+  return {aspetto: tot, fori:[{x:0, y:0, w:asp / tot, h:1}, {x:(asp + muro) / tot, y:0, w:asp / tot, h:1}], modo:'doppia'};
 }
 function impaginaAnteprima(){
   const box = $('#anteprima'); if (!box) return;
@@ -185,8 +194,7 @@ function disegnaFinestre(){
           <div class="pillole" style="margin-top:2px"><button class="pillola" data-fai="ventoAuto" id="ventoAuto">${icona('vento', 16)}Vento secondo il tempo</button></div>
         </div></div>
       <div class="sezione">${titolo('porta', 'Vista')}
-        <div class="segmenti" id="sceltaModo"><button data-fai="modo" data-v="unica">${icona('monofora', 18)}Una vista</button><button data-fai="modo" data-v="doppia">${icona('bifora', 18)}Due viste</button></div>
-        <p class="nota" id="notaModo"></p>
+        <p class="nota" id="notaModo" style="margin-top:0"></p>
         <div class="pannello" style="margin-top:10px;padding:2px 14px">
           ${interruttore('movimento', 'nuvola', 'Movimento', 'Nuvole che scorrono e alberi al vento, anche sulle immagini ferme', scena.movimento)}
           ${interruttore('prospettiva', 'occhio', 'Prospettiva', 'Le due finestre vedono il paesaggio da punti appena diversi', scena.prospettiva)}
@@ -208,9 +216,8 @@ function aggiornaFinestre(){
   s.querySelectorAll('[data-fai="ora"]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.v === scena.ora)));
   s.querySelectorAll('[data-fai="meteo"]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.v === scena.meteo)));
   const a = assettoOPredefinito();
-  s.querySelectorAll('[data-fai="modo"]').forEach(b => { b.setAttribute('aria-pressed', String(b.dataset.v === a.modo)); b.disabled = a.fori.length < 2; });
-  $('#notaModo').textContent = a.fori.length < 2 ? 'Per ora c\'è un foro solo: la seconda finestra si aggiunge nelle Impostazioni.'
-    : a.modo === 'unica' ? 'Un paesaggio solo dietro i due fori, come una vista vera divisa dalla colonnina.' : 'Ogni foro mostra il paesaggio intero, ciascuno con la sua prospettiva.';
+  $('#notaModo').textContent = a.n < 2 ? 'Una finestra. Quando arriverà il secondo schermo, la seconda finestra si aggiunge nelle Impostazioni.'
+    : 'Due finestre, una per schermo: lo stesso paesaggio, ognuna con la sua prospettiva, come due finestre vere sulla stessa parete.';
   $('#btnAccendi').innerHTML = icona('accensione', 20) + '<span>' + (scena.acceso ? 'Accese' : 'Spente') + '</span><small>' + (scena.acceso ? 'spegni' : 'accendi') + '</small>';
   $('#btnAccendi').classList.toggle('oro', !!scena.acceso);
   $('#ventoAuto').setAttribute('aria-pressed', String(scena.vento == null));
@@ -547,11 +554,13 @@ function campoChiave(id, nome, segnaposto, valore, nota){
 }
 function disegnaImpostazioni(){
   const s = $('#s-impostazioni'), a = assettoOPredefinito();
-  const fori = a.fori.map((f, i) => `<div class="pannello" style="margin-top:10px"><div class="titolo" style="margin-bottom:4px">${icona('monofora', 15)}Foro ${a.fori.length > 1 ? (i + 1) : ''}</div>
-      ${cursore('fx' + i, 'destra', 'Da sinistra', 0, 100, (f.x * 100).toFixed(1), (f.x * 100).toFixed(1) + '%', .1)}
-      ${cursore('fy' + i, 'giu', 'Dall\'alto', 0, 100, (f.y * 100).toFixed(1), (f.y * 100).toFixed(1) + '%', .1)}
-      ${cursore('fw' + i, 'mirino', 'Larghezza', 2, 100, (f.w * 100).toFixed(1), (f.w * 100).toFixed(1) + '%', .1)}
-      ${cursore('fh' + i, 'mirino', 'Altezza', 2, 100, (f.h * 100).toFixed(1), (f.h * 100).toFixed(1) + '%', .1)}</div>`).join('');
+  const nomi = a.n === 2 ? ['sinistra', 'destra'] : ['sinistra'];
+  const fori = nomi.map(nm => { const f = a.finestre[nm], sc = schermoDi(nm), t = a.n === 2 ? 'Finestra ' + nm : 'La finestra';
+    return `<div class="pannello" style="margin-top:10px"><div class="titolo" style="margin-bottom:4px">${icona('monofora', 15)}${t}<small>schermo ${sc.w}×${sc.h}</small></div>
+      ${cursore('fx' + nm, 'destra', 'Da sinistra', 0, 100, (f.x * 100).toFixed(1), (f.x * 100).toFixed(1) + '%', .1)}
+      ${cursore('fy' + nm, 'giu', 'Dall\'alto', 0, 100, (f.y * 100).toFixed(1), (f.y * 100).toFixed(1) + '%', .1)}
+      ${cursore('fw' + nm, 'mirino', 'Larghezza', 2, 100, (f.w * 100).toFixed(1), (f.w * 100).toFixed(1) + '%', .1)}
+      ${cursore('fh' + nm, 'mirino', 'Altezza', 2, 100, (f.h * 100).toFixed(1), (f.h * 100).toFixed(1) + '%', .1)}</div>`; }).join('');
   const linkPi = new URL('../finestra/?casa=' + casa, location.href).href, linkTel = location.origin + location.pathname + '?casa=' + casa;
   s.innerHTML = testa('manopole', 'Impostazioni', 'Modelli, chiavi e finestre') + `<div class="problema" hidden></div>
     <div class="sezione">${titolo('tavolozza', 'AI per le immagini')}
@@ -568,14 +577,15 @@ function disegnaImpostazioni(){
         ${campoChiave('kGoogle', 'Google (Gemini)', 'AIza…', imp.chiavi.google, 'Per Nano Banana e per le animazioni (Gemini Omni). Si crea gratis su <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com</a>.')}
         ${campoChiave('kPexels', 'Pexels (facoltativa)', 'chiave Pexels', imp.chiavi.pexels, 'Foto vere gratuite e verticali. Si chiede su <a href="https://www.pexels.com/api/" target="_blank" rel="noopener">pexels.com/api</a>.')}
       </div></div>
-    <div class="sezione">${titolo('porta', 'I fori sullo schermo')}
-      <div class="segmenti">${[1, 2].map(n => `<button data-fai="nFori" data-v="${n}" aria-pressed="${a.fori.length === n}">${icona(n === 1 ? 'monofora' : 'bifora', 18)}${n === 1 ? 'Un foro' : 'Due fori'}</button>`).join('')}</div>
+    <div class="sezione">${titolo('porta', 'Le finestre')}
+      <div class="segmenti">${[1, 2].map(n => `<button data-fai="nFinestre" data-v="${n}" aria-pressed="${a.n === n}">${icona(n === 1 ? 'monofora' : 'bifora', 18)}${n === 1 ? 'Una finestra' : 'Due finestre'}</button>`).join('')}</div>
+      <p class="nota">Ogni finestra ha il suo schermo. Qui allinei il foro di ciascuna sul suo schermo, in percento.</p>
       <div class="pannello" style="margin-top:10px;padding:2px 14px">${interruttore('bordi', 'mirino', 'Mostra i bordi sulle finestre', 'Una cornice tratteggiata per allineare ogni foro al traforo', mostraBordi)}</div>
       ${fori}
       <div class="pannello" style="margin-top:10px">
         ${cursore('zoom', 'lente', 'Ingrandisci', 100, 200, Math.round(scena.zoom * 100), Math.round(scena.zoom * 100) + '%')}
         ${cursore('vx', 'destra', 'Sposta', -30, 30, Math.round(scena.vx * 100), Math.round(scena.vx * 100))}</div>
-      <p class="nota">Schermo delle finestre: ${schermo.w}×${schermo.h}. Le misure sono in percento dello schermo; con lo schermo girato in verticale, il foro è alto e stretto.</p></div>
+      <p class="nota">Con lo schermo girato in verticale il foro è alto e stretto. ${a.n === 2 && !schermi.destra ? 'La finestra destra non ha ancora risposto: si collega quando c\'è il secondo schermo.' : ''}</p></div>
     <div class="sezione">${titolo('catena', 'Collegamento')}
       <div class="pannello">
         <p class="nota" style="margin-top:0">Indirizzo da aprire sul Raspberry:</p><code class="link">${esc(linkPi)}</code>
@@ -583,8 +593,8 @@ function disegnaImpostazioni(){
       </div>
       <p class="nota">Finestre ${VERSIONE} · le immagini stanno nel deposito di DMaster.</p></div>`;
   for (const [id, k] of [['kOpenai','openai'], ['kGoogle','google'], ['kPexels','pexels']]){ const el = document.getElementById(id); el.oninput = () => { imp.chiavi[k] = el.value.trim(); salvaImp(); if (problema && problema.tipo === 'chiave') risolto(); }; }
-  a.fori.forEach((f, i) => {
-    const lega = (id, chiave) => legaCursore(id + i, (v, o) => { o.textContent = v.toFixed(1) + '%'; assetto = assettoOPredefinito(); assetto.fori[i][chiave] = v / 100; mandaFori(); });
+  nomi.forEach(nm => {
+    const lega = (id, chiave) => legaCursore(id + nm, (v, o) => { o.textContent = v.toFixed(1) + '%'; assetto = assettoOPredefinito(); assetto.finestre[nm][chiave] = v / 100; mandaFori(); });
     lega('fx', 'x'); lega('fy', 'y'); lega('fw', 'w'); lega('fh', 'h');
   });
   legaCursore('zoom', (v, o) => { o.textContent = v + '%'; cambia({zoom: v / 100}, false); });
@@ -602,7 +612,6 @@ const AZIONI = {
   lampo: () => { if (canale.manda('lampo')) avviso('Lampo!'); postaAnteprima({tipo:'lampo'}); },
   vaiPaesaggi: () => vai('paesaggi'), vaiCrea: () => vai('crea'), vaiImp: () => vai('impostazioni'),
   ventoAuto: () => cambia({vento: scena.vento == null ? .3 : null}),
-  modo: v => { assetto = assettoOPredefinito(); assetto.modo = v; mandaFori(); aggiornaFinestre(); },
   movimento: () => cambia({movimento: scena.movimento === false}),
   prospettiva: () => cambia({prospettiva: scena.prospettiva === false}),
   vistaP: v => { vistaPaesaggi = v; disegnaPaesaggi(); },
@@ -717,14 +726,7 @@ const AZIONI = {
   modelloVideo: v => { imp.video.modello = v; salvaImp(); disegnaImpostazioni(); },
   secondi: v => { imp.video.secondi = +v; salvaImp(); disegnaImpostazioni(); },
   vediChiave: v => { const el = document.getElementById(v); el.type = el.type === 'password' ? 'text' : 'password'; },
-  nFori: v => {
-    assetto = assettoOPredefinito();
-    if (+v === 2 && assetto.fori.length === 1){
-      const f = assetto.fori[0], w = Math.min(f.w, .42);
-      assetto.fori = [{x:Math.max(0, .5 - w - .03), y:f.y, w, h:f.h}, {x:.5 + .03, y:f.y, w, h:f.h}];
-    } else if (+v === 1 && assetto.fori.length === 2) assetto.fori = [assetto.fori[0]];
-    mandaFori(); disegnaImpostazioni();
-  },
+  nFinestre: v => { assetto = assettoOPredefinito(); assetto.n = +v; mandaFori(); disegnaImpostazioni(); if (scheda === 'finestre') aggiornaFinestre(); },
   bordi: () => { mostraBordi = !mostraBordi; canale.manda('fori', Object.assign({mostra: mostraBordi}, assettoOPredefinito())); disegnaImpostazioni(); },
   copia: v => { navigator.clipboard?.writeText(v).then(() => avviso('Link copiato')).catch(() => avviso(v)); },
   ricaricaFinestre: () => { if (canale.manda('ricarica')){ rimanda = true; avviso('Le finestre si ricaricano'); } else avviso('Non collegato', true); },
