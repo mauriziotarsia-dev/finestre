@@ -52,7 +52,7 @@ float prof(sampler2D d, vec4 crop, vec2 uv, float ha){
 }
 float cielo(vec3 c, float n, float y, float ha){
   float l = dot(c, vec3(.299, .587, .114));
-  if (ha > .5) return smoothstep(.04, .008, n) * smoothstep(.85, .45, y);   /* il cielo della mappa è quasi nero: i monti lontani no */
+  if (ha > .5) return smoothstep(.022, .004, n) * smoothstep(.85, .45, y);   /* il cielo della mappa è quasi nero: i monti lontani (appena più chiari) no */
   /* senza mappa: in alto, chiaro e poco saturo o azzurro */
   float az = clamp((c.b - c.r) * 2.5 + .3, 0., 1.);
   return smoothstep(.55, .2, y) * smoothstep(.25, .55, l) * max(az, smoothstep(.6, .85, l));
@@ -73,11 +73,14 @@ vec3 paesaggio(sampler2D img, sampler2D dep, vec4 crop, float haDep, float mov, 
     /* nuvole: flusso a due fasi, ogni fase dura 26 s, nessun salto */
     float ph = uT / 26.;
     float f1 = fract(ph), f2 = fract(ph + .5);
-    vec2 dir = vec2(.018 + .03 * uVento, .002);
-    vec3 a = foto(img, crop, p - dir * (f1 - .5));
-    vec3 b = foto(img, crop, p - dir * (f2 - .5));
-    vec3 cs = mix(a, b, abs(f1 - .5) * 2.);
-    c = mix(c, cs, sky);
+    vec2 dir = vec2(.012 + .02 * uVento, .0015);
+    vec2 pa = p - dir * (f1 - .5), pb = p - dir * (f2 - .5);
+    vec3 a = foto(img, crop, pa), b = foto(img, crop, pb);
+    /* si prende solo cielo: un pezzo di monte o di castello spostato dentro il cielo darebbe il contorno doppio */
+    float sa = cielo(a, prof(dep, crop, pa, haDep), pa.y, haDep), sb = cielo(b, prof(dep, crop, pb, haDep), pb.y, haDep);
+    float w = abs(f1 - .5) * 2., wa = (1. - w) * sa, wb = w * sb, tot = wa + wb;
+    vec3 cs = tot > .001 ? (a * wa + b * wb) / tot : c;
+    c = mix(c, cs, sky * clamp(tot * 1.5, 0., 1.));
     /* alberi e prati: ondeggiano poco, a raffiche */
     float verde = clamp((c.g - max(c.r, c.b)) * 6. + .15, 0., 1.) * smoothstep(.12, .45, n) * (1. - sky);
     if (verde > .01){
