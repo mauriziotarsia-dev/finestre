@@ -1,5 +1,7 @@
 /* ═══════════════════════════════════════════════════════════════════════════
-   Finestre — l'app sul telefono.
+   DMaster Atmosphere — l'app sul telefono (powered by DMaster Stage).
+   Due parti: Bard (musiche e suoni della stanza, in arrivo) e Illusionist (le finestre).
+   Illusionist:
    Quattro schede: Finestre (anteprima dal vivo e comandi) · Paesaggi (libreria, foto dal web,
    YouTube) · Crea (paesaggi dipinti dall'AI, con le luci del giorno e l'animazione) · Impostazioni.
    Parla con le finestre sul canale della casa (js/canale.js); la libreria sta nel deposito (js/libreria.js).
@@ -9,14 +11,18 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
 const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 const euro = n => (n < .1 ? n.toFixed(3) : n.toFixed(2)).replace('.', ',') + ' $';
-const VERSIONE = '2.2';
+const VERSIONE = '2.3';
 
 /* ── la casa ──────────────────────────────────────────────────────────────── */
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
 const q = new URLSearchParams(location.search);
+/* la testata del marchio: DMaster Atmosphere, con le sue due parti; Bard arriva dopo */
+const MARCHIO = `<div class="marchio"><div class="marchio-nome"><span>DMaster</span> Atmosphere</div>
+  <div class="marchio-firma">powered by DMaster Stage</div>
+  <div class="marchio-parti"><span class="parte spenta" title="Musiche e suoni della stanza: in arrivo">Bard <em>presto</em></span><span class="parte attiva">Illusionist</span></div></div>`;
 const casa = (String(q.get('casa') || '').match(UUID) || String(leggi('finestre-casa', '') || '').match(UUID) || [null])[0];
 if (!casa){
-  document.getElementById('app').innerHTML = `<div class="testa"><div><h1>${icona('bifora', 22)}Finestre</h1><p>La stanza medievale</p></div></div>
+  document.getElementById('app').innerHTML = `${MARCHIO}<div class="testa"><div><h1>${icona('bifora', 22)}Illusionist</h1><p>Le finestre della stanza medievale</p></div></div>
     <p class="nota" style="font-size:19px">Questo telefono non è ancora collegato alle finestre. Apri il link della casa, poi da lì aggiungi l'app alla schermata Home.</p>`;
   throw new Error('senza casa');
 }
@@ -140,7 +146,7 @@ let scheda = (location.hash.slice(1) in {finestre:1, paesaggi:1, crea:1, imposta
 $('#barra').innerHTML = SCHEDE.map(([id, ic, nome]) => `<button data-scheda="${id}">${icona(ic, 22)}<span>${nome}</span></button>`).join('');
 $('#barra').onclick = e => { const b = e.target.closest('[data-scheda]'); if (b) vai(b.dataset.scheda); };
 const app = $('#app');
-app.innerHTML = SCHEDE.map(([id]) => `<section class="scheda" id="s-${id}"></section>`).join('');
+app.innerHTML = MARCHIO + SCHEDE.map(([id]) => `<section class="scheda" id="s-${id}"></section>`).join('');
 function vai(id){
   if (scheda === 'impostazioni' && id !== 'impostazioni' && mostraBordi){ mostraBordi = false; canale.manda('fori', Object.assign({mostra:false}, assettoOPredefinito())); }
   scheda = id; history.replaceState(null, '', location.pathname + location.search + '#' + id);
@@ -178,7 +184,7 @@ function disegnaFinestre(){
   const s = $('#s-finestre');
   if (!s.dataset.fatto){
     s.dataset.fatto = 1;
-    s.innerHTML = testa('bifora', 'Finestre', 'La stanza medievale') + `
+    s.innerHTML = testa('bifora', 'Illusionist', 'Le finestre della stanza medievale') + `
       <div class="vivo">
         <div class="anteprima" id="anteprima"><iframe id="anteprimaFrame" title="Anteprima delle finestre" src="../finestra/?anteprima=1"></iframe>
           <div class="etich"><b id="nomeInOnda">—</b><small id="sottoInOnda"></small></div></div>
@@ -604,7 +610,7 @@ function disegnaImpostazioni(){
         <p class="nota" style="margin-top:0">Indirizzo da aprire sul Raspberry:</p><code class="link">${esc(linkPi)}</code>
         <div class="azioni"><button class="btn" data-fai="copia" data-v="${esc(linkTel)}">${icona('copie', 18)}Link per un altro telefono</button><button class="btn" data-fai="ricaricaFinestre">${icona('ricarica', 18)}Ricarica finestre</button></div>
       </div>
-      <p class="nota">Finestre ${VERSIONE} · le immagini stanno nel deposito di DMaster.</p></div>`;
+      <p class="nota">DMaster Atmosphere ${VERSIONE} · Illusionist · powered by DMaster Stage. Le immagini stanno nel deposito di DMaster.</p></div>`;
   for (const [id, k] of [['kOpenai','openai'], ['kGoogle','google'], ['kPexels','pexels']]){ const el = document.getElementById(id); el.oninput = () => { imp.chiavi[k] = el.value.trim(); salvaImp(); if (problema && problema.tipo === 'chiave') risolto(); }; }
   nomi.forEach(nm => {
     const lega = (id, chiave) => legaCursore(id + nm, (v, o) => { o.textContent = v.toFixed(1) + '%'; assetto = assettoOPredefinito(); assetto.finestre[nm][chiave] = v / 100; mandaFori(); });
