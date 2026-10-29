@@ -9,7 +9,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
 const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 const euro = n => (n < .1 ? n.toFixed(3) : n.toFixed(2)).replace('.', ',') + ' $';
-const VERSIONE = '2.0';
+const VERSIONE = '2.1';
 
 /* ── la casa ──────────────────────────────────────────────────────────────── */
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
@@ -37,7 +37,7 @@ const salvaImp = () => scrivi('finestre-impostazioni', imp);
 
 /* ── la scena e i fori ───────────────────────────────────────────────────── */
 const SCENA_PRED = {acceso:true, yt:'', t:0, immagini:null, animati:null, paesaggio:'', fuoco:null, ora:'vera', meteo:'sereno',
-  intensita:.75, vento:null, movimento:true, luceGiorno:70, luceNotte:30, prospettiva:true, zoom:1, vx:0};
+  intensita:.75, vento:null, prospettivaViva:false, movimento:true, luceGiorno:70, luceNotte:30, prospettiva:true, zoom:1, vx:0};
 let scena = Object.assign({}, SCENA_PRED, leggi('finestre-scena', {}));
 /* le finestre della casa: una o due, ognuna sul suo schermo (sono a due metri l'una dall'altra) */
 function normalizzaFori(a){
@@ -198,6 +198,7 @@ function disegnaFinestre(){
         <div class="pannello" style="margin-top:10px;padding:2px 14px">
           ${interruttore('movimento', 'nuvola', 'Movimento', 'Nuvole che scorrono e alberi al vento, anche sulle immagini ferme', scena.movimento)}
           ${interruttore('prospettiva', 'occhio', 'Prospettiva', 'Le due finestre vedono il paesaggio da punti appena diversi', scena.prospettiva)}
+          ${interruttore('prospettivaViva', 'persona', 'Prospettiva viva', 'Per un ospite: le finestre seguono chi si muove nella stanza (serve il sensore). Con più persone resta ferma.', scena.prospettivaViva)}
         </div></div>
       <div class="sezione">${titolo('luce', 'Luce dello schermo', 'bassa, più bassa di notte')}
         <div class="pannello">${cursore('luceGiorno', 'sole', 'Di giorno', 5, 100, scena.luceGiorno, scena.luceGiorno + '%')}${cursore('luceNotte', 'luna', 'Di notte', 2, 100, scena.luceNotte, scena.luceNotte + '%')}</div></div>`;
@@ -224,6 +225,7 @@ function aggiornaFinestre(){
   $('#vento-o').textContent = scena.vento == null ? 'auto' : Math.round(scena.vento * 100) + '%';
   s.querySelector('[data-fai="movimento"]').setAttribute('aria-checked', String(scena.movimento !== false));
   s.querySelector('[data-fai="prospettiva"]').setAttribute('aria-checked', String(scena.prospettiva !== false));
+  s.querySelector('[data-fai="prospettivaViva"]').setAttribute('aria-checked', String(!!scena.prospettivaViva));
   const p = libreria.find(x => x.id === scena.paesaggio);
   $('#nomeInOnda').textContent = p ? p.nome : scena.yt ? 'Video di YouTube' : scena.immagini ? 'Paesaggio' : 'Nessun paesaggio';
   $('#sottoInOnda').textContent = [p ? TIPI[p.tipo] : '', NOME_ORA[scena.ora], (METEO.find(m => m[0] === scena.meteo) || [,,''])[2].toLowerCase()].filter(Boolean).join(' · ');
@@ -585,6 +587,10 @@ function disegnaImpostazioni(){
       <div class="pannello" style="margin-top:10px">
         ${cursore('zoom', 'lente', 'Ingrandisci', 100, 200, Math.round(scena.zoom * 100), Math.round(scena.zoom * 100) + '%')}
         ${cursore('vx', 'destra', 'Sposta', -30, 30, Math.round(scena.vx * 100), Math.round(scena.vx * 100))}</div>
+      <div class="pannello" style="margin-top:10px"><div class="titolo" style="margin-bottom:4px">${icona('persona', 15)}Prova la prospettiva viva</div>
+        ${cursore('provaX', 'destra', 'Dove sei', -100, 100, 0, 'centro')}
+        ${cursore('provaZ', 'mirino', 'Quanto vicino', -100, 100, 0, '0')}
+        <p class="nota" style="margin:0 0 6px">Fai finta di muoverti nella stanza: le finestre (e l'anteprima) reagiscono come col sensore. Dopo qualche secondo tornano ferme.</p></div>
       <p class="nota">Con lo schermo girato in verticale il foro è alto e stretto. ${a.n === 2 && !schermi.destra ? 'La finestra destra non ha ancora risposto: si collega quando c\'è il secondo schermo.' : ''}</p></div>
     <div class="sezione">${titolo('catena', 'Collegamento')}
       <div class="pannello">
@@ -599,6 +605,11 @@ function disegnaImpostazioni(){
   });
   legaCursore('zoom', (v, o) => { o.textContent = v + '%'; cambia({zoom: v / 100}, false); });
   legaCursore('vx', (v, o) => { o.textContent = v; cambia({vx: v / 100}, false); });
+  let tOcchio = null;
+  const occhio = () => { const x = +$('#provaX').value / 100, z = +$('#provaZ').value / 100;
+    postaAnteprima({tipo:'occhio', x, z}); clearTimeout(tOcchio); tOcchio = setTimeout(() => canale.manda('occhio', {x, z}), 60); };
+  legaCursore('provaX', (v, o) => { o.textContent = v === 0 ? 'centro' : (v < 0 ? 'sinistra ' : 'destra ') + Math.abs(v); occhio(); });
+  legaCursore('provaZ', (v, o) => { o.textContent = v; occhio(); });
   aggiornaSpia(); mostraProblema();
 }
 
@@ -614,6 +625,7 @@ const AZIONI = {
   ventoAuto: () => cambia({vento: scena.vento == null ? .3 : null}),
   movimento: () => cambia({movimento: scena.movimento === false}),
   prospettiva: () => cambia({prospettiva: scena.prospettiva === false}),
+  prospettivaViva: () => cambia({prospettivaViva: !scena.prospettivaViva}),
   vistaP: v => { vistaPaesaggi = v; disegnaPaesaggi(); },
   filtro: v => { filtroTipo = v; disegnaPaesaggi(); },
   apri: v => { const p = libreria.find(x => x.id === v); if (p) apriPaesaggio(p); },

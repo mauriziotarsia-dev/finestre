@@ -15,9 +15,9 @@
 </head>
 <body>
 <canvas id="c"></canvas>
-<script src="../js/supabase.js?v=2.0.9"></script>
-<script src="../js/canale.js?v=2.0.9"></script>
-<script src="../js/vista.js?v=2.0.9"></script>
+<script src="../js/supabase.js?v=2.1.0"></script>
+<script src="../js/canale.js?v=2.1.0"></script>
+<script src="../js/vista.js?v=2.1.0"></script>
 <script>
 /* ═══════════════════════════════════════════════════════════════════════════
    La pagina che il Raspberry mostra dietro il traforo.
@@ -37,7 +37,7 @@ const scrivi = (k, v) => { if (anteprima) return; try { localStorage.setItem(k, 
 
 /* ── la scena: quello che il telecomando manda ─────────────────────────────── */
 const PREDEFINITA = {acceso:true, yt:'', t:0, immagini:null, animati:null, paesaggio:'', ora:'vera', meteo:'sereno',
-  intensita:.75, vento:null, fuoco:null, movimento:true, luceGiorno:70, luceNotte:30, prospettiva:true, zoom:1, vx:0};
+  intensita:.75, vento:null, fuoco:null, prospettivaViva:false, movimento:true, luceGiorno:70, luceNotte:30, prospettiva:true, zoom:1, vx:0};
 let scena = Object.assign({}, PREDEFINITA, leggi('finestre-scena', null) || {});
 if (!leggi('finestre-scena', null) || q.get('forza')){
   if (q.get('yt')) scena.yt = q.get('yt');
@@ -198,6 +198,31 @@ function intensitaLampo(ora){
   return k * lampo.forza;
 }
 
+/* ── prospettiva viva: le finestre seguono chi si muove nella stanza ─────────────
+   Il sensore (radar HLK-LD2450 dietro il traforo) è letto sul Raspberry da pi/sensore.py, che lo
+   offre qui come flusso di eventi su http://localhost:8787/persone. Funziona per una persona sola:
+   con nessuno o con più persone l'immagine torna ferma, piano. Dal telefono si può provare a mano. */
+const occhio = {x:0, z:0}, occhioTgt = {x:0, z:0};
+let margine = 1.04, provaFino = 0, sensore = null, ultimoSensore = 0;
+function daPersone(lista){
+  ultimoSensore = performance.now();
+  const p = (lista || []).filter(x => x && x.y > 200);
+  if (p.length !== 1 || performance.now() < provaFino){ if (performance.now() >= provaFino){ occhioTgt.x = 0; occhioTgt.z = 0; } return; }
+  /* x in mm a destra-sinistra del sensore, y in mm di distanza: angolo di vista e vicinanza */
+  const ang = Math.atan2(p[0].x, p[0].y);
+  occhioTgt.x = Math.max(-1, Math.min(1, ang / (Math.PI / 4)));
+  occhioTgt.z = Math.max(-1, Math.min(1, (2600 - p[0].y) / 1600));
+}
+function apriSensore(){
+  if (sensore || anteprima) return;
+  try {
+    sensore = new EventSource('http://localhost:8787/persone');
+    sensore.onmessage = e => { try { daPersone(JSON.parse(e.data).persone); } catch(x) {} };
+    sensore.onerror = () => { sensore.close(); sensore = null; setTimeout(() => { if (scena.prospettivaViva) apriSensore(); }, 15000); };
+  } catch(e) { sensore = null; }
+}
+function chiudiSensore(){ if (sensore){ sensore.close(); sensore = null; } }
+
 /* ── collegamento ──────────────────────────────────────────────────────────── */
 function calibra(d){
   const prima = JSON.stringify(assetto.modo) + assetto.fori.length;
@@ -209,7 +234,7 @@ function calibra(d){
 }
 let canale = null;
 if (anteprima){
-  addEventListener('message', e => { const d = e.data || {}; if (d.tipo === 'scena') applica(d.scena, false); else if (d.tipo === 'fori') calibra(Object.assign({}, d, {salva:false})); else if (d.tipo === 'lampo') scocca(); });
+  addEventListener('message', e => { const d = e.data || {}; if (d.tipo === 'occhio'){ provaFino = performance.now() + 8000; occhioTgt.x = +d.x || 0; occhioTgt.z = +d.z || 0; } else if (d.tipo === 'scena') applica(d.scena, false); else if (d.tipo === 'fori') calibra(Object.assign({}, d, {salva:false})); else if (d.tipo === 'lampo') scocca(); });
 } else if (casa && window.supabase){
   const chi = () => ({lato: mio, assetto: casaFori, scena, schermo:{w:innerWidth, h:innerHeight}});
   canale = apriCanale(casa, {
@@ -218,6 +243,7 @@ if (anteprima){
       else if (evento === 'lampo') scocca();
       else if (evento === 'fori') calibra(dati);
       else if (evento === 'ricarica') location.reload();
+      else if (evento === 'occhio'){ provaFino = performance.now() + 8000; occhioTgt.x = +dati.x || 0; occhioTgt.z = +dati.z || 0; }
       else if (evento === 'chi') canale.manda('eccomi', chi());
     },
     suStato(ok){ if (ok) canale.manda('eccomi', chi()); }
@@ -251,10 +277,17 @@ function giro(ora){
   if (scena.meteo === 'temporale' && ora > prossimoLampo){ if (prossimoLampo) scocca(); prossimoLampo = ora + 4000 + Math.random() * 11000; }
   /* con «Come fuori» l'ora cambia da sola: la luce del paesaggio sfuma piano, in un minuto e mezzo */
   if (!inCambio){ const f = fonteDi(scena); if (f && vista.urlInVista && vista.urlInVista !== chiaveFonte(f) && !vista.inArrivo) vista.mostra(f, 90).catch(() => {}); }
+  /* prospettiva viva: acceso dal telefono (o in prova); morbido, così non trema */
+  const viva = scena.prospettivaViva || performance.now() < provaFino;
+  if (scena.prospettivaViva) apriSensore(); else chiudiSensore();
+  if (!viva){ occhioTgt.x = 0; occhioTgt.z = 0; }
+  const ko = 1 - Math.exp(-dt * 2.2);
+  occhio.x += (occhioTgt.x - occhio.x) * ko; occhio.z += (occhioTgt.z - occhio.z) * ko;
+  margine += ((viva || Math.abs(occhio.x) > .01 ? 1.2 : 1.04) - margine) * (1 - Math.exp(-dt * .8));
   vista.disegna(geom, {
     t: ora / 1000, trasparente: !!scena.yt, movimento: scena.movimento !== false, prospettiva: scena.prospettiva !== false,
     coperto: met.coperto, nebbia: met.nebbia, pioggia: met.pioggia, neve: met.neve, tempesta: met.tempesta, vento: met.vento,
-    lampo: intensitaLampo(ora), lampoX, notteFinta, luce, buio: scuro, qualita, colNebbia: nebCol
+    lampo: intensitaLampo(ora), lampoX, notteFinta, luce, buio: scuro, qualita, colNebbia: nebCol, occhio, margine
   });
   requestAnimationFrame(giro);
 }

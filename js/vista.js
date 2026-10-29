@@ -31,7 +31,8 @@ uniform vec4 uMap;           /* dal foro all'immagine «vista»: uv = uMap.xy + 
 uniform vec4 uCrop0, uCrop1; /* dalla vista alla texture (copertura): t = crop.xy + uv * crop.zw */
 uniform float uMix;          /* 0 = immagine 0, 1 = immagine 1 (dissolvenza) */
 uniform float uHaImg, uHaDep0, uHaDep1, uMovimento0, uMovimento1;
-uniform float uLato, uT, uAspetto;   /* aspetto = larghezza/altezza della vista */
+uniform float uLato, uT, uAspetto;
+uniform vec3 uOcchio;         /* dov'è chi guarda: x a destra-sinistra (-1..1), z vicinanza (-1 lontano .. 1 vicino) */   /* aspetto = larghezza/altezza della vista */
 uniform vec2 uPix;           /* dimensione del foro in pixel */
 uniform float uCoperto, uNebbia, uPioggia, uNeve, uTempesta, uVento;
 uniform float uLampo, uLampoX;
@@ -62,6 +63,10 @@ vec3 paesaggio(sampler2D img, sampler2D dep, vec4 crop, float haDep, float mov, 
   n = prof(dep, crop, uv, haDep);
   /* prospettiva: le cose vicine si spostano di più fra una finestra e l'altra */
   vec2 p = uv; p.x += uLato * .012 * (n - .35);
+  /* prospettiva viva: chi si sposta a destra vede più paesaggio a sinistra (il lontano scorre con lui, il vicino meno);
+     chi si avvicina alla finestra vede un po' più di paesaggio */
+  p.x += uOcchio.x * .065 * (1. - .7 * n);
+  p = .5 + (p - .5) * (1. + uOcchio.z * .07);
   vec3 c = foto(img, crop, p);
   sky = cielo(c, n, p.y, haDep);
   if (mov > .5){
@@ -214,7 +219,7 @@ class Vista {
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, 1,1]), gl.STATIC_DRAW);
     const a = gl.getAttribLocation(p, 'aPos'); gl.enableVertexAttribArray(a); gl.vertexAttribPointer(a, 2, gl.FLOAT, false, 0, 0);
     this.u = {};
-    for (const nome of ['uImg0b','uVmix','uImg0','uImg1','uDep0','uDep1','uMap','uCrop0','uCrop1','uMix','uHaImg','uHaDep0','uHaDep1','uMovimento0','uMovimento1',
+    for (const nome of ['uOcchio','uImg0b','uVmix','uImg0','uImg1','uDep0','uDep1','uMap','uCrop0','uCrop1','uMix','uHaImg','uHaDep0','uHaDep1','uMovimento0','uMovimento1',
       'uLato','uT','uAspetto','uPix','uCoperto','uNebbia','uPioggia','uNeve','uTempesta','uVento','uLampo','uLampoX',
       'uNotteFinta','uLuce','uBuio','uQualita','uColNebbia']) this.u[nome] = gl.getUniformLocation(p, nome);
     gl.uniform1i(this.u.uImg0, 0); gl.uniform1i(this.u.uImg1, 1); gl.uniform1i(this.u.uDep0, 2); gl.uniform1i(this.u.uDep1, 3); gl.uniform1i(this.u.uImg0b, 4);
@@ -315,6 +320,8 @@ class Vista {
     for (const k2 of ['Coperto','Nebbia','Pioggia','Neve','Tempesta','Vento','Lampo','LampoX','NotteFinta','Luce','Buio','Qualita'])
       gl.uniform1f(u['u' + k2], s[k2.charAt(0).toLowerCase() + k2.slice(1)] || 0);
     gl.uniform3fv(u.uColNebbia, s.colNebbia);
+    const oc = s.occhio || {x:0, z:0}; gl.uniform3f(u.uOcchio, oc.x || 0, 0, oc.z || 0);
+    const marg = s.margine || 1.04;
     gl.enable(gl.SCISSOR_TEST);
     for (const foro of fori){
       const y = this.c.height - foro.y - foro.h;              /* WebGL conta dal basso */
@@ -323,8 +330,8 @@ class Vista {
       gl.uniform1f(u.uAspetto, foro.aspetto);
       gl.uniform2f(u.uPix, foro.w / foro.map[2], foro.h / foro.map[3]);   /* pixel della vista intera */
       gl.uniform1f(u.uLato, s.prospettiva ? foro.lato : 0);
-      gl.uniform4fv(u.uCrop0, f0.ok ? this.crop(v0 ? {iw:f0.video[0].videoWidth || f0.iw, ih:f0.video[0].videoHeight || f0.ih} : f0, foro.aspetto, 1.04, v0 ? null : f0.fuoco) : [0,0,1,1]);
-      gl.uniform4fv(u.uCrop1, f1.ok ? this.crop(v1 ? {iw:f1.video[0].videoWidth || f1.iw, ih:f1.video[0].videoHeight || f1.ih} : f1, foro.aspetto, 1.04, v1 ? null : f1.fuoco) : [0,0,1,1]);
+      gl.uniform4fv(u.uCrop0, f0.ok ? this.crop(v0 ? {iw:f0.video[0].videoWidth || f0.iw, ih:f0.video[0].videoHeight || f0.ih} : f0, foro.aspetto, marg, v0 ? null : f0.fuoco) : [0,0,1,1]);
+      gl.uniform4fv(u.uCrop1, f1.ok ? this.crop(v1 ? {iw:f1.video[0].videoWidth || f1.iw, ih:f1.video[0].videoHeight || f1.ih} : f1, foro.aspetto, marg, v1 ? null : f1.fuoco) : [0,0,1,1]);
       gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
     }
   }
