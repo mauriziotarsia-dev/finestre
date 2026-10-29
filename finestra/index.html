@@ -18,7 +18,7 @@
 <canvas id="c"></canvas>
 <script src="../js/supabase.js?v=2.1.0"></script>
 <script src="../js/canale.js?v=2.1.0"></script>
-<script src="../js/vista.js?v=2.1.2"></script>
+<script src="../js/vista.js?v=2.1.3"></script>
 <script>
 /* ═══════════════════════════════════════════════════════════════════════════
    La pagina che il Raspberry mostra dietro il traforo.
@@ -286,7 +286,7 @@ function giro(ora){
   occhio.x += (occhioTgt.x - occhio.x) * ko; occhio.z += (occhioTgt.z - occhio.z) * ko;
   margine += ((viva || Math.abs(occhio.x) > .01 ? 1.2 : 1.04) - margine) * (1 - Math.exp(-dt * .8));
   vista.disegna(geom, {
-    t: ora / 1000, trasparente: !!scena.yt, movimento: scena.movimento !== false, prospettiva: scena.prospettiva !== false,
+    t: (ora / 1000) % 3588, trasparente: !!scena.yt, movimento: scena.movimento !== false, prospettiva: scena.prospettiva !== false,
     coperto: met.coperto, nebbia: met.nebbia, pioggia: met.pioggia, neve: met.neve, tempesta: met.tempesta, vento: met.vento,
     lampo: intensitaLampo(ora), lampoX, notteFinta, luce, buio: scuro, qualita, colNebbia: nebCol, occhio, margine
   });

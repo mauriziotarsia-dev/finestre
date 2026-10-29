@@ -39,10 +39,11 @@ uniform float uLampo, uLampoX;
 uniform float uNotteFinta, uLuce, uBuio, uQualita;
 uniform vec3 uColNebbia;
 
-float h1(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+/* hash senza seno: sulle schede dei Raspberry il seno costa caro */
+float h1(vec2 p){ vec3 p3 = fract(vec3(p.xyx) * .1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
 float rumore(vec2 p){ vec2 i = floor(p), f = fract(p); f = f*f*(3.-2.*f);
   return mix(mix(h1(i), h1(i+vec2(1,0)), f.x), mix(h1(i+vec2(0,1)), h1(i+vec2(1,1)), f.x), f.y); }
-float fbm(vec2 p){ float v = 0., a = .5; for (int i = 0; i < 5; i++){ v += a * rumore(p); p = p * 2.03 + 17.1; a *= .5; } return v; }
+float fbm(vec2 p){ float v = 0., a = .5; for (int i = 0; i < 4; i++){ v += a * rumore(p); p = p * 2.03 + 17.1; a *= .5; } return v / .9375; }
 
 vec3 foto(sampler2D t, vec4 crop, vec2 uv){ return texture2D(t, clamp(crop.xy + uv * crop.zw, .0005, .9995)).rgb; }
 float prof(sampler2D d, vec4 crop, vec2 uv, float ha){
@@ -83,11 +84,10 @@ vec3 paesaggio(sampler2D img, sampler2D dep, vec4 crop, float haDep, float mov, 
     c = mix(c, cs, sky * clamp(tot * 1.5, 0., 1.));
     /* alberi e prati: ondeggiano poco, a raffiche */
     float verde = clamp((c.g - max(c.r, c.b)) * 6. + .15, 0., 1.) * smoothstep(.12, .45, n) * (1. - sky);
-    if (verde > .01){
-      float raffica = .55 + .45 * sin(uT * .37 + uv.y * 2.);
-      float d = sin(uT * 1.9 + rumore(uv * vec2(26., 52.)) * 6.283) * .0011 * (.35 + uVento) * raffica * verde;
-      c = mix(c, foto(img, crop, p + vec2(d, d * .3)), verde);
-    }
+    /* (senza «if»: con le mipmap una lettura dentro un ramo diverso da pixel a pixel sbaglia il livello ai bordi) */
+    float raffica = .55 + .45 * sin(uT * .37 + uv.y * 2.);
+    float d = sin(uT * 1.9 + rumore(uv * vec2(26., 52.)) * 6.283) * .0011 * (.35 + uVento) * raffica * verde;
+    c = mix(c, foto(img, crop, p + vec2(d, d * .3)), verde);
   }
   return c;
 }
@@ -103,7 +103,7 @@ float strato(vec2 uv, float passo, float lungh, float largh, float vel, float de
   px.x += px.y * (.1 + .25 * uVento);
   float col = floor(px.x / passo);
   float y = px.y / lungh - uT * vel * uPix.y / lungh - h1(vec2(col, seme)) * 31.;
-  vec2 id = vec2(col, floor(y));
+  vec2 id = vec2(col, mod(floor(y), 4096.));
   float fy = fract(y), fx = px.x / passo - col;
   float r = h1(id + seme);
   float x0 = .5 + (h1(id + seme + 3.1) - .5) * (1. - 2. * largh / passo);
@@ -114,17 +114,27 @@ float strato(vec2 uv, float passo, float lungh, float largh, float vel, float de
   float s = smoothstep(largh, largh * .2, d) * smoothstep(0., .3, t) * smoothstep(1., .75, t);
   return s * step(r, dens);
 }
-/* neve: fiocchi tondi che scendono ondeggiando; i vicini grandi e sfocati */
+/* neve: fiocchi tondi che scendono ondeggiando; i vicini grandi e sfocati. Come la pioggia, le misure
+   valgono per un foro alto 1000 pixel e si scalano. Ogni colonna ha la sua velocità e ogni fiocco
+   la sua grandezza e il suo dondolio: niente griglia che scende tutta insieme. */
 float fiocchi(vec2 uv, float passo, float raggio, float morbido, float vel, float seme){
+  float sc = max(uPix.y / 1000., .3);
+  passo *= sc; raggio *= sc;
   vec2 px = uv * uPix;
-  px.y -= uT * vel * uPix.y;
   px.x += uT * uVento * passo * .6;
-  vec2 g = px / passo, id = floor(g), f = fract(g);
+  float col = floor(px.x / passo), rc = h1(vec2(col, seme + 11.));
+  float y = px.y / passo - uT * vel * (.7 + .6 * rc) * uPix.y / passo - rc * 57.;
+  vec2 id = vec2(col, mod(floor(y), 4096.)), f = vec2(px.x / passo - col, fract(y));
   float r = h1(id + seme);
-  vec2 c = vec2(.5 + (h1(id + seme + 1.7) - .5) * .5, .5 + (h1(id + seme + 5.3) - .5) * .5);
-  c.x += sin(uT * (.7 + r * .8) + r * 6.283) * .18;
+  float a1 = h1(id + seme + 1.7), a2 = h1(id + seme + 5.3), a3 = h1(id + seme + 9.1);
+  vec2 c = vec2(.5 + (a1 - .5) * .3, .5 + (a2 - .5) * .4);
+  float fr = .6 + 1.1 * a3;                                         /* ogni fiocco dondola a modo suo */
+  c.x += sin(uT * fr + r * 6.283) * (.1 + .14 * a2);
+  c.y += sin(uT * fr * 1.7 + a1 * 6.283) * .05;
+  float rag = raggio * (.5 + .9 * a1);
+  c = clamp(c, vec2(rag / passo), vec2(1. - rag / passo));         /* il fiocco non esce dalla sua cella: niente fiocchi tagliati */
   float d = length(f - c) * passo;
-  return smoothstep(raggio, raggio * morbido, d) * step(r, .7) * (.6 + .4 * h1(id + seme + 9.));
+  return smoothstep(rag, rag * morbido, d) * step(r, .62) * (.55 + .45 * a3);
 }
 
 void main(){
@@ -148,9 +158,11 @@ void main(){
     col = mix(col, vec3(l) + (col - vec3(l)) * .8, cop * .4);
     col *= 1. - cop * .26 - uTempesta * .3;
     col *= mix(vec3(1.), vec3(.93, .97, 1.04), cop);
-    vec3 grigio = vec3(.52, .55, .6) * (.6 + .5 * l) * (1. - uTempesta * .55) * (1. - uNotteFinta * .8);
-    float nub = .75 + .5 * fbm(uv * vec2(3., 6.) + vec2(uT * .01 * (1. + uVento), 0.));
-    col = mix(col, grigio * nub, sky * cop * .82);
+    if (cop > .01 && sky > .01){                  /* il cielo grigio si calcola solo dove serve */
+      vec3 grigio = vec3(.52, .55, .6) * (.6 + .5 * l) * (1. - uTempesta * .55) * (1. - uNotteFinta * .8);
+      float nub = .75 + .5 * fbm(uv * vec2(3., 6.) + vec2(uT * .012 * (1. + uVento), 0.));
+      col = mix(col, grigio * nub, sky * cop * .82);
+    }
   } else {
     alfa = 0.;                                   /* sotto c'è un video: solo il tempo, su trasparente */
     n = pow(clamp((uv.y - .38) / .62, 0., 1.), 1.4);
@@ -160,15 +172,23 @@ void main(){
     alfa = vela;
   }
 
-  /* nebbia: più fitta lontano, a banchi che si muovono piano */
+  /* nebbia: più fitta lontano, a banchi che scorrono col vento e cambiano forma (il campo che li
+     disegna è a sua volta deformato da un secondo campo che si muove in un'altra direzione) */
   float lontano = 1. - n;
-  float banchi = fbm(uv * vec2(2.2, 4.5) + vec2(uT * .013 * (1. + uVento), uT * .002));
-  float banchi2 = fbm(uv * vec2(5., 9.) - vec2(uT * .021 * (1. + uVento), 0.));
-  float nebbia = uNebbia * clamp(pow(lontano, 1.15) * 1.15 + .12, 0., 1.) * (.55 + .7 * banchi) * (.8 + .4 * banchi2);
-  nebbia += (uPioggia * .32 + uNeve * .3) * pow(lontano, 1.6);         /* la pioggia lontana fa velo */
-  nebbia = clamp(nebbia, 0., .96);
-  col = mix(col, uColNebbia, nebbia);
-  alfa = max(alfa, nebbia);
+  if (uNebbia + uPioggia + uNeve > .005){
+    float vv = 1. + 1.5 * uVento;
+    vec2 q = uv * vec2(2., 3.6);
+    vec2 w = vec2(0.);
+    if (uQualita > .5) w = vec2(fbm(q * .7 + vec2(uT * .018, 1.7)), fbm(q * .7 + vec2(4.3, -uT * .014))) - .5;
+    float banchi = fbm(q + w * 1.8 + vec2(uT * .035 * vv, uT * .006));
+    float banchi2 = fbm(uv * vec2(5., 8.) + w - vec2(uT * .06 * vv, -uT * .01));     /* sfilacci più vicini, più veloci */
+    float nebbia = uNebbia * clamp(pow(lontano, 1.15) * 1.15 + .12, 0., 1.) * smoothstep(.15, .85, banchi * .9 + banchi2 * .35);
+    nebbia *= 1.35;
+    nebbia += (uPioggia * .32 + uNeve * .3) * pow(lontano, 1.6) * (.8 + .4 * banchi);   /* la pioggia lontana fa velo, a scrosci */
+    nebbia = clamp(nebbia, 0., .96);
+    col = mix(col, uColNebbia, nebbia);
+    alfa = max(alfa, nebbia);
+  }
 
   /* lampo: le nuvole si accendono da dentro (si vede la loro forma), poi il paesaggio ne prende il riflesso */
   if (uLampo > .001){
@@ -185,8 +205,8 @@ void main(){
     vec3 goccia = mix(vec3(.66, .7, .76), uColNebbia * 1.1 + .08, .45) * (1. - uNotteFinta * .65) * (.75 + .45 * l0);
     float a = 0.;
     a += strato(uv, 4.,  22., 1.,  .95, dens,        1.) * .16;
-    a += strato(uv, 8.,  40., 1.3, 1.45, dens * .85, 2.) * .22;
-    if (uQualita > .5) a += strato(uv, 16., 80., 2.,  2.2, dens * .6,  3.) * .26;
+    if (uQualita > .5) a += strato(uv, 8.,  40., 1.3, 1.45, dens * .85, 2.) * .22;
+    a += strato(uv, 16., 80., 2.,  2.2, dens * .6,  3.) * .26;
     a += strato(uv, 38., 170., 3.5, 3.3, dens * .35, 4.) * .17;
     col = mix(col, goccia, clamp(a, 0., 1.));
     alfa = max(alfa, a);
@@ -194,10 +214,10 @@ void main(){
   /* neve: dai fiocchi lontani, piccoli e fitti, a quelli vicinissimi, grandi e fuori fuoco */
   if (uNeve > .01){
     float a = 0.;
-    a += fiocchi(uv, 9.,   1.1, .1,  .05, 1.) * .75;
-    a += fiocchi(uv, 19.,  2.,  .25, .08, 2.) * .85;
-    if (uQualita > .5) a += fiocchi(uv, 46.,  4.5, .35, .13, 3.) * .7;
-    if (uQualita > .5) a += fiocchi(uv, 120., 13., .05, .2, 4.) * .28;
+    a += fiocchi(uv, 9.,   1.1, .1,  .05, 1.) * .7;
+    if (uQualita > .5) a += fiocchi(uv, 19.,  2.,  .25, .08, 2.) * .85;   /* se il computer fatica si toglie uno strato di mezzo, mai i fiocchi grandi */
+    a += fiocchi(uv, 46.,  4.5, .35, .13, 3.) * .75;
+    a += fiocchi(uv, 120., 13., .05, .2, 4.) * .3;
     a *= uNeve;
     col = mix(col, vec3(.94, .96, 1.) * (1. - uNotteFinta * .6), clamp(a, 0., 1.));
     alfa = max(alfa, a);
@@ -215,8 +235,9 @@ void main(){
 class Vista {
   constructor(canvas){
     this.c = canvas;
-    const gl = canvas.getContext('webgl', {alpha:true, premultipliedAlpha:false, antialias:false, preserveDrawingBuffer:false})
-            || canvas.getContext('experimental-webgl');
+    const opz = {alpha:true, premultipliedAlpha:false, antialias:false, preserveDrawingBuffer:false};
+    /* WebGL2 dove c'è (Raspberry compresi): permette le mipmap anche sulle immagini non quadrate */
+    const gl = canvas.getContext('webgl2', opz) || canvas.getContext('webgl', opz) || canvas.getContext('experimental-webgl');
     if (!gl) throw new Error('WebGL non disponibile');
     this.gl = gl;
     const sh = (tipo, src) => { const s = gl.createShader(tipo); gl.shaderSource(s, src); gl.compileShader(s);
@@ -244,6 +265,11 @@ class Vista {
   carica(t, sorgente, w, h){ const gl = this.gl; gl.bindTexture(gl.TEXTURE_2D, t);
     if (w) gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, sorgente);
     else gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, sorgente); }
+  /* mipmap: l'immagine ridotta già pronta; più nitida senza sfarfallio quando si sposta, e molto
+     più veloce da leggere sulle schede deboli (l'immagine è più grande del foro) */
+  mip(t){ const gl = this.gl; if (!(window.WebGL2RenderingContext && gl instanceof WebGL2RenderingContext)) return;
+    gl.bindTexture(gl.TEXTURE_2D, t); gl.generateMipmap(gl.TEXTURE_2D);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR); }
   fonteVuota(){ return {img:null, tex:null, dep:null, depTex:null, video:null, iw:1, ih:1, url:null, ok:false}; }
 
   /* nuova immagine (o video in loop), con la sua profondità; sfuma da quella di prima in `dur` secondi */
@@ -257,8 +283,8 @@ class Vista {
   async _mostra(chiave, url, profondita, video, dur, fuoco){
     const f = this.fonteVuota(); f.url = chiave; f.fuoco = fuoco;
     const im = await caricaImg(url);
-    f.img = im; f.iw = im.naturalWidth; f.ih = im.naturalHeight; f.tex = this.texture(); this.carica(f.tex, im);
-    if (profondita){ try { const d = await caricaImg(profondita); f.depTex = this.texture(); this.carica(f.depTex, d); } catch(e) {} }
+    f.img = im; f.iw = im.naturalWidth; f.ih = im.naturalHeight; f.tex = this.texture(); this.carica(f.tex, im); this.mip(f.tex);
+    if (profondita){ try { const d = await caricaImg(profondita); f.depTex = this.texture(); this.carica(f.depTex, d); this.mip(f.depTex); } catch(e) {} }
     if (video){ try { f.video = await apriVideo(video); f.vtex = this.texture(); } catch(e) { f.video = null; } }
     f.ok = true;
     const vecchia = this.fonti[0];
