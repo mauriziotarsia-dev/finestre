@@ -2,7 +2,11 @@
    vista.js — il motore della finestra (WebGL)
 
    Disegna il paesaggio dentro uno o due fori, con il tempo atmosferico sopra.
-   Tutto in un solo programma grafico, per pixel:
+   Tre programmi grafici, pensati per girare fluidi anche su un Raspberry 4:
+     · nebbia e nuvole a un quarto di risoluzione (sono forme morbide);
+     · il programma principale, per pixel, descritto qui sotto;
+     · pioggia e neve goccia per goccia, come piccoli rettangoli (costano solo dove cadono).
+   Il programma principale:
      · il paesaggio (foto/dipinto, o un breve video in loop) con la sua mappa di
        profondità, se c'è: serve per la prospettiva diversa fra le due finestre,
        per la nebbia che sta in lontananza e per capire dov'è il cielo;
@@ -38,6 +42,7 @@ uniform float uCoperto, uNebbia, uPioggia, uNeve, uTempesta, uVento;
 uniform float uLampo, uLampoX;
 uniform float uNotteFinta, uLuce, uBuio, uQualita;
 uniform vec3 uColNebbia;
+uniform sampler2D uMeteo;     /* nebbia e nuvole, calcolate a bassa risoluzione (r: banchi di nebbia, g: nuvole, b: velo) */
 
 /* hash senza seno: sulle schede dei Raspberry il seno costa caro */
 float h1(vec2 p){ vec3 p3 = fract(vec3(p.xyx) * .1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
@@ -92,51 +97,6 @@ vec3 paesaggio(sampler2D img, sampler2D dep, vec4 crop, float haDep, float mov, 
   return c;
 }
 
-/* pioggia: righe sottili che cadono, inclinate dal vento. Le misure sono pensate per un foro alto
-   1000 pixel e si scalano con l'altezza vera del foro: così la pioggia ha la stessa grana rispetto
-   alla finestra su ogni schermo (telefono, finestrella, TV grande). Ogni goccia occupa solo un
-   tratto della sua cella, con un vuoto sopra e sotto: due gocce vicine non si saldano in una linea. */
-float strato(vec2 uv, float passo, float lungh, float largh, float vel, float dens, float seme){
-  float sc = max(uPix.y / 1000., .3);
-  passo *= sc; lungh *= sc * 1.5; largh = max(largh * sc, .7);
-  vec2 px = uv * uPix;                                   /* pixel della vista */
-  px.x += px.y * (.1 + .25 * uVento);
-  float col = floor(px.x / passo);
-  float y = px.y / lungh - uT * vel * uPix.y / lungh - h1(vec2(col, seme)) * 31.;
-  vec2 id = vec2(col, mod(floor(y), 4096.));
-  float fy = fract(y), fx = px.x / passo - col;
-  float r = h1(id + seme);
-  float x0 = .5 + (h1(id + seme + 3.1) - .5) * (1. - 2. * largh / passo);
-  float d = abs(fx - x0) * passo;                         /* distanza in pixel dal filo */
-  float L = .28 + .3 * h1(id + seme + 7.7);               /* lunghezza della goccia, in frazione di cella */
-  float y0 = h1(id + seme + 5.2) * (1. - L);
-  float t = (fy - y0) / L;
-  float s = smoothstep(largh, largh * .2, d) * smoothstep(0., .3, t) * smoothstep(1., .75, t);
-  return s * step(r, dens);
-}
-/* neve: fiocchi tondi che scendono ondeggiando; i vicini grandi e sfocati. Come la pioggia, le misure
-   valgono per un foro alto 1000 pixel e si scalano. Ogni colonna ha la sua velocità e ogni fiocco
-   la sua grandezza e il suo dondolio: niente griglia che scende tutta insieme. */
-float fiocchi(vec2 uv, float passo, float raggio, float morbido, float vel, float seme){
-  float sc = max(uPix.y / 1000., .3);
-  passo *= sc; raggio *= sc;
-  vec2 px = uv * uPix;
-  px.x += uT * uVento * passo * .6;
-  float col = floor(px.x / passo), rc = h1(vec2(col, seme + 11.));
-  float y = px.y / passo - uT * vel * (.7 + .6 * rc) * uPix.y / passo - rc * 57.;
-  vec2 id = vec2(col, mod(floor(y), 4096.)), f = vec2(px.x / passo - col, fract(y));
-  float r = h1(id + seme);
-  float a1 = h1(id + seme + 1.7), a2 = h1(id + seme + 5.3), a3 = h1(id + seme + 9.1);
-  vec2 c = vec2(.5 + (a1 - .5) * .3, .5 + (a2 - .5) * .4);
-  float fr = .6 + 1.1 * a3;                                         /* ogni fiocco dondola a modo suo */
-  c.x += sin(uT * fr + r * 6.283) * (.1 + .14 * a2);
-  c.y += sin(uT * fr * 1.7 + a1 * 6.283) * .05;
-  float rag = raggio * (.5 + .9 * a1);
-  c = clamp(c, vec2(rag / passo), vec2(1. - rag / passo));         /* il fiocco non esce dalla sua cella: niente fiocchi tagliati */
-  float d = length(f - c) * passo;
-  return smoothstep(rag, rag * morbido, d) * step(r, .62) * (.55 + .45 * a3);
-}
-
 void main(){
   vec2 uv = uMap.xy + vUv * uMap.zw;
   vec3 col = vec3(0.); float n = .5, sky = 0., alfa = 1.;
@@ -160,7 +120,7 @@ void main(){
     col *= mix(vec3(1.), vec3(.93, .97, 1.04), cop);
     if (cop > .01 && sky > .01){                  /* il cielo grigio si calcola solo dove serve */
       vec3 grigio = vec3(.52, .55, .6) * (.6 + .5 * l) * (1. - uTempesta * .55) * (1. - uNotteFinta * .8);
-      float nub = .75 + .5 * fbm(uv * vec2(3., 6.) + vec2(uT * .012 * (1. + uVento), 0.));
+      float nub = .75 + .5 * texture2D(uMeteo, vUv).g;
       col = mix(col, grigio * nub, sky * cop * .82);
     }
   } else {
@@ -172,19 +132,13 @@ void main(){
     alfa = vela;
   }
 
-  /* nebbia: più fitta lontano, a banchi che scorrono col vento e cambiano forma (il campo che li
-     disegna è a sua volta deformato da un secondo campo che si muove in un'altra direzione) */
+  /* nebbia: più fitta lontano, a banchi che scorrono col vento e cambiano forma (il disegno dei banchi
+     arriva già pronto dal passaggio a bassa risoluzione) */
   float lontano = 1. - n;
   if (uNebbia + uPioggia + uNeve > .005){
-    float vv = 1. + 1.5 * uVento;
-    vec2 q = uv * vec2(2., 3.6);
-    vec2 w = vec2(0.);
-    if (uQualita > .5) w = vec2(fbm(q * .7 + vec2(uT * .018, 1.7)), fbm(q * .7 + vec2(4.3, -uT * .014))) - .5;
-    float banchi = fbm(q + w * 1.8 + vec2(uT * .035 * vv, uT * .006));
-    float banchi2 = fbm(uv * vec2(5., 8.) + w - vec2(uT * .06 * vv, -uT * .01));     /* sfilacci più vicini, più veloci */
-    float nebbia = uNebbia * clamp(pow(lontano, 1.15) * 1.15 + .12, 0., 1.) * smoothstep(.15, .85, banchi * .9 + banchi2 * .35);
-    nebbia *= 1.35;
-    nebbia += (uPioggia * .32 + uNeve * .3) * pow(lontano, 1.6) * (.8 + .4 * banchi);   /* la pioggia lontana fa velo, a scrosci */
+    vec4 fm = texture2D(uMeteo, vUv);
+    float nebbia = uNebbia * clamp(pow(lontano, 1.15) * 1.15 + .12, 0., 1.) * fm.r * 1.35;
+    nebbia += (uPioggia * .32 + uNeve * .3) * pow(lontano, 1.6) * (.8 + .4 * fm.b);   /* la pioggia lontana fa velo, a scrosci */
     nebbia = clamp(nebbia, 0., .96);
     col = mix(col, uColNebbia, nebbia);
     alfa = max(alfa, nebbia);
@@ -193,35 +147,13 @@ void main(){
   /* lampo: le nuvole si accendono da dentro (si vede la loro forma), poi il paesaggio ne prende il riflesso */
   if (uLampo > .001){
     float vicino = exp(-pow((uv.x - uLampoX) * 2.4, 2.)) * smoothstep(.75, .0, uv.y);
-    float nub = .55 + .9 * fbm(uv * vec2(4., 8.) + 3.7);
+    float nub = .55 + .9 * texture2D(uMeteo, vUv).g;
     float luce = uLampo * (.22 + .55 * sky * nub + .45 * vicino * sky * nub);
     col = col * (1. + luce * 1.6) + vec3(.70, .76, .95) * luce * .16;
     alfa = max(alfa, clamp(luce * .8, 0., 1.));
   }
 
-  /* pioggia, dal lontano al vicino: le gocce lontane fitte e sottili, le vicine rade, lunghe e sfocate */
-  if (uPioggia > .01){
-    float dens = uPioggia * (.6 + .4 * fbm(vec2(uv.x * 1.3 - uT * .22 * (1. + uVento), uT * .05)));
-    vec3 goccia = mix(vec3(.66, .7, .76), uColNebbia * 1.1 + .08, .45) * (1. - uNotteFinta * .65) * (.75 + .45 * l0);
-    float a = 0.;
-    a += strato(uv, 4.,  22., 1.,  .95, dens,        1.) * .16;
-    if (uQualita > .5) a += strato(uv, 8.,  40., 1.3, 1.45, dens * .85, 2.) * .22;
-    a += strato(uv, 16., 80., 2.,  2.2, dens * .6,  3.) * .26;
-    a += strato(uv, 38., 170., 3.5, 3.3, dens * .35, 4.) * .17;
-    col = mix(col, goccia, clamp(a, 0., 1.));
-    alfa = max(alfa, a);
-  }
-  /* neve: dai fiocchi lontani, piccoli e fitti, a quelli vicinissimi, grandi e fuori fuoco */
-  if (uNeve > .01){
-    float a = 0.;
-    a += fiocchi(uv, 9.,   1.1, .1,  .05, 1.) * .7;
-    if (uQualita > .5) a += fiocchi(uv, 19.,  2.,  .25, .08, 2.) * .85;   /* se il computer fatica si toglie uno strato di mezzo, mai i fiocchi grandi */
-    a += fiocchi(uv, 46.,  4.5, .35, .13, 3.) * .75;
-    a += fiocchi(uv, 120., 13., .05, .2, 4.) * .3;
-    a *= uNeve;
-    col = mix(col, vec3(.94, .96, 1.) * (1. - uNotteFinta * .6), clamp(a, 0., 1.));
-    alfa = max(alfa, a);
-  }
+  /* (pioggia e neve sono disegnate dopo, goccia per goccia e fiocco per fiocco: vedi PART_VERT) */
 
   /* luce dello schermo, buio dei cambi, rumore finissimo contro le fasce */
   col *= uLuce * (1. - uBuio);
@@ -230,34 +162,171 @@ void main(){
   else { float a = clamp(alfa, 0., 1.) * (1. - uBuio) + uBuio; gl_FragColor = vec4(max(col, 0.) * (1. - uBuio), a); }
 }`;
 
+/* ── nebbia e nuvole a bassa risoluzione ──────────────────────────────────────
+   Sono forme morbide: calcolarle su un pixel ogni sedici e poi sfumarle non si vede, e costa
+   sedici volte meno. Esce una piccola immagine che il programma principale legge. */
+const METEO_FRAG = `
+precision highp float;
+varying vec2 vUv;
+uniform vec4 uMap;
+uniform float uT, uVento;
+float h1(vec2 p){ vec3 p3 = fract(vec3(p.xyx) * .1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
+float rumore(vec2 p){ vec2 i = floor(p), f = fract(p); f = f*f*(3.-2.*f);
+  return mix(mix(h1(i), h1(i+vec2(1,0)), f.x), mix(h1(i+vec2(0,1)), h1(i+vec2(1,1)), f.x), f.y); }
+float fbm(vec2 p){ float v = 0., a = .5; for (int i = 0; i < 5; i++){ v += a * rumore(p); p = p * 2.03 + 17.1; a *= .5; } return v / .96875; }
+void main(){
+  vec2 uv = uMap.xy + vUv * uMap.zw;
+  float vv = 1. + 1.5 * uVento;
+  vec2 q = uv * vec2(2., 3.6);
+  /* i banchi sono disegnati da un campo che a sua volta è deformato da un altro campo, che si muove
+     in un'altra direzione: così non scorrono rigidi ma cambiano forma mentre passano */
+  vec2 w = vec2(fbm(q * .7 + vec2(uT * .018, 1.7)), fbm(q * .7 + vec2(4.3, -uT * .014))) - .5;
+  float banchi = fbm(q + w * 1.8 + vec2(uT * .035 * vv, uT * .006));
+  float banchi2 = fbm(uv * vec2(5., 8.) + w - vec2(uT * .06 * vv, -uT * .01));     /* sfilacci più vicini, più veloci */
+  float neb = smoothstep(.15, .85, banchi * .9 + banchi2 * .35);
+  float nub = fbm(uv * vec2(3., 6.) + vec2(uT * .012 * (1. + uVento), 0.));
+  gl_FragColor = vec4(neb, nub, banchi, 1.);
+}`;
+
+/* ── pioggia e neve: ogni goccia e ogni fiocco è un piccolo rettangolo ─────────
+   Il costo dipende solo da quanti pixel coprono le gocce, non dalla grandezza della finestra.
+   La posizione di ognuno si calcola dal tempo e da quattro numeri a caso fissi: niente stato da
+   aggiornare, e il movimento è continuo. Le misure valgono per un foro alto 1000 pixel e si
+   scalano con l'altezza vera del foro (uScala): la grana è la stessa su telefono, finestrella e TV. */
+const PART_VERT = `
+precision highp float;
+attribute vec2 aAngolo;       /* angolo del rettangolo: -1..1 */
+attribute vec4 aSeme;         /* quattro numeri a caso, fissi per ogni goccia */
+uniform vec2 uFori;           /* misura del foro in pixel */
+uniform float uT, uVento, uScala, uTipo, uDens, uSale;
+uniform vec4 uStrato;         /* pioggia: lunghezza, larghezza, velocità, -  ·  neve: raggio, -, velocità, - */
+varying vec2 vQ; varying float vA, vW;
+void main(){
+  vec4 r = fract(aSeme + uSale * vec4(.1234, .5678, .9012, .3456));
+  vec2 c, pos;
+  float vis;
+  if (uTipo < .5){
+    /* pioggia: cade inclinata dal vento; le raffiche (uDens che ondeggia lungo la finestra) la fanno
+       più fitta e più rada a ondate */
+    float incl = .1 + .25 * uVento;
+    float L = uStrato.x * uScala * (.7 + .6 * r.w), W = max(uStrato.y * uScala, .7);
+    float est = L / uFori.y;
+    float y = fract(r.y + uT * uStrato.z * (.85 + .3 * r.z)) * (1. + 2. * est) - est;
+    float x = r.x * (uFori.x + incl * uFori.y) - incl * uFori.y + y * uFori.y * incl;
+    c = vec2(x, y * uFori.y);
+    float xr = c.x / uFori.y;
+    float raffica = .62 + .38 * (.5 + .5 * sin(xr * 4.1 - uT * .9 * (1. + uVento))) * (.5 + .5 * sin(xr * 1.7 + uT * .31 + 1.3));
+    vis = step(fract(r.w * 7.31 + r.z), uDens * raffica);
+    vec2 dir = normalize(vec2(incl, 1.)), nrm = vec2(dir.y, -dir.x);
+    float hw = W * .5 + 1.;
+    pos = c + dir * (aAngolo.y * L * .5) + nrm * (aAngolo.x * hw);
+    vQ = vec2(aAngolo.x * hw, aAngolo.y * .5 + .5); vW = W;
+    vA = vis * min(1., W);
+  } else {
+    /* neve: ogni fiocco ha la sua grandezza, la sua velocità e il suo dondolio; il vento li porta di lato */
+    float R = uStrato.x * uScala * (.5 + .9 * r.w);
+    float est = R / uFori.y;
+    float y = fract(r.y + uT * uStrato.z * (.7 + .6 * r.z)) * (1. + 2. * est) - est;
+    float fr = .6 + 1.1 * fract(r.x * 13.7);
+    float x = fract(r.x + uT * uVento * uStrato.z * .25);
+    float amp = (2. + 3. * fract(r.y * 9.1)) * R + 4. * uScala;
+    c = vec2(x * uFori.x + sin(uT * fr + r.z * 6.283) * amp, y * uFori.y + sin(uT * fr * 1.7 + r.x * 6.283) * R * .5);
+    vis = step(fract(r.w * 7.31 + r.z), uDens);
+    float hw = R + 1.5;
+    pos = c + aAngolo * hw;
+    vQ = aAngolo * hw; vW = R;
+    vA = vis * (.55 + .45 * fract(r.z * 5.3));
+  }
+  gl_Position = vis > .5 ? vec4(pos.x / uFori.x * 2. - 1., 1. - pos.y / uFori.y * 2., 0., 1.) : vec4(2., 2., 2., 1.);
+}`;
+const PART_FRAG = `
+precision highp float;
+uniform vec3 uColore;
+uniform float uTipo, uMorb, uAlfa;
+varying vec2 vQ; varying float vA, vW;
+void main(){
+  float a;
+  if (uTipo < .5){
+    a = clamp(vW * .5 + .5 - abs(vQ.x), 0., 1.) * smoothstep(0., .3, vQ.y) * smoothstep(1., .75, vQ.y);
+  } else {
+    a = smoothstep(vW, vW * uMorb, length(vQ));
+  }
+  gl_FragColor = vec4(uColore, a * vA * uAlfa);
+}`;
+/* gli strati: dal lontano (fitto, sottile, lento) al vicino (rado, grande, veloce).
+   n = quanti al massimo per un foro alto 1000 pixel e largo 400 */
+const PIOGGIA = [
+  {n:3000, lungh:14,  largh:1,   vel:.95, dens:1,   alfa:.17, fine:true},
+  {n:800,  lungh:26,  largh:1.3, vel:1.45, dens:.85, alfa:.24, fine:true},
+  {n:220,  lungh:52,  largh:2,   vel:2.2, dens:.6,  alfa:.28},
+  {n:45,   lungh:110, largh:3.5, vel:3.3, dens:.35, alfa:.19}
+];
+const NEVE = [
+  {n:3000, raggio:1.1, morb:.1,  vel:.05, alfa:.7,  fine:true},
+  {n:700,  raggio:2,   morb:.25, vel:.08, alfa:.85, fine:true},
+  {n:120,  raggio:4.5, morb:.35, vel:.13, alfa:.75},
+  {n:20,   raggio:13,  morb:.05, vel:.2,  alfa:.3}
+];
+const SEMI = 40000;
+
 /* ─────────────────────────────────────────────────────────────────────────── */
 
 class Vista {
   constructor(canvas){
     this.c = canvas;
     const opz = {alpha:true, premultipliedAlpha:false, antialias:false, preserveDrawingBuffer:false};
-    /* WebGL2 dove c'è (Raspberry compresi): permette le mipmap anche sulle immagini non quadrate */
-    const gl = canvas.getContext('webgl2', opz) || canvas.getContext('webgl', opz) || canvas.getContext('experimental-webgl');
+    /* WebGL2 dove c'è (Raspberry compresi): mipmap anche sulle immagini non quadrate, e gocce «in serie» */
+    let gl = canvas.getContext('webgl2', opz);
+    this.gl2 = !!gl;
+    if (!gl) gl = canvas.getContext('webgl', opz) || canvas.getContext('experimental-webgl');
     if (!gl) throw new Error('WebGL non disponibile');
     this.gl = gl;
     const sh = (tipo, src) => { const s = gl.createShader(tipo); gl.shaderSource(s, src); gl.compileShader(s);
       if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s)); return s; };
-    const p = gl.createProgram();
-    gl.attachShader(p, sh(gl.VERTEX_SHADER, VERT)); gl.attachShader(p, sh(gl.FRAGMENT_SHADER, FRAG)); gl.linkProgram(p);
-    if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p));
-    gl.useProgram(p); this.p = p;
-    const b = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, b);
-    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, 1,1]), gl.STATIC_DRAW);
-    const a = gl.getAttribLocation(p, 'aPos'); gl.enableVertexAttribArray(a); gl.vertexAttribPointer(a, 2, gl.FLOAT, false, 0, 0);
-    this.u = {};
-    for (const nome of ['uOcchio','uImg0b','uVmix','uImg0','uImg1','uDep0','uDep1','uMap','uCrop0','uCrop1','uMix','uHaImg','uHaDep0','uHaDep1','uMovimento0','uMovimento1',
+    const programma = (v, f, attr) => { const p = gl.createProgram();
+      gl.attachShader(p, sh(gl.VERTEX_SHADER, v)); gl.attachShader(p, sh(gl.FRAGMENT_SHADER, f));
+      attr.forEach((n, i) => gl.bindAttribLocation(p, i, n)); gl.linkProgram(p);
+      if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p)); return p; };
+    const posizioni = (p, nomi) => { const u = {}; for (const n of nomi) u[n] = gl.getUniformLocation(p, n); return u; };
+    /* il programma principale: paesaggio, cielo, nebbia, lampo, luce */
+    this.p = programma(VERT, FRAG, ['aPos']);
+    this.u = posizioni(this.p, ['uOcchio','uImg0b','uVmix','uImg0','uImg1','uDep0','uDep1','uMap','uCrop0','uCrop1','uMix','uHaImg','uHaDep0','uHaDep1','uMovimento0','uMovimento1',
       'uLato','uT','uAspetto','uPix','uCoperto','uNebbia','uPioggia','uNeve','uTempesta','uVento','uLampo','uLampoX',
-      'uNotteFinta','uLuce','uBuio','uQualita','uColNebbia']) this.u[nome] = gl.getUniformLocation(p, nome);
-    gl.uniform1i(this.u.uImg0, 0); gl.uniform1i(this.u.uImg1, 1); gl.uniform1i(this.u.uDep0, 2); gl.uniform1i(this.u.uDep1, 3); gl.uniform1i(this.u.uImg0b, 4);
+      'uNotteFinta','uLuce','uBuio','uQualita','uColNebbia','uMeteo']);
+    gl.useProgram(this.p);
+    gl.uniform1i(this.u.uImg0, 0); gl.uniform1i(this.u.uImg1, 1); gl.uniform1i(this.u.uDep0, 2); gl.uniform1i(this.u.uDep1, 3); gl.uniform1i(this.u.uImg0b, 4); gl.uniform1i(this.u.uMeteo, 5);
+    /* nebbia e nuvole a bassa risoluzione */
+    this.pm = programma(VERT, METEO_FRAG, ['aPos']);
+    this.um = posizioni(this.pm, ['uMap','uT','uVento']);
+    /* gocce e fiocchi */
+    this.pp = programma(PART_VERT, PART_FRAG, ['aAngolo', 'aSeme']);
+    this.up = posizioni(this.pp, ['uFori','uT','uVento','uScala','uTipo','uDens','uSale','uStrato','uColore','uMorb','uAlfa']);
+    this.ist = this.gl2 ? {div:(i, d) => gl.vertexAttribDivisor(i, d), disegna:(n) => gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, n)}
+      : (() => { const e = gl.getExtension('ANGLE_instanced_arrays'); return e ? {div:(i, d) => e.vertexAttribDivisorANGLE(i, d), disegna:(n) => e.drawArraysInstancedANGLE(gl.TRIANGLE_STRIP, 0, 4, n)} : null; })();
+    /* i rettangoli: uno per tutto il foro, uno per goccia; e i numeri a caso delle gocce */
+    this.bQuad = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, this.bQuad);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, 1,1]), gl.STATIC_DRAW);
+    const semi = new Float32Array(SEMI * 4); for (let i = 0; i < semi.length; i++) semi[i] = Math.random();
+    this.bSemi = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, this.bSemi); gl.bufferData(gl.ARRAY_BUFFER, semi, gl.STATIC_DRAW);
     this.vuota = this.texture(); this.carica(this.vuota, new Uint8Array([0,0,0,255]), 1, 1);
+    this.meteo = [];   /* per ogni foro: la sua piccola immagine di nebbia e nuvole */
     /* le due «fonti» (quella che si vede e quella da cui si sfuma): immagine, profondità, eventuale video */
     this.fonti = [this.fonteVuota(), this.fonteVuota()];
     this.mix = 0; this.mixDa = 0; this.mixDur = 0;
+  }
+  quad(){ const gl = this.gl; gl.bindBuffer(gl.ARRAY_BUFFER, this.bQuad); gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+    if (this.ist){ this.ist.div(1, 0); gl.disableVertexAttribArray(1); } }
+  /* la piccola immagine della nebbia per il foro i, grande un quarto per lato */
+  bufferMeteo(i, w, h){
+    const gl = this.gl, W = Math.max(8, Math.ceil(w / 4)), H = Math.max(8, Math.ceil(h / 4));
+    let m = this.meteo[i];
+    if (m && m.w === W && m.h === H) return m;
+    if (m){ gl.deleteTexture(m.tex); gl.deleteFramebuffer(m.fb); }
+    const tex = this.texture(); this.carica(tex, null, W, H);
+    const fb = gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    return this.meteo[i] = {tex, fb, w:W, h:H};
   }
   texture(){ const gl = this.gl, t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
@@ -332,8 +401,10 @@ class Vista {
   /* disegna: fori = [{x,y,w,h, map:[x,y,w,h], aspetto, lato}] in pixel del canvas */
   disegna(fori, s){
     const gl = this.gl, u = this.u;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     gl.viewport(0, 0, this.c.width, this.c.height);
-    gl.disable(gl.SCISSOR_TEST); gl.clearColor(0, 0, 0, s.trasparente ? 0 : 1); gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.disable(gl.SCISSOR_TEST); gl.disable(gl.BLEND);
+    gl.clearColor(0, 0, 0, s.trasparente ? 0 : 1); gl.clear(gl.COLOR_BUFFER_BIT);
     if (this.mix > 0){
       this.mix = Math.max(0, 1 - (performance.now() - this.mixDa) / Math.max(1, this.mixDur));
       if (this.mix === 0 && this.vecchiaDaLiberare){ this.libera(this.vecchiaDaLiberare); this.vecchiaDaLiberare = null; }
@@ -344,7 +415,9 @@ class Vista {
     const lega = (unita, t) => { gl.activeTexture(gl.TEXTURE0 + unita); gl.bindTexture(gl.TEXTURE_2D, t || this.vuota); };
     lega(0, haImg ? (v0 ? f0.vtex : f0.tex) : null);
     lega(1, haImg && this.mix > 0 ? (v1 ? f1.vtex : f1.tex) : null);
-    lega(2, f0.depTex); lega(3, f1.depTex); lega(4, haImg && f0.vk > 0 ? f0.vtexB : null);
+    lega(2, f0.depTex); lega(3, f1.depTex); lega(4, haImg && f0.vk > 0 ? f0.vtexB : null); lega(5, null);
+    /* uniformi del programma principale (restano al programma anche quando si passa agli altri) */
+    gl.useProgram(this.p);
     gl.uniform1f(u.uVmix, haImg && v0 ? f0.vk : 0);
     gl.uniform1f(u.uHaImg, haImg ? 1 : 0);
     const k = this.mix * this.mix * (3 - 2 * this.mix);
@@ -358,9 +431,26 @@ class Vista {
     gl.uniform3fv(u.uColNebbia, s.colNebbia);
     const oc = s.occhio || {x:0, z:0}; gl.uniform3f(u.uOcchio, oc.x || 0, 0, oc.z || 0);
     const marg = s.margine || 1.04;
-    gl.enable(gl.SCISSOR_TEST);
-    for (const foro of fori){
+    const tempo = (s.nebbia || 0) + (s.pioggia || 0) + (s.neve || 0) > .005 || (s.coperto || 0) > .01 || (s.lampo || 0) > .001;
+    const gocce = this.ist && ((s.pioggia || 0) > .01 || (s.neve || 0) > .01);
+    this.quad();
+    fori.forEach((foro, i) => {
       const y = this.c.height - foro.y - foro.h;              /* WebGL conta dal basso */
+      /* 1. nebbia e nuvole, a un quarto di risoluzione */
+      let tm = null;
+      if (tempo){
+        const m = this.bufferMeteo(i, foro.w, foro.h); tm = m.tex;
+        lega(5, null);
+        gl.bindFramebuffer(gl.FRAMEBUFFER, m.fb); gl.disable(gl.SCISSOR_TEST); gl.viewport(0, 0, m.w, m.h);
+        gl.useProgram(this.pm);
+        gl.uniform4fv(this.um.uMap, foro.map); gl.uniform1f(this.um.uT, s.t); gl.uniform1f(this.um.uVento, s.vento || 0);
+        gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+        gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      }
+      /* 2. il paesaggio col suo tempo */
+      gl.useProgram(this.p);
+      lega(5, tm);
+      gl.enable(gl.SCISSOR_TEST);
       gl.viewport(foro.x, y, foro.w, foro.h); gl.scissor(foro.x, y, foro.w, foro.h);
       gl.uniform4fv(u.uMap, foro.map);
       gl.uniform1f(u.uAspetto, foro.aspetto);
@@ -369,7 +459,39 @@ class Vista {
       gl.uniform4fv(u.uCrop0, f0.ok ? this.crop(v0 ? {iw:f0.video[0].videoWidth || f0.iw, ih:f0.video[0].videoHeight || f0.ih} : f0, foro.aspetto, marg, v0 ? null : f0.fuoco) : [0,0,1,1]);
       gl.uniform4fv(u.uCrop1, f1.ok ? this.crop(v1 ? {iw:f1.video[0].videoWidth || f1.iw, ih:f1.video[0].videoHeight || f1.ih} : f1, foro.aspetto, marg, v1 ? null : f1.fuoco) : [0,0,1,1]);
       gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+      /* 3. pioggia e neve, goccia per goccia, sopra */
+      if (gocce) this.disegnaGocce(foro, s);
+    });
+  }
+  disegnaGocce(foro, s){
+    const gl = this.gl, up = this.up;
+    gl.useProgram(this.pp);
+    gl.enable(gl.BLEND); gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.bQuad); gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0); this.ist.div(0, 0);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.bSemi); gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 4, gl.FLOAT, false, 0, 0); this.ist.div(1, 1);
+    gl.uniform2f(up.uFori, foro.w, foro.h); gl.uniform1f(up.uT, s.t); gl.uniform1f(up.uVento, s.vento || 0);
+    gl.uniform1f(up.uScala, Math.max(foro.h / 1000, .3));
+    const quanti = (foro.w / foro.h) / .4, luce = (s.luce || 0) * (1 - (s.buio || 0)), nf = s.notteFinta || 0, cn = s.colNebbia || [.7, .7, .7];
+    const strati = (lista, tipo, dens, colore, alfa) => lista.forEach((L, i) => {
+      let n = Math.min(SEMI, Math.round(L.n * quanti * (s.qualita || !L.fine ? 1 : .5)));
+      if (n < 1) return;
+      gl.uniform1f(up.uTipo, tipo); gl.uniform1f(up.uSale, i + 1 + tipo * 7);
+      gl.uniform1f(up.uDens, dens * (L.dens || 1));
+      gl.uniform4f(up.uStrato, L.lungh || L.raggio, L.largh || 0, L.vel, 0);
+      gl.uniform1f(up.uMorb, L.morb || 0); gl.uniform1f(up.uAlfa, L.alfa * alfa);
+      gl.uniform3fv(up.uColore, colore);
+      this.ist.disegna(n);
+    });
+    if ((s.pioggia || 0) > .01){
+      const g = [0, 1, 2].map(j => ([.66, .7, .76][j] * .55 + (cn[j] * 1.1 + .08) * .45) * (1 - nf * .65) * .97 * luce);
+      strati(PIOGGIA, 0, s.pioggia, g, 1);
     }
+    if ((s.neve || 0) > .01){
+      const g = [.94, .96, 1].map(v => v * (1 - nf * .6) * luce);
+      strati(NEVE, 1, Math.min(1, s.neve * 1.1), g, .4 + .6 * s.neve);
+    }
+    this.ist.div(1, 0); gl.disableVertexAttribArray(1);
+    gl.disable(gl.BLEND);
   }
 }
 
