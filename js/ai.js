@@ -11,10 +11,13 @@ const MODELLI_IMMAGINE = [
   {id:'google:gemini-3-pro-image-preview', nome:'Nano Banana Pro', fornitore:'google', note:'Google, molto realistico. Verticale 9:16.', costo:{alta:.14, media:.14, bassa:.14}},
   {id:'google:gemini-2.5-flash-image',     nome:'Nano Banana',     fornitore:'google', note:'Google, veloce ed economico. Verticale 9:16.', costo:{alta:.039, media:.039, bassa:.039}},
 ];
-/* Animazioni: l'API Sora di OpenAI è stata spenta il 24 settembre 2026 e le Veo 3.1 «preview» di Google il 22 ottobre.
-   L'erede è Gemini Omni Flash (Google, Interactions API): da collegare appena verificato il formato delle richieste.
-   Finché l'elenco è vuoto, l'app nasconde le animazioni; il movimento lo fa la finestra da sé (nuvole, alberi). */
-const MODELLI_VIDEO = [];
+/* Animazioni: Gemini Omni Flash di Google (Interactions API), con la chiave Google.
+   (L'API Sora di OpenAI è stata spenta il 24 settembre 2026, le Veo 3.1 «preview» di Google il 22 ottobre.)
+   Il loop è vero: si chiede la stessa immagine come primo e ultimo fotogramma. */
+const MODELLI_VIDEO = [
+  {id:'omni-720p',  modello:'gemini-omni-1.1-flash', risoluzione:'720p',  nome:'Gemini Omni Flash',        euroSecondo:.10, note:'Google, 720p verticale. Loop vero: primo e ultimo fotogramma uguali.'},
+  {id:'omni-1080p', modello:'gemini-omni-1.1-flash', risoluzione:'1080p', nome:'Gemini Omni Flash · 1080p', euroSecondo:.15, note:'Più definito (ingrandito dall\'AI): si vede meglio da vicino. Costo stimato.'},
+];
 
 const Ai = {
   modello(id){ return MODELLI_IMMAGINE.find(m => m.id === id) || MODELLI_IMMAGINE[0]; },
@@ -121,43 +124,62 @@ const Ai = {
 
   inBase64(blob){ return new Promise((ok, no) => { const fr = new FileReader(); fr.onload = () => ok(String(fr.result).split(',')[1]); fr.onerror = no; fr.readAsDataURL(blob); }); },
 
-  /* ── animazioni con Sora 2 ───────────────────────────────────────────────── */
-  /* anima({chiave, modello, secondi, foto:Blob, prompt, progresso(p, stato)}) → Blob mp4 */
+  /* ── animazioni con Gemini Omni Flash ────────────────────────────────────── */
+  /* anima({chiave, modello, foto:Blob, prompt, fuoco, progresso(p, stato)}) → Blob mp4.
+     Si chiede in sottofondo (background) e si chiede a che punto è ogni pochi secondi:
+     così la connessione non resta muta per minuti (Safari la chiuderebbe). */
   async anima(o){
-    if (!o.chiave) throw new Error('Serve la chiave OpenAI: mettila nelle Impostazioni.');
+    if (!o.chiave) throw new Error('Serve la chiave Google (Gemini): mettila nelle Impostazioni.');
     const mv = MODELLI_VIDEO.find(m => m.id === o.modello) || MODELLI_VIDEO[0];
-    const [w, h] = mv.misura.split('x').map(Number);
-    const rif = await adatta(o.foto, w, h, 'image/jpeg');        /* il riferimento deve avere esattamente la misura del video */
-    const f = new FormData();
-    f.append('model', mv.id); f.append('prompt', o.prompt); f.append('size', mv.misura); f.append('seconds', String(o.secondi || 8));
-    f.append('input_reference', rif, 'riferimento.jpg');
-    const auth = {'Authorization':'Bearer ' + o.chiave};
-    let r = await fetch('https://api.openai.com/v1/videos', {method:'POST', headers:auth, body:f});
-    if (!r.ok) throw await this.errore(r, 'OpenAI (Sora)');
-    let job = await r.json();
-    const inizio = Date.now();
-    while (job.status === 'queued' || job.status === 'in_progress'){
-      o.progresso && o.progresso(job.progress || 0, job.status);
-      await new Promise(ok => setTimeout(ok, 5000));
-      if (Date.now() - inizio > 20 * 60 * 1000) throw new Error('Sora ci sta mettendo troppo: riprova più tardi.');
-      r = await fetch('https://api.openai.com/v1/videos/' + job.id, {headers:auth});
-      if (!r.ok) throw await this.errore(r, 'OpenAI (Sora)');
-      job = await r.json();
+    const lato = mv.risoluzione === '1080p' ? [1080, 1920] : [720, 1280];
+    const rif = await adatta(o.foto, lato[0], lato[1], 'image/jpeg', .92, o.fuoco && o.fuoco.x != null ? o.fuoco.x : .5);   /* già verticale 9:16 */
+    const base = 'https://generativelanguage.googleapis.com/v1beta/interactions';
+    const intest = {'Content-Type':'application/json', 'x-goog-api-key':o.chiave};
+    const corpo = {model: mv.modello,
+      input: [{type:'image', data: await this.inBase64(rif), mime_type:'image/jpeg'}, {type:'text', text:o.prompt}],
+      response_format: {type:'video', aspect_ratio:'9:16', resolution: mv.risoluzione},
+      background: true};
+    o.progresso && o.progresso(2, 'invio');
+    let r = await fetch(base, {method:'POST', headers:intest, body:JSON.stringify(corpo)});
+    if (r.status === 400){
+      const e = await this.errore(r, 'Google');
+      if (!/background/i.test(e.testo || '')) throw e;
+      delete corpo.background;                                   /* se il sottofondo non è accettato, chiamata diretta */
+      r = await fetch(base, {method:'POST', headers:intest, body:JSON.stringify(corpo)});
     }
-    if (job.status !== 'completed') throw new Error('Sora non è riuscito: ' + ((job.error && job.error.message) || job.status));
-    o.progresso && o.progresso(100, 'scarico');
-    r = await fetch('https://api.openai.com/v1/videos/' + job.id + '/content', {headers:auth});
-    if (!r.ok) throw await this.errore(r, 'OpenAI (Sora)');
-    return await r.blob();
+    if (!r.ok) throw await this.errore(r, 'Google');
+    let it = await r.json();
+    const inizio = Date.now();
+    while (it.status && it.status !== 'completed' && it.status !== 'failed' && it.status !== 'cancelled'){
+      const sec = (Date.now() - inizio) / 1000;
+      o.progresso && o.progresso(Math.min(95, 5 + sec / 1.8), it.status);       /* stima: 2-3 minuti */
+      await new Promise(ok => setTimeout(ok, 5000));
+      if (sec > 15 * 60) throw new Error('Google ci sta mettendo troppo: riprova più tardi.');
+      r = await fetch(base + '/' + encodeURIComponent(it.id), {headers:{'x-goog-api-key':o.chiave}});
+      if (!r.ok) throw await this.errore(r, 'Google');
+      it = await r.json();
+    }
+    if (it.status === 'failed' || it.status === 'cancelled') throw new Error('Google non è riuscito a fare il video: ' + ((it.error && it.error.message) || it.status));
+    const parti = (it.steps || []).filter(x => x.type === 'model_output').flatMap(x => x.content || []);
+    const v = parti.find(x => x.type === 'video') || (it.output_video || null);
+    if (!v) throw new Error('Google non ha mandato il video' + (parti.find(x => x.type === 'text') ? ': ' + parti.find(x => x.type === 'text').text.slice(0, 200) : '.'));
+    o.progresso && o.progresso(98, 'scarico');
+    if (v.data) return b64aBlob(v.data, v.mime_type || 'video/mp4');
+    if (v.uri){
+      const d = await fetch(v.uri, {headers:{'x-goog-api-key':o.chiave}});
+      if (!d.ok) throw await this.errore(d, 'Google');
+      return await d.blob();
+    }
+    throw new Error('Video vuoto.');
   },
 };
 
 /* ridimensiona un'immagine coprendo esattamente w×h (taglia quello che avanza, centrato) */
-async function adatta(blob, w, h, tipo = 'image/jpeg', qualita = .92){
+async function adatta(blob, w, h, tipo = 'image/jpeg', qualita = .92, fx = .5){
   const bmp = await createImageBitmap(blob);
   const c = document.createElement('canvas'); c.width = w; c.height = h;
   const s = Math.max(w / bmp.width, h / bmp.height), sw = w / s, sh = h / s;
-  c.getContext('2d').drawImage(bmp, (bmp.width - sw) / 2, (bmp.height - sh) / 2, sw, sh, 0, 0, w, h);
+  c.getContext('2d').drawImage(bmp, (bmp.width - sw) * fx, (bmp.height - sh) / 2, sw, sh, 0, 0, w, h);
   return await new Promise(r => c.toBlob(r, tipo, qualita));
 }
 function b64aBlob(b64, tipo){ const s = atob(b64), a = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) a[i] = s.charCodeAt(i); return new Blob([a], {type:tipo}); }

@@ -26,10 +26,11 @@ if (q.get('casa') !== casa) history.replaceState(null, '', location.pathname + '
 
 /* ── impostazioni ─────────────────────────────────────────────────────────── */
 const IMP_PRED = {modello:'openai:gpt-image-2', qualita:'alta', chiavi:{openai:'', google:'', pexels:''},
-  video:{modello:'sora-2', secondi:8}, stile:'painterly', luci:{alba:true, tramonto:true, notte:true}, anima:false, elementi:['nuvole','alberi']};
+  video:{modello:'omni-720p', secondi:8}, stile:'painterly', luci:{alba:true, tramonto:true, notte:true}, anima:false, elementi:['nuvole','alberi']};
 const imp = Object.assign({}, IMP_PRED, leggi('finestre-impostazioni', {}));
 imp.chiavi = Object.assign({}, IMP_PRED.chiavi, imp.chiavi || {});
 imp.video = Object.assign({}, IMP_PRED.video, imp.video || {});
+if (!MODELLI_VIDEO.find(m => m.id === imp.video.modello)) imp.video.modello = 'omni-720p';
 if (!imp.chiavi.openai && leggi('finestre-chiave-openai', '')) imp.chiavi.openai = leggi('finestre-chiave-openai', '');   /* dalla versione di prima */
 if (!MODELLI_VIDEO.length) imp.anima = false;
 const salvaImp = () => scrivi('finestre-impostazioni', imp);
@@ -366,7 +367,7 @@ ${LUCI.giorno}`;
 }
 const promptLuce = ora => `Same exact view and composition as the input image: every hill, building, tree and river stays in the same place, same framing, same style. ${LUCI[ora]} Do not add a window frame, text or borders.`;
 const promptRiadatta = `Recompose this exact landscape into a very tall and narrow vertical frame (2 wide by 5 high, like a slit window): same place, same style, same light. The main subject (for example the castle or the village) must be fully visible and centered in the width, never cut by the edges. Extend the sky above and the foreground below naturally. No window frame, no text, no borders.`;
-const promptAnima = el => `Static locked-off shot on a tripod: the camera does not move at all (no pan, no tilt, no zoom, no dolly, no shake). This exact landscape comes alive with gentle, natural, real-time motion: ${el.map(e => (ELEMENTI.find(x => x[0] === e) || [])[3]).filter(Boolean).join('; ')}. Everything else stays perfectly still: buildings, rocks, mountains, the ground. Same framing, light and colors as the reference image for the whole clip. Calm, continuous motion that can loop seamlessly. No people, no animals in the foreground, no text, no cuts, no sound.`;
+const promptAnima = (el, sec) => `[# Sources <FIRST_FRAME>@Image1 <LAST_FRAME>@Image1] A single continuous, unbroken shot of about ${sec} seconds, no scene cuts, of exactly this landscape. Locked-off static camera on a tripod: the camera does not move at all (no pan, no tilt, no zoom, no dolly, no shake). Gentle, natural, real-time motion only: ${el.map(e => (ELEMENTI.find(x => x[0] === e) || [])[3]).filter(Boolean).join('; ')}. Buildings, rocks, mountains and the ground stay perfectly still. Same framing, light and colors as the image for the whole clip. No people, no animals in the foreground, no text, no dialogue, no music. Use this image as the first frame and the last frame.`;
 
 /* un lavoro lungo alla volta (creare, animare, aggiungere luci): i passi si vedono dove serve */
 let lavoro = null;
@@ -420,8 +421,8 @@ async function faiProfondita(p, foto){
 async function faiAnimazione(p, foto, ora, elementi){
   const mv = MODELLI_VIDEO.find(m => m.id === imp.video.modello) || MODELLI_VIDEO[0];
   passo('anim', 'ora', `Animazione con ${mv.nome}: in coda…`); lavoro.av = 0;
-  const mp4 = await Ai.anima({chiave:imp.chiavi.openai, modello:mv.id, secondi:imp.video.secondi, foto, prompt:promptAnima(elementi),
-    progresso:(pc, st) => { lavoro.av = pc; passo('anim', 'ora', `Animazione con ${mv.nome}: ${st === 'queued' ? 'in coda' : st === 'scarico' ? 'la scarico' : 'la sta girando'}… ${Math.round(pc)}%`); }});
+  const mp4 = await Ai.anima({chiave:imp.chiavi.google, modello:mv.id, foto, fuoco:p.fuoco, prompt:promptAnima(elementi, imp.video.secondi),
+    progresso:(pc, st) => { lavoro.av = pc; passo('anim', 'ora', `Animazione con ${mv.nome}: ${st === 'invio' ? 'la mando' : st === 'scarico' ? 'la scarico' : 'la sta girando'}… ${Math.round(pc)}%`); }});
   passo('anim', 'ora', 'Animazione: la salvo…');
   p.animati[ora] = await caricaAnimazione(casa, p, ora, mp4);
   lavoro.av = null; passo('anim', 'fatto', 'Animazione (' + imp.video.secondi + ' s, in loop)');
@@ -501,12 +502,12 @@ function disegnaImpostazioni(){
       <p class="nota">Prezzi indicativi per un'immagine; le luci del giorno costano un po' di più (c'è anche l'immagine in ingresso).</p></div>
     <div class="sezione">${titolo('anima', 'AI per le animazioni')}
       ${MODELLI_VIDEO.length ? `<div class="scelte">${MODELLI_VIDEO.map(m => `<button class="scelta riga" data-fai="modelloVideo" data-v="${m.id}" aria-pressed="${imp.video.modello === m.id}">${icona('anima', 22)}<span><b>${esc(m.nome)}</b><small>${esc(m.note)}</small></span><span class="prezzo">${euro(m.euroSecondo)}/s</span></button>`).join('')}</div>
-      <div class="segmenti" style="margin-top:10px">${[4, 8].map(v => `<button data-fai="secondi" data-v="${v}" aria-pressed="${imp.video.secondi === v}">${v} secondi</button>`).join('')}</div>`
+      <div class="segmenti" style="margin-top:10px">${[4, 6, 8, 10].map(v => `<button data-fai="secondi" data-v="${v}" aria-pressed="${imp.video.secondi === v}">${v} secondi</button>`).join('')}</div>`
       : `<p class="nota" style="margin-top:0">OpenAI ha spento l'API di Sora (24 settembre 2026) e Google le Veo «preview» (22 ottobre). Il successore è Gemini Omni Flash di Google: lo collego appena verificato. Userà la chiave Google qui sotto.</p>`}</div>
     <div class="sezione">${titolo('chiave', 'Chiavi', 'restano su questo telefono')}
       <div class="pannello">
         ${campoChiave('kOpenai', 'OpenAI', 'sk-…', imp.chiavi.openai, 'La stessa di DMaster. Per GPT Image.')}
-        ${campoChiave('kGoogle', 'Google (Gemini)', 'AIza…', imp.chiavi.google, 'Per Nano Banana (e presto le animazioni). Si crea gratis su <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com</a>.')}
+        ${campoChiave('kGoogle', 'Google (Gemini)', 'AIza…', imp.chiavi.google, 'Per Nano Banana e per le animazioni (Gemini Omni). Si crea gratis su <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com</a>.')}
         ${campoChiave('kPexels', 'Pexels (facoltativa)', 'chiave Pexels', imp.chiavi.pexels, 'Foto vere gratuite e verticali. Si chiede su <a href="https://www.pexels.com/api/" target="_blank" rel="noopener">pexels.com/api</a>.')}
       </div></div>
     <div class="sezione">${titolo('porta', 'I fori sullo schermo')}
@@ -617,7 +618,7 @@ const AZIONI = {
   animLuce: (v, b) => b.parentNode.querySelectorAll('button').forEach(x => x.setAttribute('aria-pressed', String(x === b))),
   animaVia: async v => {
     const p = libreria.find(x => x.id === v); if (!p) return;
-    if (!imp.chiavi.openai){ avviso('Serve la chiave OpenAI nelle Impostazioni.', true); return; }
+    if (!imp.chiavi.google){ avviso('Serve la chiave Google (Gemini) nelle Impostazioni.', true); return; }
     const ora = ($('#animLuce [aria-pressed="true"]') || {}).dataset?.v || 'giorno';
     await conLavoro('anima', async L => {
       L.p = p; L.anteprime[ora] = {url:p.immagini[ora]};

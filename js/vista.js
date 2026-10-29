@@ -260,7 +260,8 @@ class Vista {
     f.tex = f.depTex = f.vtex = f.vtexB = null; f.ok = false; }
   get urlInVista(){ return this.fonti[0].ok ? this.fonti[0].url : null; }
 
-  /* il fotogramma del video in loop: due lettori; nell'ultimo tratto parte il secondo dall'inizio
+  /* (il video è già tagliato sull'inquadratura scelta quando è stato creato: lì il fuoco non serve)
+     il fotogramma del video in loop: due lettori; nell'ultimo tratto parte il secondo dall'inizio
      e i due si sfumano, così il giro non si vede. Ritorna il peso del secondo (0 se non c'è). */
   aggiornaVideo(f){
     f.vk = 0;
@@ -322,8 +323,8 @@ class Vista {
       gl.uniform1f(u.uAspetto, foro.aspetto);
       gl.uniform2f(u.uPix, foro.w / foro.map[2], foro.h / foro.map[3]);   /* pixel della vista intera */
       gl.uniform1f(u.uLato, s.prospettiva ? foro.lato : 0);
-      gl.uniform4fv(u.uCrop0, f0.ok ? this.crop(v0 ? {iw:f0.video[0].videoWidth || f0.iw, ih:f0.video[0].videoHeight || f0.ih} : f0, foro.aspetto, 1.04, f0.fuoco) : [0,0,1,1]);
-      gl.uniform4fv(u.uCrop1, f1.ok ? this.crop(v1 ? {iw:f1.video[0].videoWidth || f1.iw, ih:f1.video[0].videoHeight || f1.ih} : f1, foro.aspetto, 1.04, f1.fuoco) : [0,0,1,1]);
+      gl.uniform4fv(u.uCrop0, f0.ok ? this.crop(v0 ? {iw:f0.video[0].videoWidth || f0.iw, ih:f0.video[0].videoHeight || f0.ih} : f0, foro.aspetto, 1.04, v0 ? null : f0.fuoco) : [0,0,1,1]);
+      gl.uniform4fv(u.uCrop1, f1.ok ? this.crop(v1 ? {iw:f1.video[0].videoWidth || f1.iw, ih:f1.video[0].videoHeight || f1.ih} : f1, foro.aspetto, 1.04, v1 ? null : f1.fuoco) : [0,0,1,1]);
       gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
     }
   }
