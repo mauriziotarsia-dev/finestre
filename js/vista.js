@@ -92,9 +92,13 @@ vec3 paesaggio(sampler2D img, sampler2D dep, vec4 crop, float haDep, float mov, 
   return c;
 }
 
-/* pioggia: righe sottili che cadono, inclinate dal vento. Misure in pixel della vista,
-   così su ogni schermo le gocce hanno la stessa grana. */
+/* pioggia: righe sottili che cadono, inclinate dal vento. Le misure sono pensate per un foro alto
+   1000 pixel e si scalano con l'altezza vera del foro: così la pioggia ha la stessa grana rispetto
+   alla finestra su ogni schermo (telefono, finestrella, TV grande). Ogni goccia occupa solo un
+   tratto della sua cella, con un vuoto sopra e sotto: due gocce vicine non si saldano in una linea. */
 float strato(vec2 uv, float passo, float lungh, float largh, float vel, float dens, float seme){
+  float sc = max(uPix.y / 1000., .3);
+  passo *= sc; lungh *= sc * 1.5; largh = max(largh * sc, .7);
   vec2 px = uv * uPix;                                   /* pixel della vista */
   px.x += px.y * (.1 + .25 * uVento);
   float col = floor(px.x / passo);
@@ -104,7 +108,10 @@ float strato(vec2 uv, float passo, float lungh, float largh, float vel, float de
   float r = h1(id + seme);
   float x0 = .5 + (h1(id + seme + 3.1) - .5) * (1. - 2. * largh / passo);
   float d = abs(fx - x0) * passo;                         /* distanza in pixel dal filo */
-  float s = smoothstep(largh, largh * .2, d) * smoothstep(0., .3, fy) * smoothstep(1., .7, fy);
+  float L = .28 + .3 * h1(id + seme + 7.7);               /* lunghezza della goccia, in frazione di cella */
+  float y0 = h1(id + seme + 5.2) * (1. - L);
+  float t = (fy - y0) / L;
+  float s = smoothstep(largh, largh * .2, d) * smoothstep(0., .3, t) * smoothstep(1., .75, t);
   return s * step(r, dens);
 }
 /* neve: fiocchi tondi che scendono ondeggiando; i vicini grandi e sfocati */
@@ -177,10 +184,10 @@ void main(){
     float dens = uPioggia * (.6 + .4 * fbm(vec2(uv.x * 1.3 - uT * .22 * (1. + uVento), uT * .05)));
     vec3 goccia = mix(vec3(.66, .7, .76), uColNebbia * 1.1 + .08, .45) * (1. - uNotteFinta * .65) * (.75 + .45 * l0);
     float a = 0.;
-    a += strato(uv, 4.,  22., 1.,  .95, dens,        1.) * .11;
-    a += strato(uv, 8.,  40., 1.3, 1.45, dens * .85, 2.) * .15;
-    if (uQualita > .5) a += strato(uv, 16., 80., 2.,  2.2, dens * .6,  3.) * .18;
-    a += strato(uv, 38., 170., 3.5, 3.3, dens * .35, 4.) * .12;
+    a += strato(uv, 4.,  22., 1.,  .95, dens,        1.) * .16;
+    a += strato(uv, 8.,  40., 1.3, 1.45, dens * .85, 2.) * .22;
+    if (uQualita > .5) a += strato(uv, 16., 80., 2.,  2.2, dens * .6,  3.) * .26;
+    a += strato(uv, 38., 170., 3.5, 3.3, dens * .35, 4.) * .17;
     col = mix(col, goccia, clamp(a, 0., 1.));
     alfa = max(alfa, a);
   }
