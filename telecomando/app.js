@@ -9,7 +9,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
 const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 const euro = n => (n < .1 ? n.toFixed(3) : n.toFixed(2)).replace('.', ',') + ' $';
-const VERSIONE = '2.1';
+const VERSIONE = '2.2';
 
 /* ── la casa ──────────────────────────────────────────────────────────────── */
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
@@ -37,7 +37,7 @@ const salvaImp = () => scrivi('finestre-impostazioni', imp);
 
 /* ── la scena e i fori ───────────────────────────────────────────────────── */
 const SCENA_PRED = {acceso:true, yt:'', t:0, immagini:null, animati:null, paesaggio:'', fuoco:null, ora:'vera', meteo:'sereno',
-  intensita:.75, vento:null, prospettivaViva:false, movimento:true, luceGiorno:70, luceNotte:30, prospettiva:true, zoom:1, vx:0};
+  intensita:.75, vento:null, fps:60, prospettivaViva:false, movimento:true, luceGiorno:70, luceNotte:30, prospettiva:true, zoom:1, vx:0};
 let scena = Object.assign({}, SCENA_PRED, leggi('finestre-scena', {}));
 /* le finestre della casa: una o due, ognuna sul suo schermo (sono a due metri l'una dall'altra) */
 function normalizzaFori(a){
@@ -156,6 +156,7 @@ function disegnaScheda(){
 /* ═══════════ FINESTRE: anteprima dal vivo e comandi ═════════════════════ */
 const ORE = [['vera','orologio','Come fuori'], ['alba','alba','Alba'], ['giorno','sole','Giorno'], ['tramonto','tramonto','Tramonto'], ['notte','luna','Notte']];
 const METEO = [['sereno','sole','Sereno'], ['nuvoloso','nuvola','Nuvoloso'], ['nebbia','nebbia','Nebbia'], ['pioggia','pioggia','Pioggia'], ['temporale','fulmine','Temporale'], ['neve','fiocco','Neve']];
+const FLUIDITA = [[60,'Massima','60 al secondo'], [50,'Bilanciata','50, schermo a 50 Hz'], [30,'Silenziosa','30, metà lavoro'], [45,'45','prova']];
 const NOME_ORA = {vera:'come fuori', alba:'alba', giorno:'giorno', tramonto:'tramonto', notte:'notte'};
 let anteprimaPronta = false, anteprimaFrame = null;
 function postaAnteprima(m){ if (anteprimaFrame && anteprimaPronta) anteprimaFrame.contentWindow.postMessage(m, '*'); }
@@ -202,6 +203,9 @@ function disegnaFinestre(){
           ${interruttore('prospettiva', 'occhio', 'Prospettiva', 'Le due finestre vedono il paesaggio da punti appena diversi', scena.prospettiva)}
           ${interruttore('prospettivaViva', 'persona', 'Prospettiva viva', 'Per un ospite: le finestre seguono chi si muove nella stanza (serve il sensore). Con più persone resta ferma.', scena.prospettivaViva)}
         </div></div>
+      <div class="sezione">${titolo('film', 'Fluidità', 'immagini al secondo')}
+        <div class="scelte c4" id="sceltaFps">${FLUIDITA.map(([v, t, sotto]) => `<button class="scelta" data-fai="fps" data-v="${v}" aria-pressed="false"><b style="font:600 18px var(--display)">${v}</b><span>${esc(t)}</span></button>`).join('')}</div>
+        <p class="nota">Meno immagini al secondo = meno lavoro per il computer, ventola più tranquilla. 50 è regolare solo se lo schermo è impostato a 50 Hz; 45 su uno schermo a 60 Hz dà piccoli scatti sulla pioggia. Uno schermo può avere la sua con <b>&amp;fps=</b> nel suo indirizzo.</p></div>
       <div class="sezione">${titolo('luce', 'Luce dello schermo', 'bassa, più bassa di notte')}
         <div class="pannello">${cursore('luceGiorno', 'sole', 'Di giorno', 5, 100, scena.luceGiorno, scena.luceGiorno + '%')}${cursore('luceNotte', 'luna', 'Di notte', 2, 100, scena.luceNotte, scena.luceNotte + '%')}</div></div>`;
     anteprimaFrame = $('#anteprimaFrame');
@@ -218,6 +222,7 @@ function aggiornaFinestre(){
   const s = $('#s-finestre'); if (!s.dataset.fatto) return;
   s.querySelectorAll('[data-fai="ora"]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.v === scena.ora)));
   s.querySelectorAll('[data-fai="meteo"]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.v === scena.meteo)));
+  s.querySelectorAll('[data-fai="fps"]').forEach(b => b.setAttribute('aria-pressed', String(+b.dataset.v === (scena.fps || 60))));
   const a = assettoOPredefinito();
   $('#notaModo').textContent = a.n < 2 ? 'Una finestra. Quando arriverà il secondo schermo, la seconda finestra si aggiunge nelle Impostazioni.'
     : 'Due finestre, una per schermo: lo stesso paesaggio, ognuna con la sua prospettiva, come due finestre vere sulla stessa parete.';
@@ -621,6 +626,7 @@ const AZIONI = {
   chiudiFoglio: () => chiudiFoglio(),
   ora: v => cambia({ora:v}),
   meteo: v => cambia({meteo:v}),
+  fps: v => cambia({fps:+v}),
   accendi: () => cambia({acceso: !scena.acceso}),
   lampo: () => { if (canale.manda('lampo')) avviso('Lampo!'); postaAnteprima({tipo:'lampo'}); },
   vaiPaesaggi: () => vai('paesaggi'), vaiCrea: () => vai('crea'), vaiImp: () => vai('impostazioni'),
