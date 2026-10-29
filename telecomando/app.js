@@ -66,6 +66,7 @@ const canale = apriCanale(casa, {
     if (d.schermo){ schermi[d.lato || 'sinistra'] = d.schermo; scrivi('finestre-schermi', schermi); schermo = schermoDi('sinistra'); }
     if (!leggi('finestre-scena', null) && d.scena){ scena = Object.assign({}, SCENA_PRED, d.scena); scrivi('finestre-scena', scena); }
     else if (rimanda){ rimanda = false; canale.manda('scena', scena); canale.manda('fori', Object.assign({mostra: mostraBordi}, assettoOPredefinito())); }   /* dopo «Ricarica», la scena di questo telefono */
+    else if (d.scena && diversa(d.scena, scena)) canale.manda('scena', scena);   /* la finestra mostra altro (es. rimasta spenta): vale quello che dice il telefono */
     aggiornaSpia(); impaginaAnteprima(); if (scheda === 'finestre') aggiornaFinestre(); if (scheda === 'impostazioni') disegnaScheda();
   },
   suStato(ok){ aggiornaSpia(); if (ok) canale.manda('chi'); }
@@ -84,6 +85,7 @@ function mandaScena(subito = true){
   clearTimeout(invio);
   if (subito) canale.manda('scena', scena); else invio = setTimeout(() => canale.manda('scena', scena), 110);
 }
+function diversa(a, b){ return ['acceso', 'paesaggio', 'ora', 'meteo', 'yt'].some(k => (a[k] ?? '') !== (b[k] ?? '')); }
 function cambia(parte, subito = true){ Object.assign(scena, parte); mandaScena(subito); if (scheda === 'finestre') aggiornaFinestre(); }
 let invioFori = null;
 function mandaFori(){
