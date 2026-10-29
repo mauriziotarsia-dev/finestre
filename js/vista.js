@@ -64,6 +64,24 @@ float cielo(vec3 c, float n, float y, float ha){
   return smoothstep(.55, .2, y) * smoothstep(.25, .55, l) * max(az, smoothstep(.6, .85, l));
 }
 
+/* letture con il livello di dettaglio deciso fuori dai rami: dentro un «if» che vale per alcuni
+   pixel sì e per altri no, la scheda non saprebbe che livello della mipmap usare */
+vec3 fotoG(sampler2D t, vec4 crop, vec2 uv, vec2 gx, vec2 gy){
+#if __VERSION__ >= 300
+  return textureGrad(t, clamp(crop.xy + uv * crop.zw, .0005, .9995), gx, gy).rgb;
+#else
+  return texture2D(t, clamp(crop.xy + uv * crop.zw, .0005, .9995)).rgb;
+#endif
+}
+float profG(sampler2D d, vec4 crop, vec2 uv, float ha, vec2 gx, vec2 gy){
+  if (ha < .5) return pow(clamp((uv.y - .38) / .62, 0., 1.), 1.4);
+#if __VERSION__ >= 300
+  return textureGrad(d, clamp(crop.xy + uv * crop.zw, .0005, .9995), gx, gy).r;
+#else
+  return texture2D(d, clamp(crop.xy + uv * crop.zw, .0005, .9995)).r;
+#endif
+}
+
 /* un'immagine del paesaggio, già col suo movimento */
 vec3 paesaggio(sampler2D img, sampler2D dep, vec4 crop, float haDep, float mov, vec2 uv, out float n, out float sky){
   n = prof(dep, crop, uv, haDep);
@@ -76,23 +94,31 @@ vec3 paesaggio(sampler2D img, sampler2D dep, vec4 crop, float haDep, float mov, 
   vec3 c = foto(img, crop, p);
   sky = cielo(c, n, p.y, haDep);
   if (mov > .5){
-    /* nuvole: flusso a due fasi, ogni fase dura 26 s, nessun salto */
-    float ph = uT / 26.;
-    float f1 = fract(ph), f2 = fract(ph + .5);
-    vec2 dir = vec2(.012 + .02 * uVento, .0015);
-    vec2 pa = p - dir * (f1 - .5), pb = p - dir * (f2 - .5);
-    vec3 a = foto(img, crop, pa), b = foto(img, crop, pb);
-    /* si prende solo cielo: un pezzo di monte o di castello spostato dentro il cielo darebbe il contorno doppio */
-    float sa = cielo(a, prof(dep, crop, pa, haDep), pa.y, haDep), sb = cielo(b, prof(dep, crop, pb, haDep), pb.y, haDep);
-    float w = abs(f1 - .5) * 2., wa = (1. - w) * sa, wb = w * sb, tot = wa + wb;
-    vec3 cs = tot > .001 ? (a * wa + b * wb) / tot : c;
-    c = mix(c, cs, sky * clamp(tot * 1.5, 0., 1.));
-    /* alberi e prati: ondeggiano poco, a raffiche */
+#if __VERSION__ >= 300
+    vec2 gx = dFdx(p) * crop.zw, gy = dFdy(p) * crop.zw;
+#else
+    vec2 gx = vec2(0.), gy = vec2(0.);
+#endif
+    /* nuvole: flusso a due fasi, ogni fase dura 26 s, nessun salto; solo dove c'è cielo */
+    if (sky > .002){
+      float ph = uT / 26.;
+      float f1 = fract(ph), f2 = fract(ph + .5);
+      vec2 dir = vec2(.012 + .02 * uVento, .0015);
+      vec2 pa = p - dir * (f1 - .5), pb = p - dir * (f2 - .5);
+      vec3 a = fotoG(img, crop, pa, gx, gy), b = fotoG(img, crop, pb, gx, gy);
+      /* si prende solo cielo: un pezzo di monte o di castello spostato dentro il cielo darebbe il contorno doppio */
+      float sa = cielo(a, profG(dep, crop, pa, haDep, gx, gy), pa.y, haDep), sb = cielo(b, profG(dep, crop, pb, haDep, gx, gy), pb.y, haDep);
+      float w = abs(f1 - .5) * 2., wa = (1. - w) * sa, wb = w * sb, tot = wa + wb;
+      vec3 cs = tot > .001 ? (a * wa + b * wb) / tot : c;
+      c = mix(c, cs, sky * clamp(tot * 1.5, 0., 1.));
+    }
+    /* alberi e prati: ondeggiano poco, a raffiche; solo dove c'è verde */
     float verde = clamp((c.g - max(c.r, c.b)) * 6. + .15, 0., 1.) * smoothstep(.12, .45, n) * (1. - sky);
-    /* (senza «if»: con le mipmap una lettura dentro un ramo diverso da pixel a pixel sbaglia il livello ai bordi) */
-    float raffica = .55 + .45 * sin(uT * .37 + uv.y * 2.);
-    float d = sin(uT * 1.9 + rumore(uv * vec2(26., 52.)) * 6.283) * .0011 * (.35 + uVento) * raffica * verde;
-    c = mix(c, foto(img, crop, p + vec2(d, d * .3)), verde);
+    if (verde > .01){
+      float raffica = .55 + .45 * sin(uT * .37 + uv.y * 2.);
+      float d = sin(uT * 1.9 + rumore(uv * vec2(26., 52.)) * 6.283) * .0011 * (.35 + uVento) * raffica * verde;
+      c = mix(c, fotoG(img, crop, p + vec2(d, d * .3), gx, gy), verde);
+    }
   }
   return c;
 }
@@ -281,7 +307,11 @@ class Vista {
     if (!gl) gl = canvas.getContext('webgl', opz) || canvas.getContext('experimental-webgl');
     if (!gl) throw new Error('WebGL non disponibile');
     this.gl = gl;
-    const sh = (tipo, src) => { const s = gl.createShader(tipo); gl.shaderSource(s, src); gl.compileShader(s);
+    /* con WebGL2 i programmi passano alla lingua GLSL 3: servono le letture col livello di dettaglio esplicito */
+    const in3 = (src, vert) => '#version 300 es\n' + (vert ? src.replace(/\battribute /g, 'in ').replace(/\bvarying /g, 'out ')
+      : src.replace(/\bvarying /g, 'in ').replace(/gl_FragColor/g, 'fragColor').replace(/(precision \w+ float;)/, '$1\nout vec4 fragColor;')).replace(/texture2D\(/g, 'texture(');
+    const sh = (tipo, src) => { if (this.gl2) src = in3(src.trim(), tipo === gl.VERTEX_SHADER);
+      const s = gl.createShader(tipo); gl.shaderSource(s, src); gl.compileShader(s);
       if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s)); return s; };
     const programma = (v, f, attr) => { const p = gl.createProgram();
       gl.attachShader(p, sh(gl.VERTEX_SHADER, v)); gl.attachShader(p, sh(gl.FRAGMENT_SHADER, f));
