@@ -22,13 +22,31 @@ const MODELLI_VIDEO = [
 const Ai = {
   modello(id){ return MODELLI_IMMAGINE.find(m => m.id === id) || MODELLI_IMMAGINE[0]; },
 
+  /* trasforma la risposta d'errore di un servizio in un messaggio chiaro, con un «tipo»:
+     credito (soldi finiti o limite di spesa), chiave (non valida o senza accesso), troppe (troppe richieste
+     insieme: basta aspettare), regole (contenuto rifiutato), altro. */
   async errore(r, chi){
-    let m = ''; try { const t = await r.text(); try { const j = JSON.parse(t); m = (j.error && (j.error.message || j.error.status)) || t; } catch(e) { m = t; } } catch(e) {}
+    let m = '', codice = '';
+    try { const t = await r.text(); try { const j = JSON.parse(t); const er = j.error || {}; m = er.message || er.status || t; codice = String(er.code || er.type || er.status || ''); } catch(e) { m = t; } } catch(e) {}
     m = String(m).slice(0, 300);
-    if (r.status === 401 || r.status === 403 && /key|auth|permission/i.test(m)) return new Error(`La chiave ${chi} non è valida o non ha accesso a questo modello. ${m}`);
-    if (r.status === 429) return new Error(`${chi} dice che hai finito il credito o che stai facendo troppe richieste. ${m}`);
-    if (/safety|moderation|blocked/i.test(m)) return new Error(`${chi} ha rifiutato la richiesta per le sue regole. Prova a cambiare la descrizione.`);
-    const e = new Error(`${chi} ha risposto con un errore (${r.status}). ${m}`); e.status = r.status; e.testo = m; return e;
+    const tutto = (codice + ' ' + m).toLowerCase();
+    const fai = (tipo, testo) => { const e = new Error(testo); e.tipo = tipo; e.status = r.status; e.testo = m; e.chi = chi; return e; };
+    const ricarica = chi.startsWith('OpenAI') ? 'platform.openai.com → Billing' : 'aistudio.google.com → Billing';
+    if (/insufficient_quota|billing_hard_limit|billing_not_active|exceeded your current quota|credit balance|out of credit|billing_disabled|billing to be enabled|enable billing|prepayment|credits? (are|is) depleted/.test(tutto))
+      return fai('credito', `Credito ${chi} esaurito (o limite di spesa raggiunto). Ricarica su ${ricarica}, poi riprova.`);
+    if (r.status === 401 || (r.status === 403 && /key|auth|permission|denied/.test(tutto)) || /invalid_api_key|api key not valid|api_key_invalid/.test(tutto))
+      return fai('chiave', `La chiave ${chi} non è valida o non ha accesso a questo modello. Controllala nelle Impostazioni.`);
+    if (r.status === 429 || /resource_exhausted|rate_limit/.test(tutto))
+      return fai(/quota|limit: 0|free tier|per day/.test(tutto) ? 'credito' : 'troppe',
+        /quota|limit: 0|free tier|per day/.test(tutto) ? `${chi}: hai raggiunto la quota (o il limite gratuito). Ricarica o aspetta il rinnovo su ${ricarica}.`
+                                                        : `${chi} dice che stai facendo troppe richieste insieme: aspetta un minuto e riprova.`);
+    if (/safety|moderation|blocked|content_policy/.test(tutto)) return fai('regole', `${chi} ha rifiutato la richiesta per le sue regole. Prova a cambiare la descrizione.`);
+    return fai('altro', `${chi} ha risposto con un errore (${r.status}). ${m}`);
+  },
+  /* la rete è caduta prima della risposta: non si sa se il servizio ha lavorato; spesso è il telefono (rete debole, schermo spento) */
+  rete(chi, e){
+    const x = new Error(`La connessione con ${chi} si è interrotta prima che arrivasse la risposta (rete del telefono debole o schermo spento). Ho già riprovato una volta: riprova con una rete stabile. Se succede sempre al primo colpo, controlla anche il credito su ${chi.startsWith('OpenAI') ? 'platform.openai.com' : 'aistudio.google.com'}.`);
+    x.tipo = 'rete'; x.chi = chi; x.originale = e && e.message; return x;
   },
 
   /* ── immagini ────────────────────────────────────────────────────────────── */
@@ -66,11 +84,16 @@ const Ai = {
           intest['Content-Type'] = 'application/json';
           corpo = JSON.stringify(Object.assign(base, flusso ? {stream:true, partial_images:2} : {}));
         }
-        let r;
-        try { r = await fetch(url, {method:'POST', headers:intest, body:corpo}); }
-        catch(e) { ultimo = new Error('La connessione con OpenAI si è interrotta. Riprovo…'); if (giro < 1) continue; throw new Error('La connessione con OpenAI si è interrotta (' + e.message + ').'); }
+        let r, b64;
+        try {
+          r = await fetch(url, {method:'POST', headers:intest, body:corpo});
+          if (r.ok) b64 = /event-stream/.test(r.headers.get('content-type') || '') ? await this.leggiFlusso(r, o.bozza) : ((j) => j.data && j.data[0] && j.data[0].b64_json)(await r.json());
+        } catch(e) {
+          if (e.tipo) throw e;                                 /* errore vero dentro il flusso (credito, regole…) */
+          if (giro < 1) continue;                              /* la rete è caduta: riprova una volta */
+          throw this.rete('OpenAI', e);
+        }
         if (r.ok){
-          const b64 = /event-stream/.test(r.headers.get('content-type') || '') ? await this.leggiFlusso(r, o.bozza) : ((j) => j.data && j.data[0] && j.data[0].b64_json)(await r.json());
           if (b64) return {b64, mime:'image/png', misura};
           ultimo = new Error('OpenAI non ha mandato l\'immagine.'); break;
         }
@@ -96,7 +119,7 @@ const Ai = {
         const dati = blocco.split('\n').filter(l => l.startsWith('data:')).map(l => l.slice(5).trim()).join('');
         if (!dati || dati === '[DONE]') continue;
         let ev; try { ev = JSON.parse(dati); } catch(e) { continue; }
-        if (ev.error) throw new Error(ev.error.message || 'Errore da OpenAI');
+        if (ev.error){ const finto = {status: 400, text: async () => JSON.stringify({error: ev.error})}; throw await this.errore(finto, 'OpenAI'); }
         if (!ev.b64_json) continue;
         if (/completed$/.test(ev.type || '')) finale = ev.b64_json; else { ultima = ev.b64_json; bozza && bozza(ev.b64_json); }
       }
@@ -110,10 +133,12 @@ const Ai = {
     const parti = [];
     if (foto) parti.push({inline_data:{mime_type:foto.type || 'image/jpeg', data: await this.inBase64(foto)}});
     parti.push({text:o.prompt});
-    const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modello}:generateContent`, {
+    const richiesta = () => fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modello}:generateContent`, {
       method:'POST', headers:{'Content-Type':'application/json', 'x-goog-api-key':chiave},
       body: JSON.stringify({contents:[{parts:parti}], generationConfig:{responseModalities:['IMAGE'], imageConfig:{aspectRatio:'9:16'}}})
     });
+    let r;
+    try { r = await richiesta(); } catch(e) { try { r = await richiesta(); } catch(e2) { throw this.rete('Google', e2); } }
     if (!r.ok) throw await this.errore(r, 'Google');
     const j = await r.json();
     const p = (j.candidates || []).flatMap(c => (c.content && c.content.parts) || []).find(x => (x.inlineData || x.inline_data));
@@ -140,7 +165,8 @@ const Ai = {
       response_format: {type:'video', aspect_ratio:'9:16', resolution: mv.risoluzione},
       background: true};
     o.progresso && o.progresso(2, 'invio');
-    let r = await fetch(base, {method:'POST', headers:intest, body:JSON.stringify(corpo)});
+    let r;
+    try { r = await fetch(base, {method:'POST', headers:intest, body:JSON.stringify(corpo)}); } catch(e) { throw this.rete('Google', e); }
     if (r.status === 400){
       const e = await this.errore(r, 'Google');
       if (!/background/i.test(e.testo || '')) throw e;
@@ -155,7 +181,7 @@ const Ai = {
       o.progresso && o.progresso(Math.min(95, 5 + sec / 1.8), it.status);       /* stima: 2-3 minuti */
       await new Promise(ok => setTimeout(ok, 5000));
       if (sec > 15 * 60) throw new Error('Google ci sta mettendo troppo: riprova più tardi.');
-      r = await fetch(base + '/' + encodeURIComponent(it.id), {headers:{'x-goog-api-key':o.chiave}});
+      try { r = await fetch(base + '/' + encodeURIComponent(it.id), {headers:{'x-goog-api-key':o.chiave}}); } catch(e) { continue; }   /* un controllo perso non ferma niente */
       if (!r.ok) throw await this.errore(r, 'Google');
       it = await r.json();
     }

@@ -83,6 +83,24 @@ function mandaFori(){
   invioFori = setTimeout(() => canale.manda('fori', Object.assign({mostra: mostraBordi}, assetto)), 90);
 }
 
+/* ── problemi di credito o di chiave: un avviso che resta finché non si risolve ── */
+let problema = leggi('finestre-problema', null);
+function segnala(e){
+  if (e.tipo !== 'credito' && e.tipo !== 'chiave') return;
+  problema = {tipo:e.tipo, chi:e.chi || '', testo:e.message, quando:Date.now()}; scrivi('finestre-problema', problema);
+  avviso(e.message, true); mostraProblema();
+}
+function risolto(chi){ if (problema && (!chi || (problema.chi || '').startsWith(chi))){ problema = null; scrivi('finestre-problema', null); mostraProblema(); } }
+function mostraProblema(){
+  document.querySelectorAll('.problema').forEach(el => {
+    el.hidden = !problema;
+    if (!problema) return;
+    const link = (problema.chi || '').startsWith('OpenAI') ? 'https://platform.openai.com/settings/organization/billing/overview' : 'https://aistudio.google.com/usage';
+    el.innerHTML = `${icona('avviso', 20)}<div><b>${problema.tipo === 'credito' ? 'Credito esaurito' : 'Chiave da controllare'}</b><span>${esc(problema.testo)}</span>
+      <div class="azioni" style="margin-top:8px"><a class="btn piccolo" href="${link}" target="_blank" rel="noopener">${icona('catena', 16)}${problema.tipo === 'credito' ? 'Ricarica' : 'Apri'}</a><button class="btn piccolo" data-fai="chiudiProblema">${icona('chiudi', 16)}Ho risolto</button></div></div>`;
+  });
+}
+
 /* ── avvisi e foglio ─────────────────────────────────────────────────────── */
 let avvisoT = null;
 function avviso(testo, male = false){
@@ -381,11 +399,13 @@ function disegnaLavoro(){
   const posti = [$('#lavoroCrea'), $('#lavoroFoglio')].filter(Boolean);
   const html = !lavoro ? '' : `
     ${lavoro.errore ? `<div class="errore-box">${esc(lavoro.errore)}</div>` : ''}
+    ${problema && lavoro.finito ? '<div class="problema"></div>' : ''}
     <ul class="passi">${lavoro.passi.map(p => `<li class="${p.cls}">${icona(p.cls === 'fatto' ? 'spunta' : p.cls === 'errore' ? 'chiudi' : p.cls === 'ora' ? 'ricarica' : 'orologio', 16)}<span>${esc(p.testo)}</span></li>`).join('')}</ul>
     ${lavoro.av != null ? `<div class="barra-av"><i style="width:${Math.round(lavoro.av)}%"></i></div>` : ''}
     ${Object.keys(lavoro.anteprime).length ? `<div class="anteprime">${['giorno','alba','tramonto','notte'].filter(o => lavoro.anteprime[o]).map(o => `<figure><img alt="" src="${esc(lavoro.anteprime[o].url)}" style="opacity:${lavoro.anteprime[o].bozza ? .55 : 1}"><figcaption>${NOME_ORA[o]}</figcaption></figure>`).join('')}</div>` : ''}
     ${lavoro.fatto && lavoro.p ? `<div class="azioni"><button class="btn oro" data-fai="mostra" data-v="${lavoro.p.id}">${icona('play', 18)}Mostra</button><button class="btn" data-fai="apri" data-v="${lavoro.p.id}">${icona('quadro', 18)}Apri</button></div>` : ''}`;
   posti.forEach(el => el.innerHTML = html);
+  if (problema) mostraProblema();
 }
 async function conLavoro(nome, fn){
   if (lavoro && !lavoro.finito){ avviso('C\'è già un lavoro in corso: aspetta che finisca.', true); return; }
@@ -393,12 +413,13 @@ async function conLavoro(nome, fn){
   disegnaLavoro();
   let blocco = null; try { blocco = await navigator.wakeLock?.request('screen'); } catch(e) {}
   try { await fn(lavoro); lavoro.fatto = true; }
-  catch(e) { lavoro.errore = e.message; }
+  catch(e) { lavoro.errore = e.message; segnala(e); }
   finally { lavoro.finito = true; lavoro.av = null; try { blocco && blocco.release(); } catch(e) {} disegnaLavoro(); }
 }
 const misuraDi = async blob => { const b = await createImageBitmap(blob); return {w:b.width, h:b.height, openai: Math.abs(b.width / b.height - .4) < .03 ? '832x2080' : '1024x1536'}; };
 
 async function faiLuci(p, foto, ore, misura){
+  let reti = 0;
   for (const ora of ore){
     passo(ora, 'ora', NOME_ORA[ora][0].toUpperCase() + NOME_ORA[ora].slice(1) + ': stessa vista, altra luce…');
     try {
@@ -406,8 +427,21 @@ async function faiLuci(p, foto, ore, misura){
         bozza: b64 => { lavoro.anteprime[ora] = {url:'data:image/png;base64,' + b64, bozza:true}; disegnaLavoro(); }});
       const jpg = await inJpeg(b64aBlob(r.b64, r.mime));
       p.immagini[ora] = await caricaLuce(casa, p, ora, jpg);
+      risolto(Ai.modello(imp.modello).fornitore === 'google' ? 'Google' : 'OpenAI');
       lavoro.anteprime[ora] = {url:p.immagini[ora]}; passo(ora, 'fatto', NOME_ORA[ora][0].toUpperCase() + NOME_ORA[ora].slice(1));
-    } catch(e) { passo(ora, 'errore', NOME_ORA[ora] + ': ' + e.message); }
+    } catch(e) {
+      if (e.tipo === 'rete'){
+        lavoro.errore = e.message; reti++;
+        passo(ora, 'errore', NOME_ORA[ora] + ': connessione interrotta');
+        if (reti >= 2){ ore.slice(ore.indexOf(ora) + 1).forEach(o2 => passo(o2, '', NOME_ORA[o2] + ': non provata')); break; }   /* la rete non regge: inutile insistere */
+        continue;
+      }
+      passo(ora, 'errore', NOME_ORA[ora] + ': ' + e.message);
+      if (e.tipo === 'credito' || e.tipo === 'chiave'){                 /* inutile provare le altre: si fermano qui */
+        ore.slice(ore.indexOf(ora) + 1).forEach(o2 => passo(o2, '', NOME_ORA[o2] + ': non provata'));
+        segnala(e); break;
+      }
+    }
   }
 }
 async function faiProfondita(p, foto){
@@ -452,7 +486,7 @@ async function crea(){
     await faiLuci(p, jpg, ['alba','tramonto','notte'].filter(o => imp.luci[o]), misura);
     aggiornaInLibreria(p);
     await faiProfondita(p, jpg); aggiornaInLibreria(p);
-    if (imp.anima){ try { await faiAnimazione(p, jpg, 'giorno', imp.elementi); aggiornaInLibreria(p); } catch(e) { passo('anim', 'errore', 'Animazione: ' + e.message); } }
+    if (imp.anima){ try { await faiAnimazione(p, jpg, 'giorno', imp.elementi); aggiornaInLibreria(p); } catch(e) { passo('anim', 'errore', 'Animazione: ' + e.message); segnala(e); } }
   });
 }
 
@@ -461,7 +495,7 @@ function disegnaCrea(){
   const nLuci = ['alba','tramonto','notte'].filter(o => imp.luci[o]).length;
   const costo = (m.costo[imp.qualita] || m.costo.alta) * (1 + nLuci * 1.15) + (imp.anima ? mv.euroSecondo * imp.video.secondi : 0);
   const desc = $('#creaDesc') ? $('#creaDesc').value : '', nome = $('#creaNome') ? $('#creaNome').value : '';
-  s.innerHTML = testa('scintilla', 'Crea', 'Un paesaggio nuovo, dipinto dall\'AI') + `
+  s.innerHTML = testa('scintilla', 'Crea', 'Un paesaggio nuovo, dipinto dall\'AI') + `<div class="problema" hidden></div>
     <div class="pannello" style="display:flex;align-items:center;gap:12px">${icona('tavolozza', 22)}<div style="flex:1;min-width:0"><b style="font:500 12.5px var(--display);letter-spacing:.1em;text-transform:uppercase">${esc(m.nome)}</b><div class="nota" style="margin:0">qualità ${esc(imp.qualita)}${imp.chiavi[m.fornitore] ? '' : ' · manca la chiave'}</div></div><button class="btn piccolo" data-fai="vaiImp">Cambia</button></div>
     <div class="sezione">${titolo('tavolozza', 'Stile', 'quelli di DMaster')}
       <div class="stili">${STILI.map(st => `<button class="stile" data-fai="stile" data-v="${st.id}" aria-pressed="${imp.stile === st.id}"><div class="tela" style="background:${st.tela}"></div><b>${st.nome}</b><small>${st.nota}</small></button>`).join('')}</div></div>
@@ -480,7 +514,7 @@ function disegnaCrea(){
       <button class="btn oro piena" data-fai="crea" ${lavoro && !lavoro.finito ? 'disabled' : ''}>${icona('scintilla', 18)}Crea · ≈ ${euro(costo)}</button>
       <p class="nota">Ci vogliono 1-3 minuti${imp.anima ? ' più qualche minuto per l\'animazione' : ''}: tieni il telefono acceso su questa pagina.</p>
       <div id="lavoroCrea"></div></div>`;
-  disegnaLavoro(); aggiornaSpia();
+  disegnaLavoro(); aggiornaSpia(); mostraProblema();
 }
 
 /* ═══════════ IMPOSTAZIONI ════════════════════════════════════════════════ */
@@ -495,7 +529,7 @@ function disegnaImpostazioni(){
       ${cursore('fw' + i, 'mirino', 'Larghezza', 2, 100, (f.w * 100).toFixed(1), (f.w * 100).toFixed(1) + '%', .1)}
       ${cursore('fh' + i, 'mirino', 'Altezza', 2, 100, (f.h * 100).toFixed(1), (f.h * 100).toFixed(1) + '%', .1)}</div>`).join('');
   const linkPi = new URL('../finestra/?casa=' + casa, location.href).href, linkTel = location.origin + location.pathname + '?casa=' + casa;
-  s.innerHTML = testa('manopole', 'Impostazioni', 'Modelli, chiavi e finestre') + `
+  s.innerHTML = testa('manopole', 'Impostazioni', 'Modelli, chiavi e finestre') + `<div class="problema" hidden></div>
     <div class="sezione">${titolo('tavolozza', 'AI per le immagini')}
       <div class="scelte">${MODELLI_IMMAGINE.map(m => `<button class="scelta riga" data-fai="modello" data-v="${m.id}" aria-pressed="${imp.modello === m.id}">${icona(m.fornitore === 'google' ? 'mondo' : 'scintilla', 22)}<span><b>${esc(m.nome)}</b><small>${esc(m.note)}</small></span><span class="prezzo">≈ ${euro(m.costo[imp.qualita] || m.costo.alta)}</span></button>`).join('')}</div>
       <div class="segmenti" style="margin-top:10px">${['alta','media','bassa'].map(v => `<button data-fai="qualita" data-v="${v}" aria-pressed="${imp.qualita === v}">Qualità ${v}</button>`).join('')}</div>
@@ -524,18 +558,19 @@ function disegnaImpostazioni(){
         <div class="azioni"><button class="btn" data-fai="copia" data-v="${esc(linkTel)}">${icona('copie', 18)}Link per un altro telefono</button><button class="btn" data-fai="ricaricaFinestre">${icona('ricarica', 18)}Ricarica finestre</button></div>
       </div>
       <p class="nota">Finestre ${VERSIONE} · le immagini stanno nel deposito di DMaster.</p></div>`;
-  for (const [id, k] of [['kOpenai','openai'], ['kGoogle','google'], ['kPexels','pexels']]){ const el = document.getElementById(id); el.oninput = () => { imp.chiavi[k] = el.value.trim(); salvaImp(); }; }
+  for (const [id, k] of [['kOpenai','openai'], ['kGoogle','google'], ['kPexels','pexels']]){ const el = document.getElementById(id); el.oninput = () => { imp.chiavi[k] = el.value.trim(); salvaImp(); if (problema && problema.tipo === 'chiave') risolto(); }; }
   a.fori.forEach((f, i) => {
     const lega = (id, chiave) => legaCursore(id + i, (v, o) => { o.textContent = v.toFixed(1) + '%'; assetto = assettoOPredefinito(); assetto.fori[i][chiave] = v / 100; mandaFori(); });
     lega('fx', 'x'); lega('fy', 'y'); lega('fw', 'w'); lega('fh', 'h');
   });
   legaCursore('zoom', (v, o) => { o.textContent = v + '%'; cambia({zoom: v / 100}, false); });
   legaCursore('vx', (v, o) => { o.textContent = v; cambia({vx: v / 100}, false); });
-  aggiornaSpia();
+  aggiornaSpia(); mostraProblema();
 }
 
 /* ═══════════ AZIONI (un solo ascoltatore per tutto) ══════════════════════ */
 const AZIONI = {
+  chiudiProblema: () => risolto(),
   chiudiFoglio: () => chiudiFoglio(),
   ora: v => cambia({ora:v}),
   meteo: v => cambia({meteo:v}),
