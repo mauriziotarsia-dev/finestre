@@ -245,10 +245,17 @@ let canale = null;
 if (anteprima){
   addEventListener('message', e => { const d = e.data || {}; if (d.tipo === 'occhio'){ provaFino = performance.now() + 8000; occhioTgt.x = +d.x || 0; occhioTgt.z = +d.z || 0; } else if (d.tipo === 'scena') applica(d.scena, false); else if (d.tipo === 'fori') calibra(Object.assign({}, d, {salva:false})); else if (d.tipo === 'lampo') scocca(); });
 } else if (casa && window.supabase){
-  const chi = () => ({lato: mio, assetto: casaFori, scena, schermo:{w:innerWidth, h:innerHeight}});
+  /* DMaster al comando: finché arriva il suo battito (ogni 10 s, 30 s di tolleranza) scene, lampi e
+     prove di prospettiva valgono solo se vengono da lui; il telefono torna a comandare quando tace */
+  let dmasterFino = 0;
+  const comandaDM = () => Date.now() < dmasterFino;
+  const chi = () => ({lato: mio, assetto: casaFori, scena, schermo:{w:innerWidth, h:innerHeight}, comando: comandaDM() ? 'dmaster' : null});
   canale = apriCanale(casa, {
     suMessaggio(evento, dati){
-      if (evento === 'scena') applica(dati);
+      if (evento === 'dmaster'){ dmasterFino = dati.attivo ? Date.now() + 30000 : 0; return; }
+      const daDM = dati && dati.da === 'dmaster';
+      if (comandaDM() && !daDM && (evento === 'scena' || evento === 'lampo' || evento === 'occhio')) return;
+      if (evento === 'scena'){ const s = Object.assign({}, dati); delete s.da; applica(s); }
       else if (evento === 'lampo') scocca();
       else if (evento === 'fori') calibra(dati);
       else if (evento === 'ricarica') location.reload();

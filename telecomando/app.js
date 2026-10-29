@@ -11,7 +11,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
 const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 const euro = n => (n < .1 ? n.toFixed(3) : n.toFixed(2)).replace('.', ',') + ' $';
-const VERSIONE = '2.3';
+const VERSIONE = '2.4';
 
 /* ── la casa ──────────────────────────────────────────────────────────────── */
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
@@ -19,7 +19,8 @@ const q = new URLSearchParams(location.search);
 /* la testata del marchio: DMaster Atmosphere, con le sue due parti; Bard arriva dopo */
 const MARCHIO = `<div class="marchio"><div class="marchio-nome"><span>DMaster</span> Atmosphere</div>
   <div class="marchio-firma">powered by DMaster Stage</div>
-  <div class="marchio-parti"><span class="parte spenta" title="Musiche e suoni della stanza: in arrivo">Bard <em>presto</em></span><span class="parte attiva">Illusionist</span></div></div>`;
+  <div class="marchio-parti"><span class="parte spenta" title="Musiche e suoni della stanza: in arrivo">Bard <em>presto</em></span><span class="parte attiva">Illusionist</span></div></div>
+<div class="in-mano-avviso" id="inMano" hidden><b>In mano a DMaster</b> La Serata comanda finestre e atmosfera: qui le guardi soltanto. Quando chiudi DMaster tornano a questo telefono da sole.</div>`;
 const casa = (String(q.get('casa') || '').match(UUID) || String(leggi('finestre-casa', '') || '').match(UUID) || [null])[0];
 if (!casa){
   document.getElementById('app').innerHTML = `${MARCHIO}<div class="testa"><div><h1>${icona('bifora', 22)}Illusionist</h1><p>Le finestre della stanza medievale</p></div></div>
@@ -56,6 +57,11 @@ let schermi = leggi('finestre-schermi', {});
 const schermoDi = lato => schermi[lato] || schermi.sinistra || {w:1080, h:1920};
 let schermo = schermoDi('sinistra');
 let collegate = 0, mostraBordi = false, rimanda = false;
+/* DMaster al comando: quando DMaster Stage è aperto manda un battito ogni 10 secondi; finché
+   il battito c'è (30 secondi di tolleranza) le finestre ascoltano solo lui e qui i comandi sono fermi.
+   Quando DMaster si chiude, o tace, il comando torna da solo a questo telefono. */
+let dmasterFino = 0;
+const comandaDM = () => Date.now() < dmasterFino;
 function foroPredefinito(sch){ const H = .9, W = H * sch.h * 2 / 5 / sch.w; return {x:(1 - W) / 2, y:(1 - H) / 2, w:W, h:H}; }
 function assettoOPredefinito(){
   return {n: assetto.n === 2 ? 2 : 1, finestre:{
@@ -66,8 +72,14 @@ function assettoOPredefinito(){
 /* ── canale con le finestre ──────────────────────────────────────────────── */
 const canale = apriCanale(casa, {
   suMessaggio(evento, d){
+    if (evento === 'dmaster'){ dmasterFino = d.attivo ? Date.now() + 30000 : 0; aggiornaComando(); return; }
     if (evento !== 'eccomi') return;
     collegate = Date.now();
+    if (d.comando === 'dmaster') dmasterFino = Math.max(dmasterFino, Date.now() + 25000);
+    if (comandaDM() && d.scena){   /* comanda DMaster: qui si guarda e basta, la scena è la sua */
+      scena = Object.assign({}, SCENA_PRED, d.scena); delete scena.da; scrivi('finestre-scena', scena); postaAnteprima({tipo:'scena', scena});
+      aggiornaComando(); aggiornaSpia(); impaginaAnteprima(); if (scheda === 'finestre') aggiornaFinestre(); return;
+    }
     if (d.assetto && (d.assetto.finestre || d.assetto.fori)){ const a = normalizzaFori(d.assetto); if (d.assetto.finestre || !leggi('finestre-fori', null)){ assetto = a; scrivi('finestre-fori', assetto); } }
     if (d.schermo){ schermi[d.lato || 'sinistra'] = d.schermo; scrivi('finestre-schermi', schermi); schermo = schermoDi('sinistra'); }
     if (!leggi('finestre-scena', null) && d.scena){ scena = Object.assign({}, SCENA_PRED, d.scena); scrivi('finestre-scena', scena); }
@@ -77,6 +89,18 @@ const canale = apriCanale(casa, {
   },
   suStato(ok){ aggiornaSpia(); if (ok) canale.manda('chi'); }
 });
+{ /* mentre comanda DMaster, verso le finestre parte solo la domanda «chi c'è?» */
+  const mandaDavvero = canale.manda.bind(canale);
+  canale.manda = (evento, dati) => { if (evento !== 'chi' && comandaDM()){ avvisoInMano(); return false; } return mandaDavvero(evento, dati); };
+}
+let ultimoAvvisoInMano = 0;
+function avvisoInMano(){ if (Date.now() - ultimoAvvisoInMano > 2500){ ultimoAvvisoInMano = Date.now(); avviso('Le finestre sono in mano a DMaster', true); } }
+function aggiornaComando(){
+  const dm = comandaDM();
+  document.body.classList.toggle('in-mano', dm);
+  const f = document.getElementById('inMano'); if (f) f.hidden = !dm;
+}
+setInterval(aggiornaComando, 4000);
 setInterval(() => { if (canale.pronto) canale.manda('chi'); aggiornaSpia(); }, 20000);
 document.addEventListener('visibilitychange', () => { if (!document.hidden && canale.pronto) canale.manda('chi'); });
 function aggiornaSpia(){
@@ -92,7 +116,7 @@ function mandaScena(subito = true){
   if (subito) canale.manda('scena', scena); else invio = setTimeout(() => canale.manda('scena', scena), 110);
 }
 function diversa(a, b){ return ['acceso', 'paesaggio', 'ora', 'meteo', 'yt'].some(k => (a[k] ?? '') !== (b[k] ?? '')); }
-function cambia(parte, subito = true){ Object.assign(scena, parte); mandaScena(subito); if (scheda === 'finestre') aggiornaFinestre(); }
+function cambia(parte, subito = true){ if (comandaDM()){ avvisoInMano(); return; } Object.assign(scena, parte); mandaScena(subito); if (scheda === 'finestre') aggiornaFinestre(); }
 let invioFori = null;
 function mandaFori(){
   scrivi('finestre-fori', assetto); impaginaAnteprima();
@@ -627,6 +651,7 @@ function disegnaImpostazioni(){
 }
 
 /* ═══════════ AZIONI (un solo ascoltatore per tutto) ══════════════════════ */
+const BLOCCATE_DA_DM = new Set(['ora', 'meteo', 'fps', 'accendi', 'lampo', 'ventoAuto', 'movimento', 'prospettiva', 'prospettivaViva', 'mostra', 'vediLuce', 'nFinestre', 'bordi', 'ricaricaFinestre', 'riadatta']);
 const AZIONI = {
   chiudiProblema: () => risolto(),
   chiudiFoglio: () => chiudiFoglio(),
@@ -759,6 +784,7 @@ const AZIONI = {
 };
 document.addEventListener('click', e => {
   const b = e.target.closest('[data-fai]'); if (!b || b.disabled) return;
+  if (comandaDM() && BLOCCATE_DA_DM.has(b.dataset.fai)){ e.preventDefault(); avvisoInMano(); return; }
   const f = AZIONI[b.dataset.fai]; if (f){ e.preventDefault(); f(b.dataset.v, b); }
 });
 document.addEventListener('keydown', e => { if ((e.key === 'Enter' || e.key === ' ') && e.target.matches('[role="switch"]')){ e.preventDefault(); e.target.click(); } });
