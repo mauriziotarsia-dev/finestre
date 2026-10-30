@@ -29,9 +29,18 @@ Uso:
   python3 cuci-animazione.py --casa <chiave-della-casa> [--una]      (sul Raspberry: cuce da solo le nuove, a piena
                                                                       qualità e a bassa priorità; nel frattempo le finestre
                                                                       usano il fermo e la maschera fatti dal telefono)
-Serve: python3-opencv, python3-numpy, ffmpeg  (sudo apt install python3-opencv ffmpeg)
+Chi lo fa (Maurizio, 30/10: «dal più al meno performante, in ordine di disponibilità»): può girare insieme
+su più apparecchi, e lo fa il più potente acceso. Ognuno aspetta qualche minuto dalla creazione del video,
+così il più forte arriva prima; il primo che prende il lavoro lo segna e gli altri passano oltre.
+  mini PC GMKtec G10 (Ryzen 5 3500U)   --attesa 0    il più veloce (~6-8 minuti a video)
+  laptop (Intel N100)                  --attesa 3    quando è acceso (~10 minuti)
+  Raspberry Pi 4                       --attesa 10   sempre acceso, il più lento (~30-45 minuti)
+Su tutti gira a bassa priorità e con 2 processori: le finestre e il TV prima di tutto.
+Serve: Python 3 con opencv e numpy, e ffmpeg.
+  Raspberry:  sudo apt install python3-opencv ffmpeg
+  Windows:    winget install Python.Python.3.12 Gyan.FFmpeg  poi  pip install opencv-python numpy
 """
-import argparse, collections, hashlib, json, os, subprocess, sys, tempfile, time, urllib.parse, urllib.request
+import argparse, collections, hashlib, json, os, subprocess, sys, tempfile, time, urllib.error, urllib.parse, urllib.request
 import numpy as np
 import cv2
 
@@ -273,17 +282,65 @@ def cartella_di(casa):
     return hashlib.sha256(('finestre:' + casa).encode()).hexdigest()[:24]
 
 
-def giro_casa(casa, larghezza=None, veloce=True):
+import base64
+PUNTO_PNG = base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=')
+
+
+def _eta_minuti(f):
+    t = f.get('created_at') or f.get('updated_at') or ''
+    try:
+        from datetime import datetime, timezone
+        return (datetime.now(timezone.utc) - datetime.fromisoformat(t.replace('Z', '+00:00'))).total_seconds() / 60
+    except Exception:
+        return 1e9
+
+
+def _prenota(cart, segno, chi):
+    """Prende il lavoro: crea il file-segno (se c'è già, qualcun altro l'ha preso prima: la creazione fallisce)."""
+    try:
+        # il deposito accetta solo immagini e video: il segno è un'immagine di un punto (chi lo tiene sta nel registro)
+        _chiedi('POST', f'/storage/v1/object/{DEPOSITO}/{cart}/' + urllib.parse.quote(segno), PUNTO_PNG, 'image/png')
+        return True
+    except urllib.error.HTTPError:
+        return False
+
+
+def _libera(cart, segno):
+    try: _chiedi('DELETE', f'/storage/v1/object/{DEPOSITO}', json.dumps({'prefixes': [f'{cart}/{segno}']}).encode())
+    except Exception: pass
+
+
+def giro_casa(casa, larghezza=None, veloce=False, attesa=0, chi='?'):
+    """Un giro: cuce le animazioni nuove. Possono girare più apparecchi insieme (mini PC, laptop, Raspberry):
+    lo fa il più potente acceso. Ognuno aspetta la sua «attesa» (minuti dalla creazione del video: 0 il mini PC,
+    3 il laptop, 10 il Raspberry) e prende il lavoro con un file-segno (…_anim-giorno-incorso.png) che solo
+    uno riesce a creare. Un segno più vecchio di due ore è di qualcuno che si è spento a metà: si riprende."""
     cart = 'finestre/' + cartella_di(casa)
-    nomi = [f['name'] for f in json.loads(_chiedi('POST', f'/storage/v1/object/list/{DEPOSITO}',
-            json.dumps({'prefix': cart, 'limit': 1000}).encode()))]
+    elenco = json.loads(_chiedi('POST', f'/storage/v1/object/list/{DEPOSITO}', json.dumps({'prefix': cart, 'limit': 1000}).encode()))
+    file = {f['name']: f for f in elenco}
+    nomi = list(file)
     fatti = 0
     for nome in nomi:
         base, _, parte = nome.rpartition('_')                  # parte = anim-giorno.mp4
         if parte not in ('anim-giorno.mp4', 'anim-alba.mp4', 'anim-tramonto.mp4', 'anim-notte.mp4'): continue
         originale = f'{base}_{parte[:-4]}-originale.mp4'      # il file dell'AI resta qui, intatto (la libreria lo ignora)
         if originale in nomi: continue                         # già cucita
-        print('Cucio', nome, flush=True)
+        if _eta_minuti(file[nome]) < attesa: continue          # tocca prima a uno più potente, se è acceso
+        segno = f'{base}_{parte[:-4]}-incorso.png'
+        if segno in file:
+            if _eta_minuti(file[segno]) < 120: continue        # ci sta lavorando un altro
+            _libera(cart, segno)
+        if not _prenota(cart, segno, chi): continue
+        print(chi, 'cuce', nome, flush=True)
+        try:
+            fatti += _cuci_uno(cart, nomi, nome, base, parte, originale, larghezza, veloce)
+        finally:
+            _libera(cart, segno)
+    return fatti
+
+
+def _cuci_uno(cart, nomi, nome, base, parte, originale, larghezza, veloce):
+    if True:
         pub = lambda n: f'{URL}/storage/v1/object/public/{DEPOSITO}/{cart}/' + urllib.parse.quote(n)
         with tempfile.TemporaryDirectory() as d:
             e, u = os.path.join(d, 'e.mp4'), os.path.join(d, 'u.mp4')
@@ -304,8 +361,8 @@ def giro_casa(casa, larghezza=None, veloce=True):
             via = [f'{cart}/{base}_fermo-{ora}.jpg', f'{cart}/{base}_maschera-{ora}.png']
             via = [x for x in via if x.rsplit('/', 1)[1] in nomi]
             if via: _chiedi('DELETE', f'/storage/v1/object/{DEPOSITO}', json.dumps({'prefixes': via}).encode())
-            print('  fatto:', info, flush=True); fatti += 1
-    return fatti
+            print('  fatto:', info, flush=True)
+            return 1
 
 
 def main():
@@ -316,14 +373,19 @@ def main():
     a.add_argument('--veloce', action='store_true', help='fotogrammi intermedi sfumati invece che calcolati (Raspberry)')
     a.add_argument('--casa', help='chiave della casa: cuce le animazioni nuove nel deposito')
     a.add_argument('--una', action='store_true', help='con --casa: un giro solo e poi esce')
+    a.add_argument('--attesa', type=float, default=0, help='con --casa: minuti da aspettare dopo la creazione (0 mini PC, 3 laptop, 10 Raspberry)')
+    a.add_argument('--chi', default=os.environ.get('COMPUTERNAME') or (os.uname().nodename if hasattr(os, 'uname') else 'pc'), help='nome di questo apparecchio (nei segni)')
     o = a.parse_args()
     if o.casa:
         # sul Raspberry che intanto disegna le finestre: priorità bassa e pochi processori, le finestre prima di tutto
         try: os.nice(19)
-        except Exception: pass
+        except Exception:
+            try:                                              # Windows: priorità «inferiore al normale»
+                import ctypes; ctypes.windll.kernel32.SetPriorityClass(ctypes.windll.kernel32.GetCurrentProcess(), 0x4000)
+            except Exception: pass
         cv2.setNumThreads(2); global FF_THREADS; FF_THREADS = '2'
         while True:
-            try: giro_casa(o.casa, o.larghezza, veloce=o.veloce)
+            try: giro_casa(o.casa, o.larghezza, veloce=o.veloce, attesa=o.attesa, chi=o.chi)
             except Exception as e: print('giro non riuscito:', e, file=sys.stderr, flush=True)
             if o.una: break
             time.sleep(120)
