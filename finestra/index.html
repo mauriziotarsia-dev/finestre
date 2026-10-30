@@ -18,7 +18,7 @@
 <canvas id="c"></canvas>
 <script src="../js/supabase.js?v=2.1.0"></script>
 <script src="../js/canale.js?v=2.1.0"></script>
-<script src="../js/vista.js?v=3.9"></script>
+<script src="../js/vista.js?v=4.0"></script>
 <script src="../js/inseguitore.js?v=1"></script>
 <script src="../js/uccelli.js?v=2"></script>
 <script>
@@ -337,10 +337,12 @@ function giro(ora){
   const dt = Math.min(.1, (ora - prima) / 1000); prima = ora;
   if (dt > 0) fpsMisurati = fpsMisurati * .97 + (1 / dt) * .03;
   /* se il computer fa fatica: prima abbassa la risoluzione del disegno (fino a metà), poi toglie gli strati di gocce più fini */
+  /* ⚠ 30/10: si guarda il passo medio, non i singoli giri: sul Raspberry i giri erano metà veloci e metà lenti
+     (il peggio: va a scatti) e la vecchia regola non scendeva mai */
   lentoR = lentoR * .96 + (dt * 1000 > passo * 1.3 ? .04 : 0);
-  if (lentoR > .55 && scala > .5){ scala = Math.max(.5, Math.round((scala - .1) * 10) / 10); lentoR = 0; ultimoCalo = ora; impagina(); }
+  if ((lentoR > .55 || (intervalloSchermo > passo * 1.25 && ora - ultimoCalo > 4000)) && scala > .5){ scala = Math.max(.5, Math.round((scala - .1) * 10) / 10); lentoR = 0; ultimoCalo = ora; impagina(); }
   fluido = dt * 1000 < passo * 1.07 ? fluido + dt : 0;
-  if (fluido > 8 && scala < 1 && ora - ultimoCalo > 90000){ scala = Math.min(1, Math.round((scala + .1) * 10) / 10); fluido = 0; impagina(); }
+  if (fluido > 8 && intervalloSchermo < passo * 1.08 && scala < 1 && ora - ultimoCalo > 90000){ scala = Math.min(1, Math.round((scala + .1) * 10) / 10); fluido = 0; impagina(); }
   lento = lento * .97 + (dt * 1000 > passo * 1.56 ? 1 : 0) * .03;
   if (lento > .6 && qualita && scala <= .5) qualita = 0; else if (lento < .1 && !qualita) qualita = 1;
   const k = 1 - Math.exp(-dt * .45);
