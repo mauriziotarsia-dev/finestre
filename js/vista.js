@@ -53,6 +53,7 @@ uniform sampler2D uMeteo;     /* nebbia e nuvole, calcolate a bassa risoluzione 
 uniform sampler2D uVentoT;    /* il vento sugli alberi, calcolato a un quarto di risoluzione (r, g: spostamento, b: raffica sugli alberi, a: ombra delle nuvole) */
 uniform vec4 uU[24];          /* gli uccelli (js/uccelli.js): per ognuno (x, y, grandezza, ali) (inclinazione, chiarezza, tipo, -) */
 uniform float uNU;            /* quanti uccelli */
+uniform vec4 uUBox;           /* dove sono, tutti insieme (x0, y0, x1, y1 nella vista): fuori da lì non si calcola niente */
 uniform float uNotte;         /* 0 giorno … 1 notte (stelle, fuochi che tremolano) */
 uniform float uOmbre;         /* quanto si vedono le ombre delle nuvole (giorno sereno) */
 uniform vec4 uMeteora;        /* stella cadente: da (x, y) a (z, w), nella vista */
@@ -164,10 +165,10 @@ vec3 paesaggio(sampler2D img, sampler2D dep, vec4 crop, vec4 cropD, float haDep,
        conto suo. Ora il vento passa a raffiche che attraversano il paesaggio come onde, le chiome si piegano
        insieme a gruppi (rami) e le foglie tremano fini; i vicini si muovono di più dei lontani: da 1-2 pixel
        da 2-4 pixel col sereno a 8-9 col temporale (su un foro alto 1000). Solo dove c'è verde, mai nel cielo. */
-    float verde = fogliame(c) * smoothstep(.1, .4, n);   /* anche gli ulivi grigio-verdi e i cipressi scuri; non la pietra, non la nebbia */
     float vicino = smoothstep(.1, .4, n);
     vec4 vt = uHaVento > .5 ? texture2D(uVentoT, vec2(vUv.x, 1. - vUv.y)) : vec4(.5, .5, 0., 0.);
     if (vicino > .01 && vt.b > .01){
+      float verde = fogliame(c) * vicino;   /* anche gli ulivi grigio-verdi e i cipressi scuri; non la pietra, non la nebbia */
       /* ⚠ 30/10: il vento (raffiche e rami) arriva già calcolato a un quarto di risoluzione: sul Raspberry
          calcolarlo per ogni pixel costava un terzo delle immagini al secondo */
       float px = (3.5 + 8.5 * n) * (.55 + uVento * 1.4) * vt.b;
@@ -243,7 +244,7 @@ void main(){
       }
     }
     /* uccelli (js/uccelli.js) */
-    if (uUccelli > .01 && uNU > .5 && sky > .2){ float b = uccelli(uv) * uUccelli * smoothstep(.2, .7, sky); col = mix(col, col * .3 + vec3(.035, .035, .045), b * .8); }
+    if (uUccelli > .01 && uNU > .5 && sky > .2 && uv.x > uUBox.x && uv.y > uUBox.y && uv.x < uUBox.z && uv.y < uUBox.w){ float b = uccelli(uv) * uUccelli * smoothstep(.2, .7, sky); col = mix(col, col * .3 + vec3(.035, .035, .045), b * .8); }
     /* stelle che brillano (ognuna col suo ritmo) e, ogni tanto, una stella cadente */
     if (uNotte > .01 && sky > .3){
       vec2 pp = uv * uPix / (7. * scP), cel = floor(pp), f = fract(pp);
@@ -481,7 +482,7 @@ class Vista {
     const posizioni = (p, nomi) => { const u = {}; for (const n of nomi) u[n] = gl.getUniformLocation(p, n); return u; };
     /* il programma principale: paesaggio, cielo, nebbia, lampo, luce */
     this.p = programma(VERT, FRAG, ['aPos']);
-    this.u = posizioni(this.p, ['uOcchio','uImg0b','uVmix','uImg0','uImg1','uDep0','uDep1','uMap','uCrop0','uCrop1','uCropD0','uCropD1','uUccelli','uCielo0','uCielo1','uCieloM0','uCieloM1','uCieloX','uFermo0','uFermo1','uHaFermo0','uHaFermo1','uVentoT','uHaVento','uU','uNU','uNotte','uOmbre','uMeteora','uMeteoraK','uMix','uHaImg','uHaDep0','uHaDep1','uMovimento0','uMovimento1',
+    this.u = posizioni(this.p, ['uOcchio','uImg0b','uVmix','uImg0','uImg1','uDep0','uDep1','uMap','uCrop0','uCrop1','uCropD0','uCropD1','uUccelli','uCielo0','uCielo1','uCieloM0','uCieloM1','uCieloX','uFermo0','uFermo1','uHaFermo0','uHaFermo1','uVentoT','uHaVento','uU','uNU','uUBox','uNotte','uOmbre','uMeteora','uMeteoraK','uMix','uHaImg','uHaDep0','uHaDep1','uMovimento0','uMovimento1',
       'uLato','uT','uAspetto','uPix','uCoperto','uNebbia','uPioggia','uNeve','uTempesta','uVento','uLampo','uLampoX',
       'uNotteFinta','uLuce','uBuio','uQualita','uColNebbia','uMeteo']);
     gl.useProgram(this.p);
@@ -676,7 +677,7 @@ class Vista {
     gl.uniform3fv(u.uColNebbia, s.colNebbia);
     gl.uniform1f(u.uUccelli, haImg && !sp.has('uccelli') ? (s.uccelli || 0) : 0);
     const uc = s.stormi || {dati: new Float32Array(96), n: 0};
-    gl.uniform4fv(u.uU, uc.dati); gl.uniform1f(u.uNU, sp.has('uccelli') ? 0 : uc.n);
+    gl.uniform4fv(u.uU, uc.dati); gl.uniform1f(u.uNU, sp.has('uccelli') ? 0 : uc.n); gl.uniform4fv(u.uUBox, uc.box || [0, 0, 1, 1]);
     gl.uniform1f(u.uNotte, s.notte || 0); gl.uniform1f(u.uOmbre, s.ombre || 0);
     const me = s.meteora || null;
     gl.uniform4fv(u.uMeteora, me ? me.da : [0,0,0,0]); gl.uniform1f(u.uMeteoraK, me ? me.k : 0);

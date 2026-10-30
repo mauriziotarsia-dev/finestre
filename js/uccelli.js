@@ -119,7 +119,13 @@
         const alfa = Math.max(.35, Math.min(1, 1.25 - z * .28));          /* più lontano = più chiaro nella foschia */
         d.set([sx / this.A, sy, b.scala * 1.35 / z, b.ali, b.bank, alfa, b.rapace ? 1 : 0, 0], i * 8);
       });
-      return {dati: d, n: Math.min(MAX, this.u.length)};
+      /* il riquadro che li contiene tutti (con margine per le ali): il disegno lavora solo lì dentro */
+      let x0 = 9, y0 = 9, x1 = -9, y1 = -9;
+      for (let i = 0; i < Math.min(MAX, this.u.length); i++){
+        const x = d[i * 8], y = d[i * 8 + 1], m = d[i * 8 + 2] * .02 + .01;
+        x0 = Math.min(x0, x - m / this.A); x1 = Math.max(x1, x + m / this.A); y0 = Math.min(y0, y - m); y1 = Math.max(y1, y + m);
+      }
+      return {dati: d, n: Math.min(MAX, this.u.length), box: [x0, y0, x1, y1]};
     }
   }
   radice.Stormi = Stormi; radice.MAX_UCCELLI = MAX;
