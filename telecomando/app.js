@@ -11,7 +11,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
 const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 const euro = n => (n < .1 ? n.toFixed(3) : n.toFixed(2)).replace('.', ',') + ' $';
-const VERSIONE = '3.1';
+const VERSIONE = '3.2';
 
 /* ── la casa ──────────────────────────────────────────────────────────────── */
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
@@ -26,6 +26,10 @@ let casa = (String(q.get('casa') || '').match(UUID) || String(leggi('finestre-ca
 /* aperto dal QR di uno schermo («…/telecomando/?abbina=123456»): dopo l'accesso chiede di aggiungerlo */
 let codiceArrivato = Accesso.codiceDa(location.href) || sessionStorage.getItem('atm-codice-arrivato') || null;
 if (codiceArrivato) sessionStorage.setItem('atm-codice-arrivato', codiceArrivato);
+/* aperto dal QR «Collega il telefono» di DMaster: il telefono entra nella stanza senza email */
+let invitoArrivato = Accesso.invitoDa(location.href) || sessionStorage.getItem('atm-invito-arrivato') || null;
+if (invitoArrivato) sessionStorage.setItem('atm-invito-arrivato', invitoArrivato);
+const nomeTelefono = () => /iPhone/.test(navigator.userAgent) ? 'iPhone' : /iPad/.test(navigator.userAgent) ? 'iPad' : /Android/.test(navigator.userAgent) ? 'Telefono Android' : 'Telefono';
 if (casa) scrivi('finestre-casa', casa);
 /* il codice della casa resta nell'indirizzo (così «Aggiungi alla schermata Home» se lo porta dietro); quello dello schermo no */
 history.replaceState(null, '', location.pathname + (casa ? '?casa=' + casa : '') + location.hash);
@@ -134,6 +138,8 @@ function mandaFori(){
    Il telefono entra con l'email (codice di 6 cifre, una volta sola: poi resta); la casa del vecchio link
    diventa del suo account; schermi, DMaster e il computer che rifinisce si abbinano col codice che mostrano. */
 let account = null, casaPrivata = null, membri = [], accessoStato = 'controllo', emailInAttesa = leggi('atm-email-attesa', '');
+/* chi comanda da questo telefono: il proprietario (entrato con l'email) o un telefono collegato da DMaster col QR */
+const sonoProprietario = () => !!account && (!casaPrivata || casaPrivata.mioRuolo !== 'comando');
 async function avviaAccesso(){
   try {
     account = await Accesso.conAccount();
@@ -142,7 +148,15 @@ async function avviaAccesso(){
       casaPrivata = (casa && case_.find(c => c.chiave_vecchia === casa)) || (!casa ? case_[0] : null) || null;
       /* un account nuovo, senza vecchio link: la sua casa si crea da sola */
       if (!casaPrivata && !casa){ const id = await Accesso.nuovaCasa('Stanza'); casaPrivata = (await Accesso.mieCase()).find(c => c.id === id); }
-      if (casaPrivata){
+    } else {
+      if (invitoArrivato){
+        const t = invitoArrivato; invitoArrivato = null; sessionStorage.removeItem('atm-invito-arrivato');
+        try { await Accesso.usaInvito(t, nomeTelefono()); avviso('Telefono collegato alla stanza'); } catch(e) { avviso(e.message, true); }
+      }
+      casaPrivata = await Accesso.stanzaComandata();
+    }
+    if (casaPrivata){
+      {
         if (casaPrivata.vecchio_chiuso) dimenticaVecchio();
         const n = casa ? (await Accesso.elenco(casaPrivata.id)).length : 1;
         if (n && !CASA_PRIVATA){ CASA_PRIVATA = casaPrivata.id; libreriaStato = 'da caricare'; if (scheda === 'paesaggi') disegnaPaesaggi(); else caricaLibreria(); }
@@ -153,9 +167,9 @@ async function avviaAccesso(){
     accessoStato = 'ok';
   } catch(e) { accessoStato = e.message; }
   if (scheda === 'impostazioni') disegnaImpostazioni();
-  if (!account && (!casa || !leggi('atm-benvenuto-visto', false))) apriBenvenuto();
+  if (!account && !casaPrivata && (!casa || !leggi('atm-benvenuto-visto', false))) apriBenvenuto();
   else if (account && casa && !casaPrivata && !leggi('atm-benvenuto-visto', false)) apriBenvenuto();
-  else if (account && casaPrivata && codiceArrivato){ const c = codiceArrivato; codiceArrivato = null; sessionStorage.removeItem('atm-codice-arrivato'); confermaAggiunta(c); }
+  else if (casaPrivata && codiceArrivato){ const c = codiceArrivato; codiceArrivato = null; sessionStorage.removeItem('atm-codice-arrivato'); confermaAggiunta(c); }
 }
 /* il vecchio link è chiuso: niente più canale né chiave nell'indirizzo */
 function dimenticaVecchio(){
@@ -165,16 +179,19 @@ function dimenticaVecchio(){
 
 /* ── benvenuto: il percorso guidato (entra → la tua casa → aggiungi gli schermi) ── */
 function apriBenvenuto(){
-  const passi = ['Entra', 'La tua stanza', 'Gli schermi'], ora = !account ? 0 : (casa && !casaPrivata) ? 1 : 2;
+  const passi = ['Entra', 'La tua stanza', 'Gli schermi'], ora = !(account || casaPrivata) ? 0 : (casa && !casaPrivata) ? 1 : 2;
   const testaPassi = `<div class="passi-guida">${passi.map((t, i) => `<span class="${i < ora ? 'fatto' : i === ora ? 'ora' : ''}">${i < ora ? icona('spunta', 14) : i + 1} ${t}</span>`).join('')}</div>`;
   let corpo;
   if (ora === 0) corpo = emailInAttesa
     ? `<h3>Controlla la posta</h3><p class="nota">Ti ho mandato un codice a <b>${esc(emailInAttesa)}</b>: l'oggetto è «Accesso DMaster: codice …».</p>
        <label class="campo"><span>Codice</span><input id="accCodice" inputmode="numeric" autocomplete="one-time-code" maxlength="10" placeholder="123456"></label>
        <button class="btn oro piena" data-fai="accEntra">${icona('spunta', 18)}Entra</button><button class="btn piena" style="margin-top:8px" data-fai="accAltra">Usa un'altra email</button>`
-    : `<h3>Benvenuto in DMaster Atmosphere</h3><p class="nota">Entra con la tua email: ti arriva un codice di 6 cifre, niente password. Si fa una volta sola su questo telefono. È lo stesso account di DMaster.</p>
-       <label class="campo"><span>Email</span><input id="accEmail" type="email" autocomplete="email" inputmode="email" placeholder="nome@esempio.it" value="${esc(leggi('atm-email', ''))}"></label>
-       <button class="btn oro piena" data-fai="accCodiceEmail">${icona('posta', 18)}Mandami il codice</button>
+    : `<h3>Benvenuto in DMaster Atmosphere</h3><p class="nota">Hai già fatto l'accesso in DMaster? Lì, nella lanterna Atmosfera, premi «Collega il telefono» e inquadra il QR che compare: questo telefono entra nella tua stanza, senza email.</p>
+       <button class="btn oro piena" data-fai="inquadraInvito">${icona('qr', 18)}Inquadra il QR di DMaster</button>
+       <details class="altra-via"><summary>Non hai DMaster qui? Entra con l'email</summary>
+         <p class="nota">Ti arriva un codice di 6 cifre, niente password. È lo stesso account di DMaster.</p>
+         <label class="campo"><span>Email</span><input id="accEmail" type="email" autocomplete="email" inputmode="email" placeholder="nome@esempio.it" value="${esc(leggi('atm-email', ''))}"></label>
+         <button class="btn piena" data-fai="accCodiceEmail">${icona('posta', 18)}Mandami il codice</button></details>
        ${casa ? '<button class="btn piena" style="margin-top:8px" data-fai="benvenutoDopo">Più tardi</button>' : ''}`;
   else if (ora === 1) corpo = `<h3>La tua stanza</h3><p class="nota">Le finestre di questa stanza usano ancora il vecchio link: chi ce l'ha le comanda e vede le immagini. Collegale al tuo account: copio le immagini nella parte privata (meglio col Wi-Fi), e da lì le vede solo chi aggiungi tu. Le finestre continuano a funzionare intanto.</p>
        <button class="btn oro piena" data-fai="accReclama">${icona('chiave', 18)}Collega la stanza al mio account</button><div id="lavoroFoglio"></div>`;
@@ -191,12 +208,12 @@ function apriBenvenuto(){
 let flussoCamera = null;
 function fermaCamera(){ if (flussoCamera){ flussoCamera.getTracks().forEach(t => t.stop()); flussoCamera = null; } }
 function caricaLettoreQR(){ return window.jsQR ? Promise.resolve() : new Promise((ok, no) => { const sc = document.createElement('script'); sc.src = '../js/jsqr.js?v=1'; sc.onload = ok; sc.onerror = () => no(new Error('lettore QR non caricato')); document.head.appendChild(sc); }); }
-async function apriAggiungi(){
-  if (!casaPrivata){ apriBenvenuto(); return; }
-  apriFoglio(`<div class="benvenuto"><h3>Aggiungi schermo</h3>
+async function apriAggiungi(perInvito = false){
+  if (!casaPrivata && !perInvito){ apriBenvenuto(); return; }
+  apriFoglio(`<div class="benvenuto"><h3>${perInvito ? 'Inquadra il QR di DMaster' : 'Aggiungi schermo'}</h3>
     <div class="mirino"><video id="qrVideo" playsinline muted></video><i></i><span id="qrStato">Accendo la fotocamera…</span></div>
-    <label class="campo" style="margin-top:12px"><span>Oppure scrivi le 6 cifre</span><input id="qrCodice" inputmode="numeric" maxlength="7" placeholder="302 680"></label>
-    <button class="btn oro piena" data-fai="codiceScritto">${icona('freccia', 18)}Continua</button></div>`);
+    ${perInvito ? '<p class="nota">In DMaster: lanterna Atmosfera → «Collega il telefono».</p>' : `<label class="campo" style="margin-top:12px"><span>Oppure scrivi le 6 cifre</span><input id="qrCodice" inputmode="numeric" maxlength="7" placeholder="302 680"></label>
+    <button class="btn oro piena" data-fai="codiceScritto">${icona('freccia', 18)}Continua</button>`}</div>`);
   foglioAperto = 'aggiungi';
   try {
     await caricaLettoreQR();
@@ -211,7 +228,8 @@ async function apriAggiungi(){
         const k = Math.min(1, 640 / v.videoWidth); c.width = Math.round(v.videoWidth * k); c.height = Math.round(v.videoHeight * k);
         x.drawImage(v, 0, 0, c.width, c.height);
         const r = jsQR(x.getImageData(0, 0, c.width, c.height).data, c.width, c.height, {inversionAttempts:'dontInvert'});
-        const cod = r && Accesso.codiceDa(r.data);
+        const inv = r && Accesso.invitoDa(r.data), cod = r && !inv && Accesso.codiceDa(r.data);
+        if (inv){ fermaCamera(); navigator.vibrate && navigator.vibrate(40); usaInvitoOra(inv); return; }
         if (cod){ fermaCamera(); navigator.vibrate && navigator.vibrate(40); confermaAggiunta(cod); return; }
       }
       requestAnimationFrame(giro);
@@ -222,9 +240,20 @@ async function apriAggiungi(){
     const st = $('#qrStato'); if (st) st.textContent = 'Fotocamera non disponibile: scrivi le 6 cifre qui sotto.';
   }
 }
+/* il QR di DMaster: questo telefono entra nella stanza come «comando», senza email */
+async function usaInvitoOra(token){
+  try {
+    await Accesso.usaInvito(token, nomeTelefono());
+    await avviaAccesso();
+    apriFoglio(`<div class="benvenuto" style="text-align:center">${icona('spunta', 34)}<h3>Telefono collegato</h3>
+      <p class="nota">Da qui comandi le finestre e aggiungi gli schermi. Non serve altro: il telefono se lo ricorda.</p>
+      <button class="btn oro piena" data-fai="aggiungiSchermo">${icona('qr', 18)}Aggiungi uno schermo</button>
+      <button class="btn piena" style="margin-top:8px" data-fai="benvenutoFine">Fatto</button></div>`);
+    foglioAperto = 'fatto';
+  } catch(e) { avviso(e.message, true); apriBenvenuto(); }
+}
 async function confermaAggiunta(codice){
-  if (!account){ codiceArrivato = codice; sessionStorage.setItem('atm-codice-arrivato', codice); apriBenvenuto(); return; }
-  if (!casaPrivata){ apriBenvenuto(); return; }
+  if (!casaPrivata){ codiceArrivato = codice; sessionStorage.setItem('atm-codice-arrivato', codice); apriBenvenuto(); return; }
   let chi = null;
   try { chi = await Accesso.vediCodice(codice); } catch(e) { avviso(e.message, true); apriAggiungi(); return; }
   const nome = chi ? (chi.nome || (chi.ruolo === 'lavoratore' ? 'Computer della rifinitura' : 'Schermo')) : 'lo schermo con codice ' + codice.slice(0, 3) + ' ' + codice.slice(3);
@@ -841,18 +870,19 @@ function disegnaImpostazioni(){
       ${cursore('fw' + nm, 'mirino', 'Larghezza', 2, 100, (f.w * 100).toFixed(1), (f.w * 100).toFixed(1) + '%', .1)}
       ${cursore('fh' + nm, 'mirino', 'Altezza', 2, 100, (f.h * 100).toFixed(1), (f.h * 100).toFixed(1) + '%', .1)}</div>`; }).join('');
   const linkPi = new URL('../finestra/' + (casa ? '?casa=' + casa : ''), location.href).href, linkTel = location.origin + location.pathname + (casa ? '?casa=' + casa : '');
-  const ruoli = {proprietario:'Tu (proprietario)', comando:'DMaster', schermo:'Schermo', lavoratore:'Rifinitura dei video'};
+  const ruoli = {proprietario:'Proprietario', comando:'Telefono o tablet', schermo:'Schermo', lavoratore:'Rifinitura dei video'};
   const sezAccount = `<div class="sezione">${titolo('persona', 'Account e stanza', account ? (account.email || '') : 'non sei entrato')}
     <div class="pannello">${accessoStato === 'controllo' ? '<p class="nota" style="margin:0">Controllo l\'accesso…</p>'
-      : !account ? `<p class="nota" style="margin-top:0">Entra con la tua email (un codice, niente password): la stanza diventa tua e le immagini private.</p>
-          <button class="btn oro piena" data-fai="apriBenvenuto">${icona('posta', 18)}Entra</button>`
-      : !casaPrivata ? `<p class="nota" style="margin-top:0">Questa stanza usa ancora il vecchio link.</p><button class="btn oro piena" data-fai="apriBenvenuto">${icona('chiave', 18)}Collega la stanza al mio account</button>`
-      : `<ul class="membri">${membri.map(m => `<li><span><b>${esc(m.ruolo === 'proprietario' ? (account.email || 'Tu') : (m.nome || ruoli[m.ruolo] || m.ruolo))}</b><small>${esc(ruoli[m.ruolo] || m.ruolo)}</small></span>${m.ruolo === 'proprietario' ? '' : `<span class="azioni-riga"><button class="btn piccolo" data-fai="accRinomina" data-v="${esc(m.utente)}">Rinomina</button><button class="btn piccolo pericolo" data-fai="accTogli" data-v="${esc(m.utente)}">Togli</button></span>`}</li>`).join('')}</ul>
+      : !account && !casaPrivata ? `<p class="nota" style="margin-top:0">Collega questo telefono alla tua stanza: inquadra il QR che DMaster mostra in «Collega il telefono» (o entra con la tua email).</p>
+          <button class="btn oro piena" data-fai="apriBenvenuto">${icona('qr', 18)}Collega il telefono</button>`
+      : account && !casaPrivata ? `<p class="nota" style="margin-top:0">Questa stanza usa ancora il vecchio link.</p><button class="btn oro piena" data-fai="apriBenvenuto">${icona('chiave', 18)}Collega la stanza al mio account</button>`
+      : `<ul class="membri">${membri.map(m => `<li><span><b>${esc(m.ruolo === 'proprietario' ? ((account && account.email) || 'Proprietario') : (m.nome || ruoli[m.ruolo] || m.ruolo))}</b><small>${esc(ruoli[m.ruolo] || m.ruolo)}</small></span>${m.ruolo === 'proprietario' || !sonoProprietario() ? '' : `<span class="azioni-riga"><button class="btn piccolo" data-fai="accRinomina" data-v="${esc(m.utente)}">Rinomina</button><button class="btn piccolo pericolo" data-fai="accTogli" data-v="${esc(m.utente)}">Togli</button></span>`}</li>`).join('')}</ul>
           <button class="btn oro piena" style="margin-top:12px" data-fai="aggiungiSchermo">${icona('qr', 18)}Aggiungi schermo</button>
-          ${vecchio ? `<div class="azioni"><button class="btn" data-fai="accMostraCodici">${icona('schermo', 18)}Mostra il QR sugli schermi accesi</button><button class="btn" data-fai="accCopia">${icona('ricarica', 18)}Ricopia le immagini</button></div>
+          ${vecchio && sonoProprietario() ? `<div class="azioni"><button class="btn" data-fai="accMostraCodici">${icona('schermo', 18)}Mostra il QR sugli schermi accesi</button><button class="btn" data-fai="accCopia">${icona('ricarica', 18)}Ricopia le immagini</button></div>
           <div class="vecchio-link"><b>${icona('avviso', 16)}Vecchio link ancora aperto</b><span>Chi ha il vecchio link comanda le finestre e vede le immagini. Quando tutti gli schermi (e DMaster) sono nella stanza, chiudilo.</span>
             <button class="btn piccolo pericolo" data-fai="accChiudiVecchio">Chiudi il vecchio link</button></div>` : '<p class="nota">Stanza privata: la vedono solo i membri qui sopra.</p>'}`}
-      ${account ? `<div class="azioni"><button class="btn piccolo" data-fai="accEsci">Esci da questo telefono</button><button class="btn piccolo" data-fai="accEsciOvunque">Esci da tutti i dispositivi</button></div>` : ''}
+      ${account ? `<div class="azioni"><button class="btn piccolo" data-fai="accEsci">Esci da questo telefono</button><button class="btn piccolo" data-fai="accEsciOvunque">Esci da tutti i dispositivi</button></div>`
+        : casaPrivata ? `<p class="nota">Telefono collegato da DMaster.</p><div class="azioni"><button class="btn piccolo" data-fai="accEsci">Scollega questo telefono</button></div>` : ''}
       <div id="lavoroFoglio"></div></div></div>`;
   s.innerHTML = testa('manopole', 'Impostazioni', 'Modelli, chiavi e finestre') + `<div class="problema" hidden></div>${sezAccount}
     <div class="sezione">${titolo('tavolozza', 'AI per le immagini')}
@@ -1072,6 +1102,7 @@ const AZIONI = {
   benvenutoFine: () => { scrivi('atm-benvenuto-visto', true); chiudiFoglio(); if (scheda === 'impostazioni') disegnaImpostazioni(); },
   chiudiFoglio: () => chiudiFoglio(),
   aggiungiSchermo: () => apriAggiungi(),
+  inquadraInvito: () => apriAggiungi(true),
   codiceScritto: () => { const c = Accesso.codiceDa(($('#qrCodice') || {}).value); if (!c){ avviso('Il codice ha 6 cifre.', true); return; } fermaCamera(); confermaAggiunta(c); },
   aggiungiOra: async v => {
     try {

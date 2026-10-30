@@ -1,0 +1,6 @@
+-- DMaster Atmosphere · il telefono entra senza email (30/10/2026, Maurizio: «Dovrei farlo una volta su DMaster e poi
+-- tutto il resto, anche Atmosphere se lo ricorda»). Applicato dal progetto con apply_migration.
+--   · atm_inviti: QR d'invito creato dal proprietario (DMaster), valido 10 minuti, una volta sola
+--   · atm_usa_invito: il telefono (accesso anonimo) diventa «comando» della stanza
+--   · atm_abbina / atm_vedi_codice: aggiungono schermi anche i telefoni «comando»
+-- (testo completo delle funzioni: vedi la migrazione «atmosfera_inviti_telefono» nel progetto Supabase)

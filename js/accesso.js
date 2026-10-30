@@ -104,6 +104,29 @@ const Accesso = {
     const {error} = await this.sb.from('atm_case').update({vecchio_chiuso: true}).eq('id', casa);
     if (error) throw new Error(error.message);
   },
+  /* ── il telefono entra senza email: QR d'invito mostrato da DMaster (Maurizio, 30/10: «Dovrei farlo una volta su
+     DMaster e poi tutto il resto, anche Atmosphere se lo ricorda») ── */
+  async creaInvito(casa){
+    const {data, error} = await this.sb.rpc('atm_crea_invito', {casa});
+    if (error) throw new Error(error.message);
+    return data;
+  },
+  async usaInvito(token, nome = 'Telefono'){
+    await this.entraAnonimo();
+    const {data, error} = await this.sb.rpc('atm_usa_invito', {token, nome});
+    if (error) throw new Error(error.message);
+    if (data && data.errore) throw new Error(data.errore[0].toUpperCase() + data.errore.slice(1) + '.');
+    return data.casa;
+  },
+  invitoDa(testo){ const m = String(testo || '').match(/[?&]invito=([0-9a-f]{64})/); return m ? m[1] : null; },
+  /* la stanza che questo apparecchio comanda (proprietario o telefono collegato da DMaster), con la sua riga */
+  async stanzaComandata(){
+    const u = await this.utente(); if (!u) return null;
+    const {data} = await this.sb.from('atm_membri').select('casa, ruolo').eq('utente', u.id).in('ruolo', ['proprietario', 'comando']).limit(1);
+    if (!data || !data.length) return null;
+    const {data: c} = await this.sb.from('atm_case').select('*').eq('id', data[0].casa).limit(1);
+    return c && c[0] ? Object.assign({}, c[0], {mioRuolo: data[0].ruolo}) : null;
+  },
   /* un codice da un QR («…/telecomando/?abbina=123456») o scritto a mano */
   codiceDa(testo){
     const t = String(testo || ''); let m = t.match(/[?&]abbina=(\d{6})/); if (m) return m[1];
