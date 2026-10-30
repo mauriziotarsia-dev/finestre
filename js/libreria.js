@@ -60,7 +60,10 @@ async function leggiLibreria(casa){
   if (error) throw new Error('Lettura della libreria non riuscita: ' + error.message);
   const per = new Map();
   for (const f of data || []){
-    const m = f.name.match(MODELLO_NOME); if (!m) continue;
+    /* «…_giorno-originale.jpg», «…_anim-giorno-originale.mp4»: la copia di sicurezza di quello che l'AI aveva fatto,
+       prima che il mini PC lo ingrandisse o lo cucisse. Non si mostra, ma si sposta e si toglie col paesaggio */
+    const compagno = f.name.match(/^(.*)-originale(\.(?:jpg|png|mp4))$/);
+    const m = (compagno ? compagno[1] + compagno[2] : f.name).match(MODELLO_NOME); if (!m) continue;
     const [, id, tipo, s, kw, parte] = m;
     if (!per.has(id)){
       const tutte = kw ? kw.split('.') : [], fx = tutte.find(x => /^fx\d+$/.test(x));
@@ -70,10 +73,13 @@ async function leggiLibreria(casa){
     }
     const p = per.get(id), url = urlPubblico('finestre/' + cartella + '/' + f.name);
     p.file.push(f.name);
-    /* il video può essere riscritto (cucito dopo: pi/cuci-animazione.py): l'indirizzo porta la sua data, così nessuno tiene il vecchio */
-    if (parte.startsWith('anim-')) p.animati[parte.slice(5)] = url + '?v=' + (Date.parse(f.updated_at || f.created_at || '') || 0).toString(36);
+    if (compagno) continue;
+    /* video e immagini possono essere riscritti col nome di prima (cucito o ingrandito dopo: pi/cuci-animazione.py)
+       e restano un anno nella memoria del browser: l'indirizzo porta la loro data, così nessuno tiene il vecchio */
+    const v = '?v=' + (Date.parse(f.updated_at || f.created_at || '') || 0).toString(36);
+    if (parte.startsWith('anim-')) p.animati[parte.slice(5)] = url + v;
     else if (parte.startsWith('yt-')) p.yt = hexInYt(parte.slice(3));
-    else p.immagini[parte] = url;
+    else p.immagini[parte] = url + v;
   }
   return [...per.values()].filter(p => p.immagini.giorno || p.yt).sort((a, b) => b.creato - a.creato);
 }
@@ -127,8 +133,9 @@ async function rinominaPaesaggio(casa, p, nome, parole, fuoco = p.fuoco){
   const nuovo = Object.assign({}, p, {nome, parole, fuoco});
   const nuoviFile = [];
   for (const f of p.file){
-    const m = f.match(MODELLO_NOME); if (!m) continue;
-    const dest = nomeFile(nuovo, m[5], m[6]);
+    const compagno = /-originale\.(jpg|png|mp4)$/.test(f);
+    const m = (compagno ? f.replace(/-originale(\.\w+)$/, '$1') : f).match(MODELLO_NOME); if (!m) continue;
+    const dest = nomeFile(nuovo, m[5], m[6]).replace(/(\.\w+)$/, compagno ? '-originale$1' : '$1');
     nuoviFile.push(dest);
     if (dest === f) continue;
     const {error} = await dep.move('finestre/' + cartella + '/' + f, 'finestre/' + cartella + '/' + dest);

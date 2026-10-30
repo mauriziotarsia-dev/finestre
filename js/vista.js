@@ -488,6 +488,7 @@ class Vista {
     gl.useProgram(this.p);
     gl.uniform1i(this.u.uImg0, 0); gl.uniform1i(this.u.uImg1, 1); gl.uniform1i(this.u.uDep0, 2); gl.uniform1i(this.u.uDep1, 3); gl.uniform1i(this.u.uImg0b, 4); gl.uniform1i(this.u.uMeteo, 5); gl.uniform1i(this.u.uCielo0, 6); gl.uniform1i(this.u.uCielo1, 7); gl.uniform1i(this.u.uFermo0, 8); gl.uniform1i(this.u.uFermo1, 9); gl.uniform1i(this.u.uVentoT, 10);
     this.unita = gl.getParameter(gl.MAX_TEXTURE_IMAGE_UNITS) || 8;   /* il fermo vuole 10 unità (il Raspberry 4 ne ha 16) */
+    this.maxTex = gl.getParameter(gl.MAX_TEXTURE_SIZE) || 4096;       /* Raspberry 4 e telefoni vecchi: 4096; il G10 16384 */
     /* nebbia e nuvole a bassa risoluzione */
     this.pm = programma(VERT, METEO_FRAG, ['aPos']);
     this.um = posizioni(this.pm, ['uMap','uT','uVento']);
@@ -537,6 +538,15 @@ class Vista {
   mip(t){ const gl = this.gl; if (!(window.WebGL2RenderingContext && gl instanceof WebGL2RenderingContext)) return;
     gl.bindTexture(gl.TEXTURE_2D, t); gl.generateMipmap(gl.TEXTURE_2D);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR); }
+  /* le immagini ingrandite dall'AI (pi/cuci-animazione.py: 2560 di altezza per le finestrelle, 4608 di larghezza
+     per il TV 4K) possono superare quello che una scheda accetta: lì si riducono prima di caricarle */
+  entro(im){
+    const w = im.naturalWidth || im.width, h = im.naturalHeight || im.height, max = this.maxTex || 4096;
+    if (Math.max(w, h) <= max) return im;
+    const k = max / Math.max(w, h), c = document.createElement('canvas');
+    c.width = Math.floor(w * k); c.height = Math.floor(h * k); c.getContext('2d').drawImage(im, 0, 0, c.width, c.height);
+    return c;
+  }
   fonteVuota(){ return {img:null, tex:null, dep:null, depTex:null, video:null, cTex:null, cm:[0,0,0,0], fTex:null, iw:1, ih:1, url:null, ok:false}; }
 
   /* nuova immagine (o video in loop), con la sua profondità; sfuma da quella di prima in `dur` secondi */
@@ -550,7 +560,7 @@ class Vista {
   async _mostra(chiave, url, profondita, video, dur, fuoco, cielo, fermo, maschera){
     const f = this.fonteVuota(); f.url = chiave; f.fuoco = fuoco;
     const im = await caricaImg(url);
-    f.img = im; f.iw = im.naturalWidth; f.ih = im.naturalHeight; f.tex = this.texture(); this.carica(f.tex, im); this.mip(f.tex);
+    f.img = im; f.iw = im.naturalWidth; f.ih = im.naturalHeight; f.tex = this.texture(); this.carica(f.tex, this.entro(im)); this.mip(f.tex);
     let dimg = null;
     if (profondita){ try { dimg = await caricaImg(profondita); f.depTex = this.texture(); this.carica(f.depTex, dimg); this.mip(f.depTex); } catch(e) { dimg = null; } }
     try { f.aTex = this.texture(); this.carica(f.aTex, mascheraAlberi(im, dimg)); } catch(e) { f.aTex = null; }
@@ -559,7 +569,7 @@ class Vista {
     if (cielo && dimg){
       try {
         const ci = await caricaImg(cielo), oriz = orizzonte(dimg);
-        if (oriz > .05){ f.cTex = this.texture(); this.carica(f.cTex, ci); this.mip(f.cTex); f.cm = [oriz, ci.naturalWidth / ci.naturalHeight, f.iw / f.ih, 0]; }
+        if (oriz > .05){ f.cTex = this.texture(); this.carica(f.cTex, this.entro(ci)); this.mip(f.cTex); f.cm = [oriz, ci.naturalWidth / ci.naturalHeight, f.iw / f.ih, 0]; }
       } catch(e) { /* nessun cielo panoramico per questo paesaggio */ }
     }
     if (video){ try { f.video = await apriVideo(video); f.vtex = this.texture(); } catch(e) { f.video = null; } }
@@ -567,7 +577,8 @@ class Vista {
     if (f.video && fermo && maschera && this.unita >= 10){
       try {
         const [fi, mi] = await Promise.all([caricaImg(fermo), caricaImg(maschera)]);
-        const W = fi.naturalWidth, H = fi.naturalHeight, c = document.createElement('canvas'); c.width = W; c.height = H;
+        const k = Math.min(1, (this.maxTex || 4096) / Math.max(fi.naturalWidth, fi.naturalHeight));
+        const W = Math.floor(fi.naturalWidth * k), H = Math.floor(fi.naturalHeight * k), c = document.createElement('canvas'); c.width = W; c.height = H;
         const x = c.getContext('2d', {willReadFrequently:true});
         x.drawImage(mi, 0, 0, W, H); const m = x.getImageData(0, 0, W, H);
         x.drawImage(fi, 0, 0, W, H); const d = x.getImageData(0, 0, W, H);
@@ -575,6 +586,9 @@ class Vista {
         f.fTex = this.texture(); const gl = this.gl;
         gl.bindTexture(gl.TEXTURE_2D, f.fTex); gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
         gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, d);
+        /* anche il fermo con le sue riduzioni già pronte: ora è più grande del foro (ingrandito dall'AI) e,
+           senza, quando la prospettiva lo sposta i dettagli fini sfarfallerebbero */
+        this.mip(f.fTex);
       } catch(e) { f.fTex = null; /* niente fermo: il video è già cucito (o il file non c'è più) */ }
     }
     f.ok = true;

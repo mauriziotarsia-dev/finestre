@@ -38,9 +38,21 @@ il più forte acceso lo prende subito; il primo che prende il lavoro lo segna e 
 Se il più forte è spento, il successivo parte al massimo entro un minuto e mezzo (subito, se è spento da prima); se è acceso ma occupato con un altro video,
 dopo 2 minuti.
 Su tutti gira a bassa priorità e con 2 processori: le finestre e il TV prima di tutto.
-Serve: Python 3 con opencv e numpy, e ffmpeg.
+
+INGRANDIMENTO AI (Maurizio, 30/10: «voglio 4K sulla TV grande»). Con la prospettiva viva la finestra ingrandisce
+l'immagine del 20% per avere un bordo da scoprire: l'immagine deve essere 1,2 volte lo schermo, e l'AI non ci arriva
+(foto 832×2080 o 768×1344, video 720×1280 o 1080×1920; per il TV 4K servirebbero 4608×2592). Sui computer con una
+scheda video (mini PC, laptop; non il Raspberry) le foto, i cieli e il fermo dei video vengono ingranditi con
+Real-ESRGAN, che ridisegna i dettagli invece di allargare i pixel:
+  finestrelle (immagini verticali)   2560 di altezza    → nel foro 656×1640 la risoluzione piena anche a 40 cm
+  TV (immagini orizzontali)          4608 di larghezza  → 4K vero (3840×2160) col bordo per la prospettiva
+  cielo che scorre                   fino a 4096×2048   (oltre, il Raspberry non lo carica)
+Il video resta piccolo: serve solo dove si muove (nebbia, fumo, acqua), tutto il resto lo disegna il fermo.
+L'originale dell'AI resta accanto, «…-originale.jpg».
+
+Serve: Python 3 con opencv e numpy, e ffmpeg; per l'ingrandimento anche realesrgan-ncnn-py (Python 3.12).
   Raspberry:  sudo apt install python3-opencv ffmpeg
-  Windows:    winget install Python.Python.3.12 Gyan.FFmpeg  poi  pip install opencv-python numpy
+  Windows:    winget install Python.Python.3.12 Gyan.FFmpeg  poi  pip install opencv-python numpy realesrgan-ncnn-py
 """
 import argparse, collections, hashlib, json, os, re, subprocess, sys, tempfile, threading, time, urllib.error, urllib.parse, urllib.request
 import numpy as np
@@ -274,6 +286,103 @@ def cuci(entrata, uscita, profondita=None, immagine=None, fuoco_x=0.5, larghezza
     return info
 
 
+# ── ingrandimento AI ─────────────────────────────────────────────────────────────────────────────────────
+LATO_FINESTRELLA = 2560     # altezza delle immagini verticali: foro 1640 × 1,2 di bordo × 1,08 quando ci si avvicina, con margine
+LATO_TV = 4608              # larghezza delle immagini orizzontali: 3840 (4K) × 1,2 di bordo
+CIELO_MAX = (4096, 2048)    # il cielo che scorre: oltre 4096 il Raspberry non lo carica
+_esr = None
+
+
+def ingranditore():
+    """Real-ESRGAN sulla scheda video (Vulkan: la Radeon del G10, la Intel del laptop). None se non c'è."""
+    global _esr
+    if _esr is None:
+        try:
+            from realesrgan_ncnn_py import Realesrgan
+            _esr = Realesrgan(gpuid=0, model=4)            # realesrgan-x4plus: paesaggi e dipinti, ×4
+        except Exception as e:
+            print('ingrandimento AI non disponibile:', e, file=sys.stderr, flush=True); _esr = False
+    return _esr or None
+
+
+def misura_giusta(w, h, parte):
+    """Quanto deve essere grande l'immagine per lo schermo che la mostra; None se lo è già."""
+    if parte.startswith('cielo-'): k = min(CIELO_MAX[0] / w, CIELO_MAX[1] / h)
+    elif h >= w: k = LATO_FINESTRELLA / h                  # verticale: le finestrelle
+    else: k = LATO_TV / w                                  # orizzontale: il TV (o una foto orizzontale, di cui il foro mostra una striscia)
+    return (int(round(w * k / 2)) * 2, int(round(h * k / 2)) * 2) if k > 1.12 else None
+
+
+def ingrandisci(img, W, H, giro=False):
+    """L'immagine a W×H: Real-ESRGAN ×4 e poi ridotta (così i suoi difetti spariscono), con un quarto di
+    ingrandimento classico che tiene la grana naturale (da solo Real-ESRGAN fa i cipressi lontani «di plastica»).
+    giro=True per il cielo che scorre: i due lati si devono continuare, si ingrandisce con un pezzo dell'altro lato."""
+    e = ingranditore()
+    if not e: return None
+    b = 32 if giro else 0
+    src = np.concatenate([img[:, -b:], img, img[:, :b]], 1) if b else img
+    x4 = e.process_cv2(np.ascontiguousarray(src))
+    if b: x4 = x4[:, 4 * b:-4 * b]
+    a = cv2.resize(x4, (W, H), interpolation=cv2.INTER_AREA)
+    c = cv2.resize(img, (W, H), interpolation=cv2.INTER_LANCZOS4)
+    return cv2.addWeighted(a, .75, c, .25, 0)
+
+
+def _visti_percorso():
+    return os.path.join(os.path.expanduser('~'), '.cucitore-visti.json')
+
+
+def _visti():
+    try: return json.load(open(_visti_percorso()))
+    except Exception: return {}
+
+
+def ingrandisci_foto(cart, file, nomi, piu_forte, forza, chi, io):
+    """Le foto, i cieli e i fermi più piccoli di quanto serve allo schermo: ingranditi e rimessi al loro posto.
+    Lo fa solo chi ha una scheda video (forza 2 o più), uno alla volta, come le animazioni."""
+    if forza < 2: return 0
+    visti = _visti(); fatti = 0
+    pub = lambda n: f'{URL}/storage/v1/object/public/{DEPOSITO}/{cart}/' + urllib.parse.quote(n)
+    for nome in nomi:
+        base, _, coda = nome.rpartition('_')
+        m = re.fullmatch(r'(giorno|alba|tramonto|notte|cielo-(?:giorno|alba|tramonto|notte)|fermo-(giorno|alba|tramonto|notte))\.jpg', coda)
+        if not m: continue
+        parte = m.group(1)
+        originale = f'{base}_{parte}-originale.jpg'
+        if originale in nomi: continue                                         # già ingrandita
+        if m.group(2) and f'{base}_anim-{m.group(2)}-originale.mp4' not in nomi: continue   # fermo del telefono: arriva quello cucito
+        quando = file[nome].get('updated_at') or ''
+        if visti.get(nome) == quando: continue                                 # già guardata: è grande abbastanza
+        if piu_forte and _eta_agg(file[nome]) < 2: continue
+        if not ingranditore(): return fatti
+        segno = f'{base}_{parte}-incorso.png'
+        if segno in file:
+            if _eta_agg(file[segno]) < 3: continue
+            _libera(cart, segno)
+        if not _prenota(cart, segno, chi): continue
+        try:
+            with tempfile.TemporaryDirectory() as d:
+                e = os.path.join(d, 'e.jpg'); urllib.request.urlretrieve(pub(nome), e)
+                img = cv2.imread(e); h, w = img.shape[:2]
+                misura = misura_giusta(w, h, parte)
+                if not misura:
+                    visti[nome] = quando
+                    json.dump(visti, open(_visti_percorso(), 'w')); continue
+                print(chi, 'ingrandisce', nome, f'{w}x{h} → {misura[0]}x{misura[1]}', flush=True)
+                t = time.time()
+                u = ingrandisci(img, *misura, giro=parte.startswith('cielo-'))
+                if u is None: return fatti
+                ok, jpg = cv2.imencode('.jpg', u, [cv2.IMWRITE_JPEG_QUALITY, 92])
+                _chiedi('POST', f'/storage/v1/object/{DEPOSITO}/{cart}/' + urllib.parse.quote(originale), open(e, 'rb').read(), 'image/jpeg', {'x-upsert': 'true'})
+                _chiedi('POST', f'/storage/v1/object/{DEPOSITO}/{cart}/' + urllib.parse.quote(nome), jpg.tobytes(), 'image/jpeg',
+                        {'x-upsert': 'true', 'cache-control': 'max-age=60'})
+                print(f'  fatto in {time.time() - t:.0f} s', flush=True); fatti += 1
+                _rinfresca(cart, io)
+        finally:
+            _libera(cart, segno)
+    return fatti
+
+
 # ── sul Raspberry: cuce da solo le animazioni nuove della casa ───────────────────────────────────────────
 URL = 'https://olcfvghjfzyazogfsjbk.supabase.co'
 DEPOSITO = 'dmaster-media'
@@ -372,6 +481,13 @@ def giro_casa(casa, larghezza=None, veloce=False, forza=1, chi='pc'):
             fatti += _cuci_uno(cart, nomi, nome, base, parte, originale, larghezza, veloce)
         finally:
             vivo.set(); _libera(cart, segno)
+    if not fatti:                                              # le animazioni prima di tutto; poi, se c'è tempo, le foto
+        try:
+            elenco = json.loads(_chiedi('POST', f'/storage/v1/object/list/{DEPOSITO}', json.dumps({'prefix': cart, 'limit': 1000}).encode()))
+            file = {f['name']: f for f in elenco}
+            fatti += ingrandisci_foto(cart, file, list(file), piu_forte, forza, chi, io)
+        except Exception as e:
+            print('ingrandimento non riuscito:', e, file=sys.stderr, flush=True)
     return fatti
 
 
@@ -393,8 +509,18 @@ def _cuci_uno(cart, nomi, nome, base, parte, originale, larghezza, veloce):
             _chiedi('POST', f'/storage/v1/object/{DEPOSITO}/{cart}/' + urllib.parse.quote(originale), open(e, 'rb').read(), 'video/mp4')
             _chiedi('POST', f'/storage/v1/object/{DEPOSITO}/{cart}/' + urllib.parse.quote(nome), open(u, 'rb').read(), 'video/mp4',
                     {'x-upsert': 'true', 'cache-control': 'max-age=60'})
-            # fermo e maschera nuovi, al posto di quelli fatti dal telefono alla creazione (js/fermo.js)
+            # fermo e maschera nuovi, al posto di quelli fatti dal telefono alla creazione (js/fermo.js).
+            # Il fermo disegna tutto quello che non si muove: se qui c'è la scheda video si ingrandisce subito,
+            # altrimenti lo farà il primo computer che ce l'ha (togliendo il suo vecchio originale, se c'era)
             ora = parte[5:-4]
+            nfo = f'{base}_fermo-{ora}-originale.jpg'
+            fimg = cv2.imread(fj); misura = misura_giusta(fimg.shape[1], fimg.shape[0], 'fermo-' + ora)
+            grande = ingrandisci(fimg, *misura) if misura and ingranditore() else None
+            if grande is not None:
+                _chiedi('POST', f'/storage/v1/object/{DEPOSITO}/{cart}/' + urllib.parse.quote(nfo), open(fj, 'rb').read(), 'image/jpeg', {'x-upsert': 'true'})
+                cv2.imwrite(fj, grande, [cv2.IMWRITE_JPEG_QUALITY, 92])
+            elif nfo in nomi:
+                _libera(cart, nfo)
             for nf, fl, tipo in ((f'{base}_fermo-{ora}.jpg', fj, 'image/jpeg'), (f'{base}_maschera-{ora}.png', mp, 'image/png')):
                 _chiedi('POST', f'/storage/v1/object/{DEPOSITO}/{cart}/' + urllib.parse.quote(nf), open(fl, 'rb').read(), tipo,
                         {'x-upsert': 'true', 'cache-control': 'max-age=60'})
