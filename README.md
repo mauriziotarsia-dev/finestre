@@ -10,6 +10,7 @@ Finestre virtuali per la stanza medievale: schermi in cantina dietro i trafori, 
 - `js/ai.js` — immagini (OpenAI GPT Image, Google Nano Banana) e animazioni (Gemini Omni) con la propria chiave.
 - `pi/sensore.py` — il radar della prospettiva viva (porta 8788), `esp32/radar-udp/` la schedina accanto al radar.
 - `pi/cuci-animazione.py` — ripulisce le animazioni dell'AI: case e campi fermi, cielo senza uccelli spuntati dal nulla, giro invisibile, 30 immagini al secondo. Sul Raspberry: `python3 pi/cuci-animazione.py --casa CODICE` le cuce da sole appena create (serve `sudo apt install python3-opencv ffmpeg`).
+- `js/fermo.js` — appena fatta un'animazione, sul telefono: il paesaggio fermo e la maschera di ciò che si muove davvero, così le finestre non tremano mai (poi il Raspberry cuce il video a piena qualità).
 - `js/profondita.js` — mappa di profondità sul telefono (Depth Anything V2, transformers.js).
 - `js/foto-online.js` — foto vere da Wikimedia Commons e Pexels.
 
