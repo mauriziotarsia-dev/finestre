@@ -26,7 +26,9 @@ Che cosa fa, fotogramma per fotogramma:
 
 Uso:
   python3 cuci-animazione.py entrata.mp4 uscita.mp4 [--profondita mappa.png --immagine giorno.jpg]
-  python3 cuci-animazione.py --casa <chiave-della-casa> [--una]      (sul Raspberry: cuce da solo le nuove)
+  python3 cuci-animazione.py --casa <chiave-della-casa> [--una]      (sul Raspberry: cuce da solo le nuove, a piena
+                                                                      qualità e a bassa priorità; nel frattempo le finestre
+                                                                      usano il fermo e la maschera fatti dal telefono)
 Serve: python3-opencv, python3-numpy, ffmpeg  (sudo apt install python3-opencv ffmpeg)
 """
 import argparse, collections, hashlib, json, os, subprocess, sys, tempfile, time, urllib.parse, urllib.request
@@ -36,6 +38,7 @@ import cv2
 SECONDI_GIRO = 3.0          # quanto dura la sfumatura fra la fine e l'inizio (nebbia e fumo la nascondono bene)
 SECONDI_RIFERIMENTO = 2.0   # da quanti secondi iniziali nasce l'immagine ferma
 FPS_USCITA = 30
+FF_THREADS = '0'            # 0 = tutti i processori; sul Raspberry (--casa) 2
 
 
 def leggi_info(percorso):
@@ -223,7 +226,7 @@ def cuci(entrata, uscita, profondita=None, immagine=None, fuoco_x=0.5, larghezza
               else f'framerate=fps={FPS_USCITA}')
     if (W, H) != (w, h): filtro += f',scale={W}:{H}:flags=lanczos'
     n_uscita = int(round(lung / fps * FPS_USCITA))
-    cmd = ['ffmpeg', '-v', 'error', '-y', '-f', 'rawvideo', '-pix_fmt', 'bgr24', '-s', f'{w}x{h}', '-r', str(fps), '-i', '-',
+    cmd = ['ffmpeg', '-v', 'error', '-y', '-threads', FF_THREADS, '-f', 'rawvideo', '-pix_fmt', 'bgr24', '-s', f'{w}x{h}', '-r', str(fps), '-i', '-',
            '-vf', filtro, '-frames:v', str(n_uscita), '-an', '-c:v', 'libx264', '-preset', 'slow' if not veloce else 'veryfast', '-crf', '19',
            '-profile:v', 'high', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', uscita]
     ff = subprocess.Popen(cmd, stdin=subprocess.PIPE)
@@ -276,8 +279,8 @@ def giro_casa(casa, larghezza=None, veloce=True):
             json.dumps({'prefix': cart, 'limit': 1000}).encode()))]
     fatti = 0
     for nome in nomi:
-        if '_anim-' not in nome or not nome.endswith('.mp4'): continue
-        base, parte = nome.rsplit('_', 1)                      # parte = anim-giorno.mp4
+        base, _, parte = nome.rpartition('_')                  # parte = anim-giorno.mp4
+        if parte not in ('anim-giorno.mp4', 'anim-alba.mp4', 'anim-tramonto.mp4', 'anim-notte.mp4'): continue
         originale = f'{base}_{parte[:-4]}-originale.mp4'      # il file dell'AI resta qui, intatto (la libreria lo ignora)
         if originale in nomi: continue                         # già cucita
         print('Cucio', nome, flush=True)
@@ -296,6 +299,11 @@ def giro_casa(casa, larghezza=None, veloce=True):
             _chiedi('POST', f'/storage/v1/object/{DEPOSITO}/{cart}/' + urllib.parse.quote(originale), open(e, 'rb').read(), 'video/mp4')
             _chiedi('POST', f'/storage/v1/object/{DEPOSITO}/{cart}/' + urllib.parse.quote(nome), open(u, 'rb').read(), 'video/mp4',
                     {'x-upsert': 'true', 'cache-control': 'max-age=60'})
+            # il fermo e la maschera fatti dal telefono alla creazione (js/fermo.js) non servono più: il video è cucito
+            ora = parte[5:-4]
+            via = [f'{cart}/{base}_fermo-{ora}.jpg', f'{cart}/{base}_maschera-{ora}.png']
+            via = [x for x in via if x.rsplit('/', 1)[1] in nomi]
+            if via: _chiedi('DELETE', f'/storage/v1/object/{DEPOSITO}', json.dumps({'prefixes': via}).encode())
             print('  fatto:', info, flush=True); fatti += 1
     return fatti
 
@@ -310,8 +318,12 @@ def main():
     a.add_argument('--una', action='store_true', help='con --casa: un giro solo e poi esce')
     o = a.parse_args()
     if o.casa:
+        # sul Raspberry che intanto disegna le finestre: priorità bassa e pochi processori, le finestre prima di tutto
+        try: os.nice(19)
+        except Exception: pass
+        cv2.setNumThreads(2); global FF_THREADS; FF_THREADS = '2'
         while True:
-            try: giro_casa(o.casa, o.larghezza, veloce=True if o.veloce or not o.una else o.veloce)
+            try: giro_casa(o.casa, o.larghezza, veloce=o.veloce)
             except Exception as e: print('giro non riuscito:', e, file=sys.stderr, flush=True)
             if o.una: break
             time.sleep(120)

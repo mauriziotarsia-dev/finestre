@@ -11,7 +11,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
 const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 const euro = n => (n < .1 ? n.toFixed(3) : n.toFixed(2)).replace('.', ',') + ' $';
-const VERSIONE = '2.6';
+const VERSIONE = '2.7';
 
 /* ── la casa ──────────────────────────────────────────────────────────────── */
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
@@ -571,6 +571,15 @@ async function faiAnimazione(p, foto, ora, elementi){
   passo('anim', 'ora', 'Animazione: la salvo…');
   p.animati[ora] = await caricaAnimazione(casa, p, ora, mp4);
   lavoro.av = null; passo('anim', 'fatto', 'Animazione (' + imp.video.secondi + ' s, in loop)');
+  /* subito: che cosa resta fermo e che cosa si muove (così le finestre non tremano mai); il video a piena
+     qualità lo rifà poi il Raspberry, con calma */
+  passo('fermo', 'ora', 'Animazione: separo quello che si muove da quello che sta fermo…');
+  try {
+    const r = await Fermo.analizza(mp4, pc => passo('fermo', 'ora', `Animazione: separo quello che si muove da quello che sta fermo… ${Math.round(pc)}%`));
+    p.immagini['fermo-' + ora] = await caricaFermo(casa, p, ora, r.fermo);
+    p.immagini['maschera-' + ora] = await caricaMaschera(casa, p, ora, r.maschera);
+    passo('fermo', 'fatto', `Paesaggio fermo, ${r.parteViva > .01 ? 'vivo dove si muove davvero (' + Math.round(r.parteViva * 100) + '%)' : 'nessuna parte viva oltre al cielo'}`);
+  } catch(e) { passo('fermo', 'errore', 'Separazione non riuscita (la farà il Raspberry): ' + e.message); }
 }
 function aggiornaInLibreria(p){
   const i = libreria.findIndex(x => x.id === p.id);
