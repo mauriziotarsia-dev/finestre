@@ -559,7 +559,7 @@ class Vista {
        (prima: un secondo e mezzo di dissolvenza, con due video da decodificare insieme sul Raspberry,
        e uccelli e nebbia che comparivano e sparivano). */
     /* video non ancora cucito: il giro sfuma più a lungo (solo nella nebbia e nel fumo, il resto è fermo) */
-    const [a, b] = f.video, D = a.duration || 0, coda = f.fTex ? Math.min(2.5, D * .3) : Math.min(.25, D * .05);
+    const [a, b] = f.video, D = a.duration || 0, coda = f.fTex ? Math.min(1, D * .15) : Math.min(.25, D * .05);
     if (D > 2 && a.currentTime > D - coda && b.paused){ b.currentTime = 0; b.play().catch(() => {}); }
     if (!b.paused){
       const k = Math.min(1, Math.max(0, (a.currentTime - (D - coda)) / coda));

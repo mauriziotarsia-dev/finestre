@@ -225,13 +225,17 @@ class Cucitore:
             j += 1
 
 
-def cuci(entrata, uscita, profondita=None, immagine=None, fuoco_x=0.5, larghezza=None, veloce=False):
+def cuci(entrata, uscita, profondita=None, immagine=None, fuoco_x=0.5, larghezza=None, veloce=False, fermo=None, maschera=None):
     n, fps, w, h = leggi_info(entrata)
     primo = next(fotogrammi(entrata))
     cielo = maschera_cielo(w, h, profondita, immagine, fuoco_x, primo)
     sp, rif, zone, guad, sost, info = analizza(entrata, n, fps, w, h, cielo)
     c = int(round(fps * SECONDI_GIRO))
     lung = n - c                                               # il giro: n - c fotogrammi
+    # ⚠ 30/10: il video serve solo dove si muove (nebbia, fumo, acqua): il resto lo disegna il fermo a piena
+    # risoluzione. Così il video può essere piccolo: alto al massimo 1080, che il Raspberry 4 decodifica col suo
+    # circuito (1080×1920 no: lo decodificava il processore, e le finestre andavano a 30 immagini a scatti)
+    if not larghezza and h > 1088: larghezza = int(round(w * 1080 / h / 2)) * 2
     W, H = (larghezza, int(round(h * larghezza / w / 2)) * 2) if larghezza else (w, h)
     filtro = (f'minterpolate=fps={FPS_USCITA}:mi_mode=mci:mc_mode=aobmc:me_mode=bidir:vsbmc=1' if not veloce
               else f'framerate=fps={FPS_USCITA}')
@@ -260,7 +264,12 @@ def cuci(entrata, uscita, profondita=None, immagine=None, fuoco_x=0.5, larghezza
         pass                                                  # ffmpeg ha già i fotogrammi che gli servivano
     ff.wait()
     if ff.returncode: raise RuntimeError('ffmpeg non ha finito')
-    info.update({'fotogrammi_in': n, 'fps_in': round(fps, 2), 'secondi_giro': round(lung / fps, 2),
+    # il fermo (a piena risoluzione) e la maschera di dove si muove: la finestra compone dal vivo
+    if fermo: cv2.imwrite(fermo, rif, [cv2.IMWRITE_JPEG_QUALITY, 93])
+    if maschera:
+        m = np.clip(zone - cielo, 0, 1)
+        cv2.imwrite(maschera, (cv2.resize(m, (270, int(round(270 * h / w))), interpolation=cv2.INTER_AREA) * 255).astype(np.uint8))
+    info.update({'video': f'{W}x{H}', 'fotogrammi_in': n, 'fps_in': round(fps, 2), 'secondi_giro': round(lung / fps, 2),
                  'tremolio_max_px': round(float(np.abs(sp).max()), 2), 'cielo_pct': round(float(cielo.mean()) * 100, 1)})
     return info
 
@@ -379,15 +388,16 @@ def _cuci_uno(cart, nomi, nome, base, parte, originale, larghezza, veloce):
             fx = 0.5
             for kw in (base.split('@', 1)[1].split('.') if '@' in base else []):
                 if kw.startswith('fx') and kw[2:].isdigit(): fx = min(100, int(kw[2:])) / 100
-            info = cuci(e, u, prof, imm, fx, larghezza, veloce)
+            fj, mp = os.path.join(d, 'f.jpg'), os.path.join(d, 'm.png')
+            info = cuci(e, u, prof, imm, fx, larghezza, veloce, fj, mp)
             _chiedi('POST', f'/storage/v1/object/{DEPOSITO}/{cart}/' + urllib.parse.quote(originale), open(e, 'rb').read(), 'video/mp4')
             _chiedi('POST', f'/storage/v1/object/{DEPOSITO}/{cart}/' + urllib.parse.quote(nome), open(u, 'rb').read(), 'video/mp4',
                     {'x-upsert': 'true', 'cache-control': 'max-age=60'})
-            # il fermo e la maschera fatti dal telefono alla creazione (js/fermo.js) non servono più: il video è cucito
+            # fermo e maschera nuovi, al posto di quelli fatti dal telefono alla creazione (js/fermo.js)
             ora = parte[5:-4]
-            via = [f'{cart}/{base}_fermo-{ora}.jpg', f'{cart}/{base}_maschera-{ora}.png']
-            via = [x for x in via if x.rsplit('/', 1)[1] in nomi]
-            if via: _chiedi('DELETE', f'/storage/v1/object/{DEPOSITO}', json.dumps({'prefixes': via}).encode())
+            for nf, fl, tipo in ((f'{base}_fermo-{ora}.jpg', fj, 'image/jpeg'), (f'{base}_maschera-{ora}.png', mp, 'image/png')):
+                _chiedi('POST', f'/storage/v1/object/{DEPOSITO}/{cart}/' + urllib.parse.quote(nf), open(fl, 'rb').read(), tipo,
+                        {'x-upsert': 'true', 'cache-control': 'max-age=60'})
             print('  fatto:', info, flush=True)
             return 1
 
@@ -396,6 +406,7 @@ def main():
     a = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     a.add_argument('entrata', nargs='?'); a.add_argument('uscita', nargs='?')
     a.add_argument('--profondita'); a.add_argument('--immagine'); a.add_argument('--fuoco', type=float, default=.5)
+    a.add_argument('--fermo', help='dove salvare il paesaggio fermo (jpg)'); a.add_argument('--maschera', help='dove salvare la maschera (png)')
     a.add_argument('--larghezza', type=int, help='larghezza del video cucito (es. 720); di serie quella dell\'originale')
     a.add_argument('--veloce', action='store_true', help='fotogrammi intermedi sfumati invece che calcolati (Raspberry)')
     a.add_argument('--casa', help='chiave della casa: cuce le animazioni nuove nel deposito')
@@ -418,7 +429,7 @@ def main():
             time.sleep(20)
         return
     if not (o.entrata and o.uscita): a.error('servono entrata e uscita (oppure --casa)')
-    print(json.dumps(cuci(o.entrata, o.uscita, o.profondita, o.immagine, o.fuoco, o.larghezza, o.veloce), indent=1))
+    print(json.dumps(cuci(o.entrata, o.uscita, o.profondita, o.immagine, o.fuoco, o.larghezza, o.veloce, o.fermo, o.maschera), indent=1))
 
 
 if __name__ == '__main__':
