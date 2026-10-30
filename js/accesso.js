@@ -41,7 +41,7 @@ const Accesso = {
 
   /* ── le case ─────────────────────────────────────────────────────────────── */
   async mieCase(){
-    const {data, error} = await this.sb.from('atm_case').select('id, nome, proprietario, chiave_vecchia, creata').order('creata');
+    const {data, error} = await this.sb.from('atm_case').select('*').order('creata');
     if (error) throw new Error('Case non lette: ' + error.message);
     return data || [];
   },

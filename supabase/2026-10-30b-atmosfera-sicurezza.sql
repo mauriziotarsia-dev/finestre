@@ -19,7 +19,7 @@ create or replace function public.atm_abbina(codice text, casa uuid) returns jso
 language plpgsql security definer set search_path = '' as $$
 declare a public.atm_abbinamenti; u uuid := auth.uid(); n int;
 begin
-  if not atm_privato.proprietario(casa) then return jsonb_build_object('errore', 'solo il proprietario della casa può aggiungere schermi'); end if;
+  if not atm_privato.proprietario(casa) then return jsonb_build_object('errore', 'solo il proprietario della stanza può aggiungere schermi'); end if;
   select count(*) into n from public.atm_tentativi t where t.utente = u and t.quando > now() - interval '15 minutes';
   if n >= 8 then return jsonb_build_object('errore', 'troppi codici sbagliati: riprova fra un quarto d''ora'); end if;
   select * into a from public.atm_abbinamenti x where x.codice = regexp_replace(atm_abbina.codice, '\D', '', 'g') and x.scade > now();
@@ -33,7 +33,7 @@ begin
   return jsonb_build_object('ruolo', a.ruolo, 'nome', a.nome);
 end $$;
 
--- prima di aggiungere: che schermo è? (per chiedere «Aggiungere “TV” alla casa?»). Conta come tentativo se sbagliato
+-- prima di aggiungere: che schermo è? (per chiedere «Aggiungere “TV” alla stanza?»). Conta come tentativo se sbagliato
 create or replace function public.atm_vedi_codice(codice text) returns jsonb
 language plpgsql security definer set search_path = '' as $$
 declare a public.atm_abbinamenti; u uuid := auth.uid(); n int;
@@ -53,7 +53,7 @@ end $$;
 create or replace function public.atm_rinomina_membro(casa uuid, utente uuid, nome text) returns void
 language plpgsql security definer set search_path = '' as $$
 begin
-  if not atm_privato.proprietario(casa) then raise exception 'solo il proprietario della casa'; end if;
+  if not atm_privato.proprietario(casa) then raise exception 'solo il proprietario della stanza'; end if;
   update public.atm_membri m set nome = left(trim(atm_rinomina_membro.nome), 60) where m.casa = atm_rinomina_membro.casa and m.utente = atm_rinomina_membro.utente;
 end $$;
 
