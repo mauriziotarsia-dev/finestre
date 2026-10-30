@@ -18,7 +18,7 @@
 <canvas id="c"></canvas>
 <script src="../js/supabase.js?v=2.1.0"></script>
 <script src="../js/canale.js?v=2.1.0"></script>
-<script src="../js/vista.js?v=3.2"></script>
+<script src="../js/vista.js?v=3.3"></script>
 <script src="../js/inseguitore.js?v=1"></script>
 <script>
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -294,7 +294,7 @@ if (anteprima){
   const comandaDM = () => Date.now() < dmasterFino;
   /* con le prestazioni: immagini al secondo davvero disegnate, risoluzione del disegno, qualità (per capire da lontano se fatica) */
   const chi = () => ({lato: mio, assetto: casaFori, scena, schermo:{w:innerWidth, h:innerHeight, dpr:devicePixelRatio}, comando: comandaDM() ? 'dmaster' : null,
-    prestazioni:{fps: Math.round(fpsMisurati), scala, qualita, disegno:{w:c.width, h:c.height}, gl: vista && vista.gl ? (vista.gl.getParameter(vista.gl.RENDERER) || '') : ''}});
+    prestazioni:{fps: Math.round(fpsMisurati), hzSchermo: Math.round(1000 / intervalloSchermo), msDisegno: Math.round(msDisegno * 10) / 10, scala, qualita, disegno:{w:c.width, h:c.height}, gl: vista && vista.gl ? (vista.gl.getParameter(vista.gl.RENDERER) || '') : ''}});
   canale = apriCanale(casa, {
     suMessaggio(evento, dati){
       if (evento === 'dmaster'){ dmasterFino = dati.attivo ? Date.now() + 30000 : 0; return; }
@@ -315,10 +315,15 @@ if (anteprima){
 impagina();
 applica(scena, false);
 let prima = performance.now(), lento = 0, qualita = 1, lentoR = 0, fluido = 0, ultimoCalo = -1e9, prossimo = 0;
+let ultimoRaf = 0, intervalloSchermo = 1000 / 60, msDisegno = 0;
 function giro(ora){
+  /* quanto spesso lo schermo chiede un'immagine (60 Hz, 50, 30 se è un 4K su HDMI vecchio…): non si può
+     andare più veloci di lui, e andare al suo passo non vuol dire faticare */
+  if (ultimoRaf && ora - ultimoRaf < 200) intervalloSchermo = intervalloSchermo * .98 + (ora - ultimoRaf) * .02;
+  ultimoRaf = ora;
   /* fluidità: quante immagini al secondo (60, 50, 30… scelto dal telefono o dall'indirizzo dello schermo).
      Si salta un giro quando non è ancora il momento: meno lavoro, ventola più tranquilla */
-  const obiettivo = Math.min(60, Math.max(15, fpsUrl || scena.fps || 60)), passo = 1000 / obiettivo;
+  const obiettivo = Math.min(60, Math.max(15, fpsUrl || scena.fps || 60)), passo = Math.max(1000 / obiettivo, intervalloSchermo * .97);
   if (obiettivo < 59){
     if (ora < prossimo - 2){ requestAnimationFrame(giro); return; }
     prossimo = ora - prossimo > passo ? ora + passo : prossimo + passo;
@@ -370,11 +375,13 @@ function giro(ora){
   }
   if (misuraVisibile && ora - misura.t0 > 500){ misura.t0 = ora; mostraMisura(); }
   margine += ((viva || Math.abs(occhio.x) > .01 ? 1.2 : 1.04) - margine) * (1 - Math.exp(-dt * .8));
+  const t0d = performance.now();
   vista.disegna(geomGL, {
     t: (ora / 1000) % 3588, trasparente: !!scena.yt, movimento: scena.movimento !== false, prospettiva: scena.prospettiva !== false,
     coperto: met.coperto, nebbia: met.nebbia, pioggia: met.pioggia, neve: met.neve, tempesta: met.tempesta, vento: met.vento,
     lampo: intensitaLampo(ora), lampoX, uccelli, cieloX, notteFinta, luce, buio: scuro, qualita, colNebbia: nebCol, occhio, margine
   });
+  msDisegno = msDisegno * .95 + (performance.now() - t0d) * .05;
   requestAnimationFrame(giro);
 }
 requestAnimationFrame(giro);
