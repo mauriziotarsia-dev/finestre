@@ -37,7 +37,7 @@ const Accesso = {
     if (error) throw new Error(/expired|invalid/i.test(error.message) ? 'Codice sbagliato o scaduto.' : error.message);
     return data.user;
   },
-  async esci(){ await this.sb.auth.signOut(); },
+  async esci(ovunque = false){ await this.sb.auth.signOut(ovunque ? {scope:'global'} : undefined); },
 
   /* ── le case ─────────────────────────────────────────────────────────────── */
   async mieCase(){
@@ -81,7 +81,33 @@ const Accesso = {
   async abbina(codice, casa){
     const {data, error} = await this.sb.rpc('atm_abbina', {codice: String(codice).replace(/\D/g, ''), casa});
     if (error) throw new Error(error.message);
+    if (data && data.errore) throw new Error(data.errore[0].toUpperCase() + data.errore.slice(1) + '.');
     return data;
+  },
+  /* che schermo c'è dietro un codice (prima di aggiungerlo); se la funzione non c'è ancora, null */
+  async vediCodice(codice){
+    const {data, error} = await this.sb.rpc('atm_vedi_codice', {codice: String(codice).replace(/\D/g, '')});
+    if (error) return null;
+    if (data && data.errore) throw new Error(data.errore[0].toUpperCase() + data.errore.slice(1) + '.');
+    return data;
+  },
+  async rinomina(casa, utente, nome){
+    const {error} = await this.sb.rpc('atm_rinomina_membro', {casa, utente, nome});
+    if (error) throw new Error(error.message);
+  },
+  /* il vecchio link: chiuso dal proprietario quando tutti gli schermi sono nella casa */
+  async vecchioChiuso(casa){
+    const {data, error} = await this.sb.from('atm_case').select('vecchio_chiuso').eq('id', casa).limit(1);
+    return !error && data && data[0] ? !!data[0].vecchio_chiuso : false;
+  },
+  async chiudiVecchio(casa){
+    const {error} = await this.sb.from('atm_case').update({vecchio_chiuso: true}).eq('id', casa);
+    if (error) throw new Error(error.message);
+  },
+  /* un codice da un QR («…/telecomando/?abbina=123456») o scritto a mano */
+  codiceDa(testo){
+    const t = String(testo || ''); let m = t.match(/[?&]abbina=(\d{6})/); if (m) return m[1];
+    m = t.replace(/\s/g, '').match(/^\d{6}$/); return m ? m[0] : null;
   },
   /* la casa di cui questo apparecchio è membro (uno schermo ne ha una sola) */
   async miaCasa(){

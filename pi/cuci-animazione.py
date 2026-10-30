@@ -427,14 +427,14 @@ def abbina(chi):
         with urllib.request.urlopen(r, timeout=60) as x: ACCESSO = _sessione(json.loads(x.read()))
         _salva_accesso()
     codice = json.loads(_chiedi('POST', '/rest/v1/rpc/atm_chiedi_codice', json.dumps({'ruolo': 'lavoratore', 'nome': 'Rifinitura · ' + chi}).encode()))
-    print('\n   Codice per abbinare questo computer alla casa:   ' + codice[:3] + ' ' + codice[3:] +
-          '\n   Sul telefono: Illusionist → Impostazioni → Account e casa → «Abbina uno schermo». Vale 10 minuti.\n', flush=True)
+    print('\n   Codice per aggiungere questo computer alla stanza:   ' + codice[:3] + ' ' + codice[3:] +
+          '\n   Nell'app Illusionist sul telefono: «Aggiungi schermo» → scrivi le 6 cifre. Vale 10 minuti.\n', flush=True)
     for _ in range(200):
         time.sleep(3)
         righe = json.loads(_chiedi('GET', f"/rest/v1/atm_membri?select=casa&utente=eq.{ACCESSO['utente']}"))
         if righe:
             ACCESSO['casa'] = righe[0]['casa']; _salva_accesso()
-            print('   Abbinato alla casa ✓', flush=True); return True
+            print('   Aggiunto alla stanza ✓', flush=True); return True
     print('   Codice scaduto: rilancia con --abbina', flush=True); return False
 
 
@@ -602,7 +602,7 @@ def main():
     if ACCESSO and not ACCESSO.get('casa'): ACCESSO = None if not o.abbina else ACCESSO
     if ACCESSO and ACCESSO.get('casa'):
         DEPOSITO = 'atmosfera'                                   # la casa privata: il suo deposito
-        print('casa privata:', ACCESSO['casa'], flush=True)
+        print('stanza privata:', ACCESSO['casa'], flush=True)
         o.casa = o.casa or 'privata'
     if o.casa:
         # sul Raspberry che intanto disegna le finestre: priorità bassa e pochi processori, le finestre prima di tutto

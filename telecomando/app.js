@@ -11,7 +11,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
 const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 const euro = n => (n < .1 ? n.toFixed(3) : n.toFixed(2)).replace('.', ',') + ' $';
-const VERSIONE = '3.0';
+const VERSIONE = '3.1';
 
 /* ── la casa ──────────────────────────────────────────────────────────────── */
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
@@ -21,15 +21,14 @@ const MARCHIO = `<div class="marchio"><div class="marchio-nome"><span>DMaster</s
   <div class="marchio-firma">powered by DMaster Stage</div>
   <div class="marchio-parti"><span class="parte spenta" title="Musiche e suoni della stanza: in arrivo">Bard <em>presto</em></span><span class="parte attiva">Illusionist</span></div></div>
 <div class="in-mano-avviso" id="inMano" hidden><b>In mano a DMaster</b> La Serata comanda finestre e atmosfera: qui le guardi soltanto. Quando chiudi DMaster tornano a questo telefono da sole.</div>`;
-const casa = (String(q.get('casa') || '').match(UUID) || String(leggi('finestre-casa', '') || '').match(UUID) || [null])[0];
-if (!casa){
-  document.getElementById('app').innerHTML = `${MARCHIO}<div class="testa"><div><h1>${icona('bifora', 22)}Illusionist</h1><p>Le finestre della stanza medievale</p></div></div>
-    <p class="nota" style="font-size:19px">Questo telefono non è ancora collegato alle finestre. Apri il link della casa, poi da lì aggiungi l'app alla schermata Home.</p>`;
-  throw new Error('senza casa');
-}
-scrivi('finestre-casa', casa);
-/* il codice resta nell'indirizzo: così «Aggiungi alla schermata Home» se lo porta dietro */
-if (q.get('casa') !== casa) history.replaceState(null, '', location.pathname + '?casa=' + casa + location.hash);
+/* il vecchio link (?casa=…): resta finché il proprietario non lo chiude; una casa nuova non ce l'ha, si entra con l'email */
+let casa = (String(q.get('casa') || '').match(UUID) || String(leggi('finestre-casa', '') || '').match(UUID) || [null])[0];
+/* aperto dal QR di uno schermo («…/telecomando/?abbina=123456»): dopo l'accesso chiede di aggiungerlo */
+let codiceArrivato = Accesso.codiceDa(location.href) || sessionStorage.getItem('atm-codice-arrivato') || null;
+if (codiceArrivato) sessionStorage.setItem('atm-codice-arrivato', codiceArrivato);
+if (casa) scrivi('finestre-casa', casa);
+/* il codice della casa resta nell'indirizzo (così «Aggiungi alla schermata Home» se lo porta dietro); quello dello schermo no */
+history.replaceState(null, '', location.pathname + (casa ? '?casa=' + casa : '') + location.hash);
 
 /* ── impostazioni ─────────────────────────────────────────────────────────── */
 const IMP_PRED = {modello:'openai:gpt-image-2', qualita:'alta', chiavi:{openai:'', google:'', pexels:''},
@@ -89,13 +88,13 @@ const gestoreCanale = {
   },
   suStato(ok){ aggiornaSpia(); if (ok) canale.manda('chi'); }
 };
-const canale = apriCanale(casa, gestoreCanale);
-/* la casa privata: anche il canale privato «atm:<casa>»; i messaggi partono su tutti e due finché ci sono
-   schermi col vecchio link (js/accesso.js) */
-let canalePrivato = null;
-{ const mandaVecchio = canale.manda.bind(canale);
-  canale.manda = (evento, dati) => { const a = mandaVecchio(evento, dati), b = canalePrivato ? canalePrivato.manda(evento, dati) : false; return a || b; };
-}
+/* due canali: quello del vecchio link (finché è aperto) e quello privato della casa «atm:<casa>» (js/accesso.js);
+   i messaggi partono su tutti e due */
+let vecchio = casa ? apriCanale(casa, gestoreCanale) : null, canalePrivato = null;
+const canale = {
+  manda(evento, dati){ const a = vecchio ? vecchio.manda(evento, dati) : false, b = canalePrivato ? canalePrivato.manda(evento, dati) : false; return a || b; },
+  get pronto(){ return !!((vecchio && vecchio.pronto) || (canalePrivato && canalePrivato.pronto)); }
+};
 { /* mentre comanda DMaster, verso le finestre parte solo la domanda «chi c'è?» */
   const mandaDavvero = canale.manda.bind(canale);
   canale.manda = (evento, dati) => { if (evento !== 'chi' && comandaDM()){ avvisoInMano(); return false; } return mandaDavvero(evento, dati); };
@@ -140,9 +139,12 @@ async function avviaAccesso(){
     account = await Accesso.conAccount();
     if (account){
       const case_ = await Accesso.mieCase();
-      casaPrivata = case_.find(c => c.chiave_vecchia === casa) || null;
+      casaPrivata = (casa && case_.find(c => c.chiave_vecchia === casa)) || (!casa ? case_[0] : null) || null;
+      /* un account nuovo, senza vecchio link: la sua casa si crea da sola */
+      if (!casaPrivata && !casa){ const id = await Accesso.nuovaCasa('Stanza'); casaPrivata = (await Accesso.mieCase()).find(c => c.id === id); }
       if (casaPrivata){
-        const n = (await Accesso.elenco(casaPrivata.id)).length;
+        if (casaPrivata.vecchio_chiuso) dimenticaVecchio();
+        const n = casa ? (await Accesso.elenco(casaPrivata.id)).length : 1;
         if (n && !CASA_PRIVATA){ CASA_PRIVATA = casaPrivata.id; libreriaStato = 'da caricare'; if (scheda === 'paesaggi') disegnaPaesaggi(); else caricaLibreria(); }
         if (!canalePrivato) canalePrivato = Accesso.canale(casaPrivata.id, gestoreCanale);
         membri = await Accesso.membri(casaPrivata.id).catch(() => []);
@@ -151,6 +153,87 @@ async function avviaAccesso(){
     accessoStato = 'ok';
   } catch(e) { accessoStato = e.message; }
   if (scheda === 'impostazioni') disegnaImpostazioni();
+  if (!account && (!casa || !leggi('atm-benvenuto-visto', false))) apriBenvenuto();
+  else if (account && casa && !casaPrivata && !leggi('atm-benvenuto-visto', false)) apriBenvenuto();
+  else if (account && casaPrivata && codiceArrivato){ const c = codiceArrivato; codiceArrivato = null; sessionStorage.removeItem('atm-codice-arrivato'); confermaAggiunta(c); }
+}
+/* il vecchio link è chiuso: niente più canale né chiave nell'indirizzo */
+function dimenticaVecchio(){
+  if (vecchio){ vecchio.chiudi && vecchio.chiudi(); vecchio = null; }
+  casa = null; scrivi('finestre-casa', ''); history.replaceState(null, '', location.pathname + location.hash);
+}
+
+/* ── benvenuto: il percorso guidato (entra → la tua casa → aggiungi gli schermi) ── */
+function apriBenvenuto(){
+  const passi = ['Entra', 'La tua stanza', 'Gli schermi'], ora = !account ? 0 : (casa && !casaPrivata) ? 1 : 2;
+  const testaPassi = `<div class="passi-guida">${passi.map((t, i) => `<span class="${i < ora ? 'fatto' : i === ora ? 'ora' : ''}">${i < ora ? icona('spunta', 14) : i + 1} ${t}</span>`).join('')}</div>`;
+  let corpo;
+  if (ora === 0) corpo = emailInAttesa
+    ? `<h3>Controlla la posta</h3><p class="nota">Ti ho mandato un codice a <b>${esc(emailInAttesa)}</b>: l'oggetto è «Accesso DMaster: codice …».</p>
+       <label class="campo"><span>Codice</span><input id="accCodice" inputmode="numeric" autocomplete="one-time-code" maxlength="10" placeholder="123456"></label>
+       <button class="btn oro piena" data-fai="accEntra">${icona('spunta', 18)}Entra</button><button class="btn piena" style="margin-top:8px" data-fai="accAltra">Usa un'altra email</button>`
+    : `<h3>Benvenuto in DMaster Atmosphere</h3><p class="nota">Entra con la tua email: ti arriva un codice di 6 cifre, niente password. Si fa una volta sola su questo telefono. È lo stesso account di DMaster.</p>
+       <label class="campo"><span>Email</span><input id="accEmail" type="email" autocomplete="email" inputmode="email" placeholder="nome@esempio.it" value="${esc(leggi('atm-email', ''))}"></label>
+       <button class="btn oro piena" data-fai="accCodiceEmail">${icona('posta', 18)}Mandami il codice</button>
+       ${casa ? '<button class="btn piena" style="margin-top:8px" data-fai="benvenutoDopo">Più tardi</button>' : ''}`;
+  else if (ora === 1) corpo = `<h3>La tua stanza</h3><p class="nota">Le finestre di questa stanza usano ancora il vecchio link: chi ce l'ha le comanda e vede le immagini. Collegale al tuo account: copio le immagini nella parte privata (meglio col Wi-Fi), e da lì le vede solo chi aggiungi tu. Le finestre continuano a funzionare intanto.</p>
+       <button class="btn oro piena" data-fai="accReclama">${icona('chiave', 18)}Collega la stanza al mio account</button><div id="lavoroFoglio"></div>`;
+  else corpo = `<h3>Gli schermi della stanza</h3><p class="nota">Ogni schermo (finestre, TV) mostra un QR la prima volta che si accende. Inquadralo e conferma: una volta per schermo, poi resta.</p>
+       <button class="btn oro piena" data-fai="aggiungiSchermo">${icona('qr', 18)}Aggiungi schermo</button>
+       ${vecchio ? `<button class="btn piena" style="margin-top:8px" data-fai="accMostraCodici">${icona('schermo', 18)}Mostra il QR sugli schermi accesi</button>` : ''}
+       <p class="nota">Nella stanza: ${membri.filter(m => m.ruolo !== 'proprietario').map(m => esc(m.nome || m.ruolo)).join(', ') || 'ancora nessuno schermo'}.</p>
+       <button class="btn piena" data-fai="benvenutoFine">Fatto</button>`;
+  apriFoglio(`<div class="benvenuto">${testaPassi}${corpo}</div>`);
+  foglioAperto = 'benvenuto';
+}
+
+/* ── aggiungi uno schermo: inquadra il QR (fotocamera) o scrivi il codice ─────── */
+let flussoCamera = null;
+function fermaCamera(){ if (flussoCamera){ flussoCamera.getTracks().forEach(t => t.stop()); flussoCamera = null; } }
+function caricaLettoreQR(){ return window.jsQR ? Promise.resolve() : new Promise((ok, no) => { const sc = document.createElement('script'); sc.src = '../js/jsqr.js?v=1'; sc.onload = ok; sc.onerror = () => no(new Error('lettore QR non caricato')); document.head.appendChild(sc); }); }
+async function apriAggiungi(){
+  if (!casaPrivata){ apriBenvenuto(); return; }
+  apriFoglio(`<div class="benvenuto"><h3>Aggiungi schermo</h3>
+    <div class="mirino"><video id="qrVideo" playsinline muted></video><i></i><span id="qrStato">Accendo la fotocamera…</span></div>
+    <label class="campo" style="margin-top:12px"><span>Oppure scrivi le 6 cifre</span><input id="qrCodice" inputmode="numeric" maxlength="7" placeholder="302 680"></label>
+    <button class="btn oro piena" data-fai="codiceScritto">${icona('freccia', 18)}Continua</button></div>`);
+  foglioAperto = 'aggiungi';
+  try {
+    await caricaLettoreQR();
+    flussoCamera = await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment', width:{ideal:1280}}, audio:false});
+    const v = $('#qrVideo'); if (!v){ fermaCamera(); return; }
+    v.srcObject = flussoCamera; await v.play();
+    $('#qrStato').textContent = 'Inquadra il QR sullo schermo';
+    const c = document.createElement('canvas'), x = c.getContext('2d', {willReadFrequently:true});
+    const giro = () => {
+      if (!flussoCamera || foglioAperto !== 'aggiungi') { fermaCamera(); return; }
+      if (v.videoWidth){
+        const k = Math.min(1, 640 / v.videoWidth); c.width = Math.round(v.videoWidth * k); c.height = Math.round(v.videoHeight * k);
+        x.drawImage(v, 0, 0, c.width, c.height);
+        const r = jsQR(x.getImageData(0, 0, c.width, c.height).data, c.width, c.height, {inversionAttempts:'dontInvert'});
+        const cod = r && Accesso.codiceDa(r.data);
+        if (cod){ fermaCamera(); navigator.vibrate && navigator.vibrate(40); confermaAggiunta(cod); return; }
+      }
+      requestAnimationFrame(giro);
+    };
+    requestAnimationFrame(giro);
+  } catch(e) {
+    fermaCamera();
+    const st = $('#qrStato'); if (st) st.textContent = 'Fotocamera non disponibile: scrivi le 6 cifre qui sotto.';
+  }
+}
+async function confermaAggiunta(codice){
+  if (!account){ codiceArrivato = codice; sessionStorage.setItem('atm-codice-arrivato', codice); apriBenvenuto(); return; }
+  if (!casaPrivata){ apriBenvenuto(); return; }
+  let chi = null;
+  try { chi = await Accesso.vediCodice(codice); } catch(e) { avviso(e.message, true); apriAggiungi(); return; }
+  const nome = chi ? (chi.nome || (chi.ruolo === 'lavoratore' ? 'Computer della rifinitura' : 'Schermo')) : 'lo schermo con codice ' + codice.slice(0, 3) + ' ' + codice.slice(3);
+  apriFoglio(`<div class="benvenuto" style="text-align:center">${icona(chi && chi.ruolo === 'lavoratore' ? 'schermo' : 'tv', 34)}
+    <h3>Aggiungere «${esc(nome)}» alla tua stanza?</h3>
+    <p class="nota">${chi && chi.ruolo === 'lavoratore' ? 'Potrà leggere e sistemare le animazioni della stanza.' : 'Vedrà i tuoi paesaggi e seguirà i comandi di questo telefono e di DMaster.'}</p>
+    <button class="btn oro piena" data-fai="aggiungiOra" data-v="${esc(codice)}">${icona('spunta', 18)}Aggiungi</button>
+    <button class="btn piena" style="margin-top:8px" data-fai="chiudiFoglio">Annulla</button></div>`);
+  foglioAperto = 'conferma';
 }
 /* dal vecchio deposito pubblico al privato: copia quello che manca o che è stato riscritto (si può rifare) */
 async function copiaNelPrivato(L){
@@ -198,7 +281,7 @@ function avviso(testo, male = false){
   clearTimeout(avvisoT); avvisoT = setTimeout(() => a.classList.remove('su'), male ? 5200 : 2600);
 }
 function apriFoglio(html, dopo){ $('#foglioDentro').innerHTML = html; $('#foglio').classList.add('aperto'); $('#velo').classList.add('aperto'); dopo && dopo($('#foglioDentro')); }
-function chiudiFoglio(){ $('#foglio').classList.remove('aperto'); $('#velo').classList.remove('aperto'); foglioAperto = null; }
+function chiudiFoglio(){ $('#foglio').classList.remove('aperto'); $('#velo').classList.remove('aperto'); if (foglioAperto === 'benvenuto') scrivi('atm-benvenuto-visto', true); foglioAperto = null; fermaCamera(); }
 let foglioAperto = null;
 $('#velo').onclick = chiudiFoglio;
 $('#chiudiFoglio').innerHTML = icona('chiudi', 18);
@@ -343,6 +426,7 @@ async function profonditaInSottofondo(){
 }
 
 async function caricaLibreria(){
+  if (!casa && !CASA_PRIVATA){ libreriaStato = 'Entra con la tua email (Impostazioni → Account e stanza) per vedere i paesaggi della tua stanza.'; if (scheda === 'paesaggi') disegnaPaesaggi(); return; }
   libreriaStato = 'carico';
   try { libreria = await leggiLibreria(casa); libreriaStato = 'ok'; setTimeout(profonditaInSottofondo, 1500); }
   catch(e) { libreriaStato = e.message; }
@@ -382,7 +466,7 @@ function disegnaPaesaggi(){
       <button class="btn oro piena" data-fai="salvaYT">${icona('piu', 18)}Aggiungi alla libreria</button>
       <p class="nota">Il video gira muto e in loop, ritagliato sui fori; il tempo (pioggia, lampi, nebbia) ci va sopra. Cerca su YouTube «window view 4K» o «vertical landscape» per i più adatti.</p></div>`;
   }
-  s.innerHTML = testa('quadro', 'Paesaggi', 'La libreria della casa') + `
+  s.innerHTML = testa('quadro', 'Paesaggi', 'La libreria della stanza') + `
     <div class="segmenti" style="margin-bottom:14px">
       <button data-fai="vistaP" data-v="miei" aria-pressed="${vistaPaesaggi === 'miei'}">${icona('quadro', 16)}I miei</button>
       <button data-fai="vistaP" data-v="web" aria-pressed="${vistaPaesaggi === 'web'}">${icona('mondo', 16)}Dal web</button>
@@ -461,7 +545,7 @@ function apriWeb(f){
         <label class="campo"><span>Parole chiave</span><input id="webParole" value="${esc(paroleChiave(cercaWebTesto, f.titolo).join(', '))}"></label>
       </div></div>
     <button class="btn oro piena" style="margin-top:12px" data-fai="aggiungiWeb">${icona('importa', 18)}Aggiungi alla libreria</button>
-    <p class="nota">La salvo nel deposito della casa e calcolo la sua profondità sul telefono (la prima volta scarica il modello, ~25 MB). Le altre luci del giorno le puoi poi creare con l'AI.</p>
+    <p class="nota">La salvo nel deposito della stanza e calcolo la sua profondità sul telefono (la prima volta scarica il modello, ~25 MB). Le altre luci del giorno le puoi poi creare con l'AI.</p>
     <div id="lavoroFoglio"></div>`);
   foglioAperto = f;
 }
@@ -756,26 +840,20 @@ function disegnaImpostazioni(){
       ${cursore('fy' + nm, 'giu', 'Dall\'alto', 0, 100, (f.y * 100).toFixed(1), (f.y * 100).toFixed(1) + '%', .1)}
       ${cursore('fw' + nm, 'mirino', 'Larghezza', 2, 100, (f.w * 100).toFixed(1), (f.w * 100).toFixed(1) + '%', .1)}
       ${cursore('fh' + nm, 'mirino', 'Altezza', 2, 100, (f.h * 100).toFixed(1), (f.h * 100).toFixed(1) + '%', .1)}</div>`; }).join('');
-  const linkPi = new URL('../finestra/?casa=' + casa, location.href).href, linkTel = location.origin + location.pathname + '?casa=' + casa;
-  const ruoli = {proprietario:'Proprietario', comando:'Comando (DMaster)', schermo:'Schermo', lavoratore:'Rifinitura video'};
-  const sezAccount = `<div class="sezione">${titolo('persona', 'Account e casa', account ? 'privata' : 'col vecchio link')}
+  const linkPi = new URL('../finestra/' + (casa ? '?casa=' + casa : ''), location.href).href, linkTel = location.origin + location.pathname + (casa ? '?casa=' + casa : '');
+  const ruoli = {proprietario:'Tu (proprietario)', comando:'DMaster', schermo:'Schermo', lavoratore:'Rifinitura dei video'};
+  const sezAccount = `<div class="sezione">${titolo('persona', 'Account e stanza', account ? (account.email || '') : 'non sei entrato')}
     <div class="pannello">${accessoStato === 'controllo' ? '<p class="nota" style="margin:0">Controllo l\'accesso…</p>'
-      : !account ? (emailInAttesa ? `<p class="nota" style="margin-top:0">Ti ho mandato un codice a <b>${esc(emailInAttesa)}</b> (oggetto «Accesso DMaster: codice …»). Scrivilo qui:</p>
-          <label class="campo"><span>Codice</span><input id="accCodice" inputmode="numeric" autocomplete="one-time-code" maxlength="10" placeholder="123456"></label>
-          <div class="azioni"><button class="btn oro" data-fai="accEntra">${icona('spunta', 18)}Entra</button><button class="btn" data-fai="accAltra">Altra email</button></div>`
-        : `<p class="nota" style="margin-top:0">Entra con la tua email, una volta sola: ti arriva un codice di 6 cifre, niente password. La prima volta l'account si crea da solo.</p>
-          <label class="campo"><span>Email</span><input id="accEmail" type="email" autocomplete="email" inputmode="email" placeholder="nome@esempio.it" value="${esc(leggi('atm-email', ''))}"></label>
-          <button class="btn oro piena" data-fai="accCodiceEmail">${icona('posta', 18)}Mandami il codice</button>`)
-      : `<p class="nota" style="margin-top:0">Entrato come <b>${esc(account.email || '')}</b>.</p>
-        ${!casaPrivata ? `<p class="nota">Questa casa usa ancora il vecchio link: chi ce l'ha comanda le finestre e vede le immagini. Collegala al tuo account: copio le immagini nel deposito privato e da lì le vedono solo gli schermi che abbini tu. Il vecchio link continua a funzionare finché non abbini tutti gli schermi.</p>
-          <button class="btn oro piena" data-fai="accReclama">${icona('chiave', 18)}Collega questa casa al mio account</button>`
-        : `<p class="nota">Casa privata${CASA_PRIVATA ? '' : ' · immagini non ancora copiate'}. Membri:</p>
-          <ul class="membri">${membri.map(m => `<li><span><b>${esc(m.nome || ruoli[m.ruolo] || m.ruolo)}</b><small>${esc(ruoli[m.ruolo] || m.ruolo)}</small></span>${m.ruolo === 'proprietario' ? '' : `<button class="btn piccolo pericolo" data-fai="accTogli" data-v="${esc(m.utente)}">Togli</button>`}</li>`).join('')}</ul>
-          <label class="campo" style="margin-top:10px"><span>Abbina uno schermo · codice che mostra</span><input id="accAbbina" inputmode="numeric" maxlength="7" placeholder="123456"></label>
-          <div class="azioni"><button class="btn oro" data-fai="accAbbina">${icona('catena', 18)}Abbina</button><button class="btn" data-fai="accMostraCodici">${icona('schermo', 18)}Mostra i codici sugli schermi</button><button class="btn" data-fai="accCopia">${icona('ricarica', 18)}${CASA_PRIVATA ? 'Ricopia dal vecchio deposito' : 'Copia le immagini'}</button></div>
-          <p class="nota">Ogni schermo (finestre, TV), DMaster e il computer che rifinisce i video mostrano un codice di 6 cifre: scrivilo qui, una volta per ognuno.</p>`}
-        <div class="azioni"><button class="btn" data-fai="accEsci">Esci</button></div>
-        <div id="lavoroFoglio"></div>`}</div></div>`;
+      : !account ? `<p class="nota" style="margin-top:0">Entra con la tua email (un codice, niente password): la stanza diventa tua e le immagini private.</p>
+          <button class="btn oro piena" data-fai="apriBenvenuto">${icona('posta', 18)}Entra</button>`
+      : !casaPrivata ? `<p class="nota" style="margin-top:0">Questa stanza usa ancora il vecchio link.</p><button class="btn oro piena" data-fai="apriBenvenuto">${icona('chiave', 18)}Collega la stanza al mio account</button>`
+      : `<ul class="membri">${membri.map(m => `<li><span><b>${esc(m.ruolo === 'proprietario' ? (account.email || 'Tu') : (m.nome || ruoli[m.ruolo] || m.ruolo))}</b><small>${esc(ruoli[m.ruolo] || m.ruolo)}</small></span>${m.ruolo === 'proprietario' ? '' : `<span class="azioni-riga"><button class="btn piccolo" data-fai="accRinomina" data-v="${esc(m.utente)}">Rinomina</button><button class="btn piccolo pericolo" data-fai="accTogli" data-v="${esc(m.utente)}">Togli</button></span>`}</li>`).join('')}</ul>
+          <button class="btn oro piena" style="margin-top:12px" data-fai="aggiungiSchermo">${icona('qr', 18)}Aggiungi schermo</button>
+          ${vecchio ? `<div class="azioni"><button class="btn" data-fai="accMostraCodici">${icona('schermo', 18)}Mostra il QR sugli schermi accesi</button><button class="btn" data-fai="accCopia">${icona('ricarica', 18)}Ricopia le immagini</button></div>
+          <div class="vecchio-link"><b>${icona('avviso', 16)}Vecchio link ancora aperto</b><span>Chi ha il vecchio link comanda le finestre e vede le immagini. Quando tutti gli schermi (e DMaster) sono nella stanza, chiudilo.</span>
+            <button class="btn piccolo pericolo" data-fai="accChiudiVecchio">Chiudi il vecchio link</button></div>` : '<p class="nota">Stanza privata: la vedono solo i membri qui sopra.</p>'}`}
+      ${account ? `<div class="azioni"><button class="btn piccolo" data-fai="accEsci">Esci da questo telefono</button><button class="btn piccolo" data-fai="accEsciOvunque">Esci da tutti i dispositivi</button></div>` : ''}
+      <div id="lavoroFoglio"></div></div></div>`;
   s.innerHTML = testa('manopole', 'Impostazioni', 'Modelli, chiavi e finestre') + `<div class="problema" hidden></div>${sezAccount}
     <div class="sezione">${titolo('tavolozza', 'AI per le immagini')}
       <div class="scelte">${MODELLI_IMMAGINE.map(m => `<button class="scelta riga" data-fai="modello" data-v="${m.id}" aria-pressed="${imp.modello === m.id}">${icona(m.fornitore === 'google' ? 'mondo' : 'scintilla', 22)}<span><b>${esc(m.nome)}</b><small>${esc(m.note)}</small></span><span class="prezzo">≈ ${euro(m.costo[imp.qualita] || m.costo.alta)}</span></button>`).join('')}</div>
@@ -985,17 +1063,62 @@ const AZIONI = {
   },
   accEntra: async () => {
     const cod = ($('#accCodice') || {}).value || '';
-    try { await Accesso.verificaCodiceEmail(emailInAttesa, cod); emailInAttesa = ''; scrivi('atm-email-attesa', ''); avviso('Sei dentro'); await avviaAccesso(); }
+    try { await Accesso.verificaCodiceEmail(emailInAttesa, cod); emailInAttesa = ''; scrivi('atm-email-attesa', ''); avviso('Sei dentro'); chiudiFoglio(); scrivi('atm-benvenuto-visto', false); await avviaAccesso(); if (account && casaPrivata && foglioAperto !== 'conferma') apriBenvenuto(); }
     catch(e) { avviso(e.message, true); }
   },
-  accAltra: () => { emailInAttesa = ''; scrivi('atm-email-attesa', ''); disegnaImpostazioni(); },
-  accEsci: async () => { await Accesso.esci(); account = null; casaPrivata = null; CASA_PRIVATA = null; if (canalePrivato){ canalePrivato.chiudi(); canalePrivato = null; } libreriaStato = 'da caricare'; disegnaImpostazioni(); },
+  accAltra: () => { emailInAttesa = ''; scrivi('atm-email-attesa', ''); if (foglioAperto === 'benvenuto') apriBenvenuto(); else disegnaImpostazioni(); },
+  apriBenvenuto: () => apriBenvenuto(),
+  benvenutoDopo: () => { scrivi('atm-benvenuto-visto', true); chiudiFoglio(); },
+  benvenutoFine: () => { scrivi('atm-benvenuto-visto', true); chiudiFoglio(); if (scheda === 'impostazioni') disegnaImpostazioni(); },
+  chiudiFoglio: () => chiudiFoglio(),
+  aggiungiSchermo: () => apriAggiungi(),
+  codiceScritto: () => { const c = Accesso.codiceDa(($('#qrCodice') || {}).value); if (!c){ avviso('Il codice ha 6 cifre.', true); return; } fermaCamera(); confermaAggiunta(c); },
+  aggiungiOra: async v => {
+    try {
+      const r = await Accesso.abbina(v, casaPrivata.id);
+      canale.manda('abbinato', {});
+      membri = await Accesso.membri(casaPrivata.id);
+      apriFoglio(`<div class="benvenuto" style="text-align:center">${icona('spunta', 34)}<h3>«${esc(r.nome || 'Schermo')}» è nella tua stanza</h3>
+        <p class="nota">Fra qualche secondo mostra il paesaggio. Puoi rinominarlo nelle Impostazioni.</p>
+        <button class="btn oro piena" data-fai="aggiungiSchermo">${icona('qr', 18)}Aggiungi un altro schermo</button>
+        <button class="btn piena" style="margin-top:8px" data-fai="chiudiFoglio">Fatto</button></div>`);
+      foglioAperto = 'fatto';
+      if (scheda === 'impostazioni') disegnaImpostazioni();
+    } catch(e) { avviso(e.message, true); }
+  },
+  accRinomina: async v => {
+    const m = membri.find(x => x.utente === v); const nome = prompt('Nome di questo membro della stanza', m ? m.nome : '');
+    if (nome == null || !nome.trim()) return;
+    try { await Accesso.rinomina(casaPrivata.id, v, nome.trim()); membri = await Accesso.membri(casaPrivata.id); disegnaImpostazioni(); }
+    catch(e) { avviso('Nome non cambiato: ' + e.message, true); }
+  },
+  accEsciOvunque: async (v, b) => {
+    if (b.dataset.conferma !== '1'){ b.dataset.conferma = '1'; b.textContent = 'Sicuro? Tocca ancora'; return; }
+    await Accesso.esci(true); location.reload();
+  },
+  accChiudiVecchio: async (v, b) => {
+    const fuori = membri.filter(m => m.ruolo === 'schermo').length;
+    if (b.dataset.conferma !== '1'){ b.dataset.conferma = '1'; b.textContent = `Sicuro? Restano solo i ${fuori} schermi nella stanza`; return; }
+    await conLavoro('chiudi', async L => {
+      passo('chiudi', 'ora', 'Chiudo il vecchio link…');
+      await Accesso.chiudiVecchio(casaPrivata.id);
+      canale.manda('vecchioChiuso', {});
+      const cartella = await cartellaDi(casa), dep = clientDeposito().storage.from(DEPOSITO);
+      const {data} = await dep.list('finestre/' + cartella, {limit:1000});
+      const nomi = (data || []).map(f => 'finestre/' + cartella + '/' + f.name);
+      for (let i = 0; i < nomi.length; i += 100) await dep.remove(nomi.slice(i, i + 100));
+      passo('chiudi', 'fatto', `Vecchio link chiuso, ${nomi.length} immagini tolte dal deposito pubblico`);
+      dimenticaVecchio();
+    });
+    disegnaImpostazioni();
+  },
+  accEsci: async () => { await Accesso.esci(); location.reload(); },
   accReclama: async () => {
     await conLavoro('reclama', async L => {
-      passo('reclama', 'ora', 'Collego la casa al tuo account…');
-      const id = await Accesso.reclama(casa, 'Casa');
+      passo('reclama', 'ora', 'Collego la stanza al tuo account…');
+      const id = await Accesso.reclama(casa, 'Stanza');
       casaPrivata = (await Accesso.mieCase()).find(c => c.id === id);
-      passo('reclama', 'fatto', 'La casa è tua');
+      passo('reclama', 'fatto', 'La stanza è tua');
       await copiaNelPrivato(L);
       CASA_PRIVATA = casaPrivata.id; libreriaStato = 'da caricare';
       if (!canalePrivato) canalePrivato = Accesso.canale(casaPrivata.id, gestoreCanale);
@@ -1004,25 +1127,16 @@ const AZIONI = {
       if (scena.paesaggio){ const p = libreria.find(x => x.id === scena.paesaggio); if (p){ Object.assign(scena, scenaDi(p)); mandaScena(); } }
     });
     disegnaImpostazioni();
+    if (casaPrivata) apriBenvenuto();
   },
   accCopia: async () => {
     await conLavoro('copia', async L => { await copiaNelPrivato(L); CASA_PRIVATA = casaPrivata.id; libreriaStato = 'da caricare'; await caricaLibreria(); });
     disegnaImpostazioni();
   },
-  accAbbina: async () => {
-    const cod = (($('#accAbbina') || {}).value || '').replace(/\D/g, '');
-    if (cod.length !== 6){ avviso('Il codice ha 6 cifre.', true); return; }
-    try {
-      const r = await Accesso.abbina(cod, casaPrivata.id);
-      avviso('Abbinato: ' + (r.nome || r.ruolo));
-      canale.manda('abbinato', {});
-      membri = await Accesso.membri(casaPrivata.id); disegnaImpostazioni();
-    } catch(e) { avviso(e.message, true); }
-  },
-  accMostraCodici: () => { if (canale.manda('mostraCodice', {})) avviso('Gli schermi mostrano il loro codice per qualche minuto'); else avviso('Finestre non collegate', true); },
+  accMostraCodici: () => { if (canale.manda('mostraCodice', {})) avviso('Gli schermi accesi mostrano il loro QR per 10 minuti'); else avviso('Nessuno schermo collegato', true); },
   accTogli: async (v, b) => {
     if (b.dataset.conferma !== '1'){ b.dataset.conferma = '1'; b.textContent = 'Sicuro?'; return; }
-    try { await Accesso.togliMembro(casaPrivata.id, v); membri = await Accesso.membri(casaPrivata.id); disegnaImpostazioni(); avviso('Tolto dalla casa'); }
+    try { await Accesso.togliMembro(casaPrivata.id, v); membri = await Accesso.membri(casaPrivata.id); disegnaImpostazioni(); avviso('Tolto dalla stanza'); }
     catch(e) { avviso(e.message, true); }
   },
   ricaricaFinestre: () => { if (canale.manda('ricarica')){ rimanda = true; avviso('Le finestre si ricaricano'); } else avviso('Non collegato', true); },

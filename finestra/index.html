@@ -17,8 +17,9 @@
 <body>
 <canvas id="c"></canvas>
 <script src="../js/supabase.js?v=2.1.0"></script>
-<script src="../js/canale.js?v=2.1.0"></script>
-<script src="../js/accesso.js?v=1"></script>
+<script src="../js/canale.js?v=2.2.0"></script>
+<script src="../js/accesso.js?v=2"></script>
+<script src="../js/qrcode.js?v=1"></script>
 <script src="../js/vista.js?v=4.3"></script>
 <script src="../js/inseguitore.js?v=1"></script>
 <script src="../js/uccelli.js?v=3"></script>
@@ -344,11 +345,16 @@ if (anteprima){
       else if (evento === 'occhio') daTelefono(dati.x, dati.z);
       else if (evento === 'chi') rispondi('eccomi', chi());
       else if (evento === 'mostraCodice') mostraCodice();
-      else if (evento === 'abbinato') controllaAbbinamento();
+      else if (evento === 'abbinato' || evento === 'vecchioChiuso') controllaAbbinamento();
     },
     suStato(ok){ if (ok) rispondi('eccomi', chi()); }
   });
-  if (casa) canale = apriCanale(casa, gestore((e, d) => canale && canale.manda(e, d)));
+  let vecchioChiuso = false;
+  if (casa){
+    const g = gestore((e, d) => canale && canale.manda(e, d));
+    /* a vecchio link chiuso, quello che arriva di lì non conta più */
+    canale = apriCanale(casa, {suMessaggio: (e, d) => { if (!vecchioChiuso) g.suMessaggio(e, d); }, suStato: g.suStato});
+  }
 
   /* ── abbinamento alla casa privata ───────────────────────────────────────────
      Ogni schermo entra con un accesso anonimo (resta in questo browser) e diventa membro della casa quando il
@@ -362,20 +368,27 @@ if (anteprima){
   }
   async function controllaAbbinamento(){
     const m = await Accesso.miaCasa().catch(() => null);
-    if (m){ apriPrivato(m); if (cartello) mostraCartello('Abbinata alla casa ✓', null, 4000); clearInterval(attesaCodice); attesaCodice = null; }
+    if (m){
+      apriPrivato(m); if (cartello) mostraCartello('Aggiunta alla stanza ✓', null, 4000); clearInterval(attesaCodice); attesaCodice = null;
+      if (canale && await Accesso.vecchioChiuso(m.casa)){ vecchioChiuso = true; canale.chiudi(); canale = null; }
+    }
     return m;
   }
   function mostraCartello(titolo, codice, togliDopo){
     if (!cartello){ cartello = document.createElement('div'); cartello.style.cssText = 'position:fixed;inset:0;z-index:50;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2vh;background:rgba(5,5,8,.92);color:#e9d9a8;font:500 2.4vh system-ui;text-align:center;padding:4vh'; document.body.appendChild(cartello); }
-    cartello.innerHTML = '<div style="letter-spacing:.2em;text-transform:uppercase;font-size:1.8vh;opacity:.7">' + nomeSchermo + '</div><div>' + titolo + '</div>' +
-      (codice ? '<div style="font:700 9vh ui-monospace,monospace;letter-spacing:.15em;color:#f3e3b0">' + codice.slice(0, 3) + ' ' + codice.slice(3) + '</div><div style="font-size:1.8vh;opacity:.75;max-width:60ch">Sul telefono: Illusionist → Impostazioni → Account e casa → «Abbina uno schermo». Il codice vale 10 minuti.</div>' : '');
+    /* il QR porta all'app sul telefono con il codice già dentro: inquadri e confermi */
+    let qr = '';
+    if (codice && window.qrcode){ const q = qrcode(0, 'M'); q.addData(new URL('../telecomando/?abbina=' + codice, location.href).href); q.make();
+      qr = '<div style="background:#fff;padding:1.6vh;border-radius:1vh;line-height:0">' + q.createSvgTag({cellSize: 6, margin: 0, scalable: true}).replace('<svg ', '<svg style="width:min(34vh,60vw);height:auto;display:block" ') + '</div>'; }
+    cartello.innerHTML = '<div style="letter-spacing:.2em;text-transform:uppercase;font-size:1.8vh;opacity:.7">' + nomeSchermo + '</div><div>' + titolo + '</div>' + qr +
+      (codice ? '<div style="font:700 7vh ui-monospace,monospace;letter-spacing:.15em;color:#f3e3b0">' + codice.slice(0, 3) + ' ' + codice.slice(3) + '</div><div style="font-size:1.8vh;opacity:.75;max-width:60ch">Nell\'app Illusionist sul telefono: «Aggiungi schermo» e inquadra il codice (o scrivi le 6 cifre). Vale 10 minuti.</div>' : '');
     if (togliDopo) setTimeout(() => { if (cartello){ cartello.remove(); cartello = null; } }, togliDopo);
   }
   async function mostraCodice(){
-    if (await controllaAbbinamento()){ mostraCartello('Già abbinata a questa casa ✓', null, 5000); return; }
+    if (await controllaAbbinamento()){ mostraCartello('Già nella stanza ✓', null, 5000); return; }
     try {
       const codice = await Accesso.codiceSchermo('schermo', nomeSchermo);
-      mostraCartello('Codice per abbinare questo schermo', codice, 10 * 60e3);
+      mostraCartello('Aggiungi questo schermo alla tua stanza', codice, 10 * 60e3);
       clearInterval(attesaCodice); attesaCodice = setInterval(controllaAbbinamento, 3000);
       setTimeout(() => { clearInterval(attesaCodice); attesaCodice = null; }, 10 * 60e3);
     } catch(e) { mostraCartello('Codice non disponibile: ' + e.message, null, 15000); }

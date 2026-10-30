@@ -17,7 +17,8 @@ function apriCanale(casa, {suMessaggio, suStato}){
   });
   return {
     manda(evento, dati = {}){ if (pronto) ch.send({type:'broadcast', event:evento, payload:dati}); return pronto; },
-    get pronto(){ return pronto; }
+    get pronto(){ return pronto; },
+    chiudi(){ pronto = false; try { sb.removeChannel(ch); } catch(e) {} }
   };
 }
 

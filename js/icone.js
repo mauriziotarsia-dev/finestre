@@ -42,7 +42,8 @@ const TRATTI = {
   sole: '<circle cx="12" cy="12" r="4"/><path d="M12 3v2.5M12 18.5V21M3 12h2.5M18.5 12H21M5.6 5.6l1.8 1.8M16.6 16.6l1.8 1.8M5.6 18.4l1.8-1.8M16.6 7.4l1.8-1.8"/>',
   stella: '<path d="M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z"/>',
   persona: '<circle cx="12" cy="8" r="3.5"/><path d="M5 20a7 7 0 0 1 14 0"/>',
-  posta: '<rect x="3" y="5.5" width="18" height="13" rx="1.5"/><path d="M3.5 7l8.5 6.5L20.5 7"/>',
+  qr: '<rect x="4" y="4" width="6" height="6" rx=".8"/><rect x="14" y="4" width="6" height="6" rx=".8"/><rect x="4" y="14" width="6" height="6" rx=".8"/><path d="M14 14h2v2M20 14v.01M18 18h2v2M14 18v2h2"/>',
+    posta: '<rect x="3" y="5.5" width="18" height="13" rx="1.5"/><path d="M3.5 7l8.5 6.5L20.5 7"/>',
   /* nuove, stesso tratto */
   luna: '<path d="M19.5 14.5A8 8 0 1 1 9.5 4.5a6.5 6.5 0 0 0 10 10z"/>',
   alba: '<path d="M3.5 18.5h17M7 18.5a5 5 0 0 1 10 0"/><path d="M12 7.5V10M5.6 11.6l1.6 1.4M18.4 11.6l-1.6 1.4M12 3.5l2 2M12 3.5l-2 2"/>',
