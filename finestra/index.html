@@ -18,9 +18,9 @@
 <canvas id="c"></canvas>
 <script src="../js/supabase.js?v=2.1.0"></script>
 <script src="../js/canale.js?v=2.1.0"></script>
-<script src="../js/vista.js?v=3.8"></script>
+<script src="../js/vista.js?v=3.9"></script>
 <script src="../js/inseguitore.js?v=1"></script>
-<script src="../js/uccelli.js?v=1"></script>
+<script src="../js/uccelli.js?v=2"></script>
 <script>
 /* ═══════════════════════════════════════════════════════════════════════════
    La pagina che il Raspberry mostra dietro il traforo.
@@ -329,7 +329,7 @@ function giro(ora){
   ultimoRaf = ora;
   /* fluidità: quante immagini al secondo (60, 50, 30… scelto dal telefono o dall'indirizzo dello schermo).
      Si salta un giro quando non è ancora il momento: meno lavoro, ventola più tranquilla */
-  const obiettivo = Math.min(60, Math.max(15, fpsUrl || scena.fps || 60)), passo = Math.max(1000 / obiettivo, intervalloSchermo * .97);
+  const obiettivo = Math.min(60, Math.max(15, fpsUrl || scena.fps || 60)), passo = 1000 / obiettivo;   /* (uno schermo a 30 Hz: fluidità 30 dal telefono) */
   if (obiettivo < 59){
     if (ora < prossimo - 2){ requestAnimationFrame(giro); return; }
     prossimo = ora - prossimo > passo ? ora + passo : prossimo + passo;
@@ -364,7 +364,7 @@ function giro(ora){
   uccelli += (uTgt - uccelli) * k;
   /* lo stormo e il rapace (js/uccelli.js), la notte (stelle, fuochi), le ombre delle nuvole, le stelle cadenti */
   stormi.aggiorna(dt, (geom[0] && geom[0].aspetto) || .4, uccelli);
-  const nTgt = o === 'notte' ? 1 : o === 'tramonto' ? .3 : o === 'alba' ? .12 : 0;
+  const nTgt = o === 'notte' ? 1 : o === 'tramonto' ? .15 : 0;
   notte += (nTgt - notte) * k;
   const omTgt = (o === 'notte' ? 0 : o === 'giorno' ? 1 : .5) * (1 - met.coperto) * (1 - met.nebbia);
   ombre += (omTgt - ombre) * k;

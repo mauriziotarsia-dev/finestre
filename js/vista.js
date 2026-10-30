@@ -234,12 +234,12 @@ void main(){
     /* ombre delle nuvole: di giorno scorrono sul paesaggio insieme al cielo panoramico (calcolate col vento) */
     if (uOmbre > .01 && uHaVento > .5){ float om = texture2D(uVentoT, vec2(vUv.x, 1. - vUv.y)).a; col *= 1. - om * .17 * uOmbre * (1. - sky); }
     /* fuochi, lanterne e finestre accese tremolano come fiamme, di notte e un po' al tramonto */
-    if (uNotte > .01){
+    if (uNotte > .5){
       float caldo = smoothstep(.33, .6, col.r) * smoothstep(1.12, 1.4, col.r / max(col.g, .01)) * smoothstep(1.15, 1.6, col.g / max(col.b, .01)) * (1. - sky);
       if (caldo > .01){
         vec2 cel = floor(uv * uPix / (14. * scP));
         float hz = 5. + 5. * h1(cel), fl = rumore(vec2(uT * hz, h1(cel) * 97.)) * .65 + rumore(vec2(uT * hz * 2.3, h1(cel + 1.) * 53.)) * .35;
-        col *= mix(1., .7 + .55 * fl, caldo * uNotte);
+        col *= mix(1., .7 + .55 * fl, caldo * smoothstep(.5, 1., uNotte));   /* solo di notte: all'alba e al tramonto tutto è caldo */
       }
     }
     /* uccelli (js/uccelli.js) */
