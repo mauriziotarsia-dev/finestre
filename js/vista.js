@@ -595,7 +595,11 @@ function nuovoFotogramma(v){
   }
   const t = v.currentTime; if (t === v._ultimo) return false; v._ultimo = t; return true;
 }
+/* ⚠ 30/10: le animazioni cucite hanno sostituito i video dell'AI con lo stesso nome, e i browser tenevano
+   il vecchio in memoria (fino a un'ora). Il segno qui sotto lo fa riscaricare; la libreria aggiunge anche la data del file. */
+const VERSIONE_VIDEO = 'c2';
 function apriVideo(url){
+  url += (url.includes('?') ? '&' : '?') + VERSIONE_VIDEO;
   const fai = () => { const v = document.createElement('video'); v.crossOrigin = 'anonymous'; v.muted = true; v.playsInline = true;
     v.preload = 'auto'; v.src = url; return v; };
   const a = fai(), b = fai();

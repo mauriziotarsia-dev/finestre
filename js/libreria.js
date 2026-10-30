@@ -70,7 +70,8 @@ async function leggiLibreria(casa){
     }
     const p = per.get(id), url = urlPubblico('finestre/' + cartella + '/' + f.name);
     p.file.push(f.name);
-    if (parte.startsWith('anim-')) p.animati[parte.slice(5)] = url;
+    /* il video può essere riscritto (cucito dopo: pi/cuci-animazione.py): l'indirizzo porta la sua data, così nessuno tiene il vecchio */
+    if (parte.startsWith('anim-')) p.animati[parte.slice(5)] = url + '?v=' + (Date.parse(f.updated_at || f.created_at || '') || 0).toString(36);
     else if (parte.startsWith('yt-')) p.yt = hexInYt(parte.slice(3));
     else p.immagini[parte] = url;
   }
