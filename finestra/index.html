@@ -61,6 +61,8 @@ function foroPredefinito(){ const H = .9, W = H * innerHeight * 2 / 5 / innerWid
    paesaggio (se non c'è ancora, quella delle finestrelle allargata) e ignora i fori delle finestrelle. */
 const tv = q.get('vista') === 'est' || q.get('lato') === 'tv';
 const mio = tv ? 'tv' : q.get('lato') === 'destra' ? 'destra' : 'sinistra';
+/* il titolo dice chi è (sul Raspberry con due schermi serve a mettere ogni finestra sul suo) */
+if (!anteprima) document.title = tv ? 'Illusionist TV' : 'Illusionist finestra ' + mio;
 function normalizza(a){
   if (a && a.finestre) return {n: a.n === 2 ? 2 : 1, finestre: a.finestre};
   if (a && a.fori && a.fori.length === 1) return {n:1, finestre:{sinistra:a.fori[0]}};   /* formato di prima */
@@ -88,7 +90,10 @@ function impagina(){
   const uw = Math.max(...px.map(f => f.x + f.w)) - ux, uh = Math.max(...px.map(f => f.y + f.h)) - uy;
   /* ⚠ 30/10: il disegno copre solo i fori, non tutto lo schermo. Su uno schermo 4K la tela intera (anche
      dimezzata) costava più del paesaggio: 25 immagini al secondo, uccelli a scatti */
-  const CW = Math.max(2, Math.round(uw * scala)), CH = Math.max(2, Math.round(uh * scala));
+  /* ⚠ 30/10 · TV 4K: su Windows lo schermo 4K è «ingrandito» (150-300%) e la pagina vede 1280-2560 pixel di larghezza
+     invece di 3840: il disegno va fatto in pixel veri dello schermo, non in quelli della pagina */
+  const k = scala * Math.min(anteprima ? 2 : 4, devicePixelRatio || 1);
+  const CW = Math.max(2, Math.round(uw * k)), CH = Math.max(2, Math.round(uh * k));
   if (c.width !== CW || c.height !== CH){ c.width = CW; c.height = CH; }
   Object.assign(c.style, {left: ux + 'px', top: uy + 'px', width: uw + 'px', height: uh + 'px', right: 'auto', bottom: 'auto'});
   const ordine = px.map((f, i) => [f.x, i]).sort((a, b) => a[0] - b[0]).map(x => x[1]);
@@ -110,8 +115,8 @@ function impagina(){
     return Object.assign(f, {map, aspetto, lato});
   });
   geom.unione = {x:ux, y:uy, w:uw, h:uh};
-  geomGL = geom.map(f => { const x = Math.round((f.x - ux) * scala), y = Math.round((f.y - uy) * scala);
-    return Object.assign({}, f, {x, y, w:Math.max(2, Math.round((f.x - ux + f.w) * scala) - x), h:Math.max(2, Math.round((f.y - uy + f.h) * scala) - y)}); });
+  geomGL = geom.map(f => { const x = Math.round((f.x - ux) * k), y = Math.round((f.y - uy) * k);
+    return Object.assign({}, f, {x, y, w:Math.max(2, Math.round((f.x - ux + f.w) * k) - x), h:Math.max(2, Math.round((f.y - uy + f.h) * k) - y)}); });
   disegnaBordi(); impaginaVideo();
 }
 addEventListener('resize', impagina);
@@ -322,7 +327,7 @@ if (anteprima){
   /* con le prestazioni: immagini al secondo davvero disegnate, risoluzione del disegno, qualità (per capire da lontano se fatica) */
   const schedaVideo = () => { try { const g = vista.gl, e = g.getExtension('WEBGL_debug_renderer_info'); return e ? g.getParameter(e.UNMASKED_RENDERER_WEBGL) : g.getParameter(g.RENDERER); } catch(e) { return ''; } };
   const chi = () => ({lato: mio, assetto: tv ? null : casaFori, scena, schermo:{w:innerWidth, h:innerHeight, dpr:devicePixelRatio}, comando: comandaDM() ? 'dmaster' : null,
-    prestazioni:{fps: Math.round(fpsMisurati), hzSchermo: Math.round(1000 / intervalloSchermo), msDisegno: Math.round(msDisegno * 10) / 10, scala, qualita, disegno:{w:c.width, h:c.height}, gl: schedaVideo(), browser: navigator.userAgent}});
+    prestazioni:{fps: Math.round(fpsMisurati), hzSchermo: Math.round(1000 / intervalloSchermo), msDisegno: Math.round(msDisegno * 10) / 10, scala, qualita, disegno:{w:c.width, h:c.height}, schermoVero:{w:Math.round(screen.width * devicePixelRatio), h:Math.round(screen.height * devicePixelRatio)}, gl: schedaVideo(), browser: navigator.userAgent}});
   canale = apriCanale(casa, {
     suMessaggio(evento, dati){
       if (evento === 'dmaster'){ dmasterFino = dati.attivo ? Date.now() + 30000 : 0; return; }

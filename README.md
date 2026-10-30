@@ -20,5 +20,5 @@ Le foto da Wikimedia e Pexels restano dei loro autori, con le loro licenze (most
 ## Il TV (vista verso est)
 Lo stesso indirizzo delle finestre con `&vista=est`: `https://mauriziotarsia-dev.github.io/finestre/finestra/?casa=CODICE&vista=est`.
 Tutto lo schermo è la finestra; mostra la vista «est-…» del paesaggio (creata dal telefono: Crea → «Verso est · il TV», o dal dettaglio di un paesaggio → «Crea la vista TV"). Stessa ora, stesso tempo e stesso cielo delle finestrelle.
-Per la prospettiva viva anche sul TV, sul mini PC gira `pi/sensore.py` (riceve il radar dal Wi-Fi come il Raspberry); `&tvx=…&tvy=…` = posizione del centro del TV rispetto al radar, in mm (x verso destra guardando le finestrelle, y verso la stanza).
+Sul G10 tutto si prepara con `pi/installa-g10.ps1` (istruzioni in testa al file): TV in Edge a tutto schermo, radar, rifinitura e ingrandimento AI all'accesso. Per la prospettiva viva anche sul TV, sul mini PC gira `pi/sensore.py` (riceve il radar dal Wi-Fi come il Raspberry); `&tvx=…&tvy=…` = posizione del centro del TV rispetto al radar, in mm (x verso destra guardando le finestrelle, y verso la stanza).
 
