@@ -18,7 +18,7 @@
 <canvas id="c"></canvas>
 <script src="../js/supabase.js?v=2.1.0"></script>
 <script src="../js/canale.js?v=2.1.0"></script>
-<script src="../js/vista.js?v=4.1"></script>
+<script src="../js/vista.js?v=4.2"></script>
 <script src="../js/inseguitore.js?v=1"></script>
 <script src="../js/uccelli.js?v=3"></script>
 <script>
@@ -74,7 +74,7 @@ let geom = [];      /* i fori in pixel, con la loro mappa */
 let geomGL = [];    /* gli stessi, in pixel del disegno (che può essere più piccolo dello schermo) */
 /* risoluzione dinamica: se il computer fatica, il disegno si fa più piccolo e lo schermo lo ingrandisce;
    quando torna fluido, risale. Su un Raspberry con due schermi da 24" fa la differenza */
-let scala = 1;
+let scala = 1, scalaFissa = 0;   /* scalaFissa: solo per le prove da lontano */
 function impagina(){
   const W = Math.round(innerWidth), H = Math.round(innerHeight);
   const px = assetto.fori.map(f => ({x:Math.round(f.x * W), y:Math.round(f.y * H), w:Math.max(2, Math.round(f.w * W)), h:Math.max(2, Math.round(f.h * H))}));
@@ -309,7 +309,7 @@ if (anteprima){
       else if (evento === 'fori') calibra(dati);
       else if (evento === 'ricarica') location.reload();
       /* prova delle prestazioni da lontano: spegne per un po' alcune parti del disegno (poi si ricarica e torna tutto) */
-      else if (evento === 'prova' && Array.isArray(dati.spegni)) vista.spegni = new Set(dati.spegni);
+      else if (evento === 'prova'){ if (Array.isArray(dati.spegni)) vista.spegni = new Set(dati.spegni); if (dati.scala){ scalaFissa = +dati.scala; scala = scalaFissa; impagina(); } }
       else if (evento === 'occhio') daTelefono(dati.x, dati.z);
       else if (evento === 'chi') canale.manda('eccomi', chi());
     },
@@ -340,9 +340,9 @@ function giro(ora){
   /* ⚠ 30/10: si guarda il passo medio, non i singoli giri: sul Raspberry i giri erano metà veloci e metà lenti
      (il peggio: va a scatti) e la vecchia regola non scendeva mai */
   lentoR = lentoR * .96 + (dt * 1000 > passo * 1.3 ? .04 : 0);
-  if ((lentoR > .55 || (intervalloSchermo > passo * 1.25 && ora - ultimoCalo > 4000)) && scala > .5){ scala = Math.max(.5, Math.round((scala - .1) * 10) / 10); lentoR = 0; ultimoCalo = ora; impagina(); }
+  if (!scalaFissa && (lentoR > .55 || (intervalloSchermo > passo * 1.25 && ora - ultimoCalo > 4000)) && scala > .5){ scala = Math.max(.5, Math.round((scala - .1) * 10) / 10); lentoR = 0; ultimoCalo = ora; impagina(); }
   fluido = dt * 1000 < passo * 1.07 ? fluido + dt : 0;
-  if (fluido > 8 && intervalloSchermo < passo * 1.08 && scala < 1 && ora - ultimoCalo > 90000){ scala = Math.min(1, Math.round((scala + .1) * 10) / 10); fluido = 0; impagina(); }
+  if (!scalaFissa && fluido > 8 && intervalloSchermo < passo * 1.08 && scala < 1 && ora - ultimoCalo > 90000){ scala = Math.min(1, Math.round((scala + .1) * 10) / 10); fluido = 0; impagina(); }
   lento = lento * .97 + (dt * 1000 > passo * 1.56 ? 1 : 0) * .03;
   if (lento > .6 && qualita && scala <= .5) qualita = 0; else if (lento < .1 && !qualita) qualita = 1;
   const k = 1 - Math.exp(-dt * .45);
