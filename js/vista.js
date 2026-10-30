@@ -50,8 +50,14 @@ uniform float uLampo, uLampoX;
 uniform float uNotteFinta, uLuce, uBuio, uQualita;
 uniform vec3 uColNebbia;
 uniform sampler2D uMeteo;     /* nebbia e nuvole, calcolate a bassa risoluzione (r: banchi di nebbia, g: nuvole, b: velo) */
-uniform sampler2D uVentoT;    /* il vento sugli alberi, calcolato a un quarto di risoluzione (r, g: spostamento, b: raffica) */
-uniform float uHaVento;
+uniform sampler2D uVentoT;    /* il vento sugli alberi, calcolato a un quarto di risoluzione (r, g: spostamento, b: raffica sugli alberi, a: ombra delle nuvole) */
+uniform vec4 uU[24];          /* gli uccelli (js/uccelli.js): per ognuno (x, y, grandezza, ali) (inclinazione, chiarezza, tipo, -) */
+uniform float uNU;            /* quanti uccelli */
+uniform float uNotte;         /* 0 giorno … 1 notte (stelle, fuochi che tremolano) */
+uniform float uOmbre;         /* quanto si vedono le ombre delle nuvole (giorno sereno) */
+uniform vec4 uMeteora;        /* stella cadente: da (x, y) a (z, w), nella vista */
+uniform float uMeteoraK;      /* a che punto è (0 = nessuna) */
+uniform float uHaVento;   /* (il passaggio a bassa risoluzione scrive dal basso: si legge capovolto) */
 
 /* hash senza seno: sulle schede dei Raspberry il seno costa caro */
 float h1(vec2 p){ vec3 p3 = fract(vec3(p.xyx) * .1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
@@ -89,6 +95,12 @@ float profG(sampler2D d, vec4 crop, vec2 uv, float ha, vec2 gx, vec2 gy){
 #else
   return texture2D(d, clamp(crop.xy + uv * crop.zw, .0005, .9995)).r;
 #endif
+}
+
+/* fogliame: verde o verde-grigio (ulivi), anche scuro (cipressi); non la pietra (rossiccia), non la nebbia (azzurrina, chiara) */
+float fogliame(vec3 c){
+  float mx = max(c.r, max(c.g, c.b)), sat = (mx - min(c.r, min(c.g, c.b))) / max(mx, .01), l = dot(c, vec3(.299, .587, .114));
+  return smoothstep(.88, .97, c.g / max(c.r, .01)) * smoothstep(.95, 1.05, c.g / max(c.b, .01)) * smoothstep(.06, .12, sat) * smoothstep(.8, .6, l);
 }
 
 /* un'immagine del paesaggio, già col suo movimento */
@@ -152,21 +164,19 @@ vec3 paesaggio(sampler2D img, sampler2D dep, vec4 crop, vec4 cropD, float haDep,
        conto suo. Ora il vento passa a raffiche che attraversano il paesaggio come onde, le chiome si piegano
        insieme a gruppi (rami) e le foglie tremano fini; i vicini si muovono di più dei lontani: da 1-2 pixel
        da 2-4 pixel col sereno a 8-9 col temporale (su un foro alto 1000). Solo dove c'è verde, mai nel cielo. */
-    float mxc = max(c.r, max(c.g, c.b)), satc = (mxc - min(c.r, min(c.g, c.b))) / max(mxc, .01);
-    float verde = clamp((c.g - max(c.r, c.b)) * 7. + .25, 0., 1.) * smoothstep(.05, .14, satc) * smoothstep(.1, .4, n);   /* anche gli ulivi grigio-verdi; non la nebbia */
+    float verde = fogliame(c) * smoothstep(.1, .4, n);   /* anche gli ulivi grigio-verdi e i cipressi scuri; non la pietra, non la nebbia */
     float vicino = smoothstep(.1, .4, n);
-    if (vicino > .01 && uHaVento > .5){
+    vec4 vt = uHaVento > .5 ? texture2D(uVentoT, vec2(vUv.x, 1. - vUv.y)) : vec4(.5, .5, 0., 0.);
+    if (vicino > .01 && vt.b > .01){
       /* ⚠ 30/10: il vento (raffiche e rami) arriva già calcolato a un quarto di risoluzione: sul Raspberry
          calcolarlo per ogni pixel costava un terzo delle immagini al secondo */
-      vec4 vt = texture2D(uVentoT, vUv);
-      float px = (2.5 + 6. * n) * (.5 + uVento * 1.4) * vt.b;
+      float px = (3.5 + 8.5 * n) * (.55 + uVento * 1.4) * vt.b;
       vec2 d = vec2((vt.r - .5) * 2.2, (vt.g - .5) * .8) * px * (uPix.y / 1000.) / uPix;
       vec3 mosso = haF > .5 ? texture2D(fer, clamp(crop.xy + (p + d) * crop.zw, .0005, .9995)).rgb : fotoG(img, crop, p + d, gx, gy);
       /* la chioma si sposta davvero, anche oltre il suo contorno: dove adesso c'è un ramo spostato lo si disegna
          (anche contro il cielo); dove la chioma se n'è andata si vede quello che c'era accanto, ma mai il cielo
          dipinto al posto del cielo che scorre */
-      float mxs = max(mosso.r, max(mosso.g, mosso.b)), sats = (mxs - min(mosso.r, min(mosso.g, mosso.b))) / max(mxs, .01);
-      float verdeS = clamp((mosso.g - max(mosso.r, mosso.b)) * 7. + .25, 0., 1.) * smoothstep(.05, .14, sats);
+      float verdeS = fogliame(mosso);
       float nS = profG(dep, cropD, p + d, haDep, gx, gy), cieloS = haDep > .5 ? smoothstep(.022, .004, nS) * smoothstep(.85, .45, p.y + d.y) : sky;
       float w = max(verdeS * smoothstep(.1, .4, nS), verde * (1. - cieloS));
       c = mix(c, mosso, w);
@@ -176,70 +186,34 @@ vec3 paesaggio(sampler2D img, sampler2D dep, vec4 crop, vec4 cropD, float haDep,
 }
 
 float segmento(vec2 p, vec2 a, vec2 b){ vec2 pa = p - a, ba = b - a; float h = clamp(dot(pa, ba) / dot(ba, ba), 0., 1.); return length(pa - ba * h); }
-/* ⚠ 30/10 · UCCELLI (Maurizio: «migliora gli uccelli in volo»). Due stormi e, ogni tanto, un rapace.
-   Gli stormi entrano da un bordo ed escono dall'altro su una traiettoria che ondeggia, a V larga e scomposta;
-   ognuno ha il suo ritmo: qualche battito, poi plana. Il rapace invece gira in tondo sopra la valle, ad ali
-   tese, e se ne va. Le ali sono curve (spalla, gomito, punta) e si assottigliano verso la punta; più lontano
-   (più in alto nel cielo) vuol dire più piccolo e più chiaro. La vista è una sola fra le due finestre: chi esce
-   dalla prima entra nella seconda. */
+/* ⚠ 30/10 · UCCELLI (Maurizio: «migliora il movimento ed il volo degli uccelli, troppo fake»). Il volo lo
+   simula js/uccelli.js (stormo vero, battiti e planate, virate, il rapace nella corrente calda); qui si disegnano
+   e basta, solo vicino a ciascuno. Ali curve (spalla, gomito, punta) che si assottigliano; il rapace ha ali lunghe
+   e piatte. Solo nel cielo: passano dietro torri e monti. */
 float ala(vec2 q, float s, float su, float giu){
-  /* un'ala destra (x > 0): spalla in 0, gomito alzato di «su», punta alzata di «giu» (negativo = sotto) */
   vec2 g = vec2(s * .45, -s * su), p = vec2(s, -s * giu);
   float d1 = segmento(q, vec2(0.), g), d2 = segmento(q, g, p);
   float t = clamp(q.x / s, 0., 1.);
-  return min(d1, d2) - (1. - t) * .35;             /* più spessa alla spalla */
+  return min(d1, d2) - (1. - t) * .35;
 }
-float uccello(vec2 q, float s, float fase, float plana, float sc){
-  float b = sin(fase) * (1. - plana);              /* battito: -1 ali giù, 1 ali su */
-  float su = .32 + .22 * b, giu = .12 + .55 * b - .1 * plana;
-  q.x = abs(q.x);                                  /* le due ali sono una lo specchio dell'altra */
+float uccello(vec2 q, float s, float ali, float rapace, float sc){
+  q.x = abs(q.x);
+  float su = rapace > .5 ? .1 + .12 * ali : .3 + .24 * ali, giu = rapace > .5 ? .04 + .3 * ali : .1 + .6 * ali;
   float d = ala(q, s, su, giu);
-  d = min(d, length(q * vec2(1., 1.6)) - .45 * sc);   /* il corpo */
+  d = min(d, length(q * vec2(1., rapace > .5 ? 1.2 : 1.6)) - (rapace > .5 ? .7 : .45) * sc);
   return 1. - smoothstep(.35 * sc, .35 * sc + .9, d);
 }
 float uccelli(vec2 uv){
   float a = 0., sc = uPix.y / 1000.;
-  for (int k = 0; k < 2; k++){
-    float fk = float(k), P = 53. + fk * 31., T = 30. + fk * 8., tt = uT + fk * 19.;
-    float ciclo = floor(tt / P), tc = tt - ciclo * P;
-    if (tc > T) continue;
-    float r1 = h1(vec2(ciclo + 3.1, fk * 7.1)), r2 = h1(vec2(fk * 3.3, ciclo + 1.7)), r3 = h1(vec2(ciclo, fk + 11.));
-    float dir = r1 < .5 ? 1. : -1., pr = tc / T;
-    float quota = .07 + .2 * r2;
-    vec2 c = vec2(dir > 0. ? mix(-.2, 1.2, pr) : mix(1.2, -.2, pr),
-                  quota + .035 * sin(pr * 5.2 + r3 * 6.) + .012 * sin(uT * .5 + fk));
-    float lont = mix(1.25, .7, clamp((quota - .07) / .2, 0., 1.));   /* più in basso nel cielo = più vicino */
-    vec2 d = (uv - c) * uPix;
-    if (abs(d.x) > 90. * sc || abs(d.y) > 50. * sc) continue;
-    for (int j = 0; j < 5; j++){
-      float fj = float(j);
-      float lato = mod(fj, 2.) * 2. - 1., fila = floor((fj + 1.) * .5);   /* a V: il capo, poi a coppie dietro */
-      vec2 o = vec2(-dir * (fila * 13. + 4. * h1(vec2(fj, ciclo))), lato * fila * 6.5 + 3. * sin(uT * (.4 + .1 * fj) + fj * 2.1)) * sc * lont;
-      o += vec2(2.5 * sin(uT * .23 + fj * 4.), 0.) * sc;
-      vec2 q = d - o;
-      q.x *= dir;                                 /* guardano dove vanno (la forma è simmetrica, ma il ritmo no) */
-      float s = (3.4 + 1.1 * h1(vec2(fj + 9., fk))) * sc * lont;
-      float plana = smoothstep(-.2, .5, sin(uT * (.55 + .07 * fj) + fj * 1.7 + fk * 3.));
-      a = max(a, uccello(q, s, uT * (8.5 + fj * .6) + fj, plana, sc) * (.75 + .25 * lont));
-    }
-  }
-  /* il rapace: ogni tanto, gira in tondo ad ali tese sopra la valle mentre il vento lo sposta */
-  {
-    float P = 97., T = 42., tt = uT + 37.;
-    float ciclo = floor(tt / P), tc = tt - ciclo * P;
-    if (tc < T){
-      float r1 = h1(vec2(ciclo + 5.3, 2.7)), r2 = h1(vec2(1.9, ciclo + 8.1));
-      float dir = r1 < .5 ? 1. : -1., pr = tc / T;
-      float th = uT * .45 * dir;
-      vec2 c = vec2(dir > 0. ? mix(-.15, 1.15, pr) : mix(1.15, -.15, pr), .12 + .14 * r2) + vec2(cos(th) * .09, sin(th) * .025);
-      vec2 d = (uv - c) * uPix;
-      if (abs(d.x) < 40. * sc && abs(d.y) < 30. * sc){
-        float inclina = sin(th) * .35;            /* in virata un'ala si abbassa */
-        vec2 q = vec2(d.x * cos(inclina) - d.y * sin(inclina), d.x * sin(inclina) + d.y * cos(inclina));
-        float plana = smoothstep(-.6, .2, sin(uT * .3 + r2 * 6.));
-        a = max(a, uccello(q, 7.5 * sc, uT * 4.5, plana, sc));
-      }
-    }
+  for (int i = 0; i < 12; i++){
+    if (float(i) >= uNU) break;
+    vec4 b = uU[i * 2], c = uU[i * 2 + 1];
+    vec2 d = (uv - b.xy) * uPix;
+    float s = (c.z > .5 ? 3.4 : 2.9) * b.z * sc;
+    if (abs(d.x) > s * 2.6 || abs(d.y) > s * 2.2) continue;
+    float cb = cos(c.x), sb = sin(c.x);
+    vec2 q = vec2(d.x * cb - d.y * sb, d.x * sb + d.y * cb);
+    a = max(a, uccello(q, s, b.w, c.z, sc) * c.y);
   }
   return a;
 }
@@ -247,7 +221,7 @@ float uccelli(vec2 uv){
 void main(){
   vec2 uv = uMap.xy + vUv * uMap.zw;
   vec3 col = vec3(0.); float n = .5, sky = 0., alfa = 1.;
-  float l0 = 0.;
+  float l0 = 0.; vec3 stelle = vec3(0.);
   if (uHaImg > .5){
     float n0, s0; vec3 c0 = paesaggio(uImg0, uDep0, uCrop0, uCropD0, uHaDep0, uMovimento0, uCielo0, uCieloM0, uFermo0, uHaFermo0, uv, n0, s0);
     if (uVmix > .001){ float nb, sb; c0 = mix(c0, paesaggio(uImg0b, uDep0, uCrop0, uCropD0, uHaDep0, 0., uCielo0, uCieloM0, uFermo0, uHaFermo0, uv, nb, sb), uVmix); }
@@ -255,8 +229,39 @@ void main(){
       float n1, s1; vec3 c1 = paesaggio(uImg1, uDep1, uCrop1, uCropD1, uHaDep1, uMovimento1, uCielo1, uCieloM1, uFermo1, uHaFermo1, uv, n1, s1);
       col = mix(c0, c1, uMix); n = mix(n0, n1, uMix); sky = mix(s0, s1, uMix);
     } else { col = c0; n = n0; sky = s0; }
-    /* uccelli: entrano da un bordo ed escono dall'altro, mai dal nulla; solo nel cielo, quindi dietro torri e monti */
-    if (uUccelli > .01 && sky > .2){ float b = uccelli(uv) * uUccelli * smoothstep(.2, .7, sky); col = mix(col, col * .3 + vec3(.035, .035, .045), b * .8); }
+    float scP = max(1., uPix.y / 1000.);
+    stelle = vec3(0.);
+    /* ombre delle nuvole: di giorno scorrono sul paesaggio insieme al cielo panoramico (calcolate col vento) */
+    if (uOmbre > .01 && uHaVento > .5){ float om = texture2D(uVentoT, vec2(vUv.x, 1. - vUv.y)).a; col *= 1. - om * .17 * uOmbre * (1. - sky); }
+    /* fuochi, lanterne e finestre accese tremolano come fiamme, di notte e un po' al tramonto */
+    if (uNotte > .01){
+      float caldo = smoothstep(.33, .6, col.r) * smoothstep(1.12, 1.4, col.r / max(col.g, .01)) * smoothstep(1.15, 1.6, col.g / max(col.b, .01)) * (1. - sky);
+      if (caldo > .01){
+        vec2 cel = floor(uv * uPix / (14. * scP));
+        float hz = 5. + 5. * h1(cel), fl = rumore(vec2(uT * hz, h1(cel) * 97.)) * .65 + rumore(vec2(uT * hz * 2.3, h1(cel + 1.) * 53.)) * .35;
+        col *= mix(1., .7 + .55 * fl, caldo * uNotte);
+      }
+    }
+    /* uccelli (js/uccelli.js) */
+    if (uUccelli > .01 && uNU > .5 && sky > .2){ float b = uccelli(uv) * uUccelli * smoothstep(.2, .7, sky); col = mix(col, col * .3 + vec3(.035, .035, .045), b * .8); }
+    /* stelle che brillano (ognuna col suo ritmo) e, ogni tanto, una stella cadente */
+    if (uNotte > .01 && sky > .3){
+      vec2 pp = uv * uPix / (7. * scP), cel = floor(pp), f = fract(pp);
+      float h = h1(cel);
+      if (h > .972){
+        vec2 pos = vec2(h1(cel + 3.1), h1(cel + 7.7)) * .7 + .15;
+        float r = length(f - pos) * 7.;
+        float lum = .3 + .7 * h1(cel + 11.);
+        float scint = .55 + .45 * sin(uT * (1.2 + 2.8 * h1(cel + 5.)) + h * 40.) * (.65 + .35 * sin(uT * .31 + h * 13.));
+        stelle += vec3(.86, .9, 1.) * exp(-r * r * 1.7) * lum * scint * uNotte * (1. - uCoperto) * smoothstep(.3, .8, sky);
+      }
+    }
+    if (uMeteoraK > 0. && sky > .3){
+      vec2 A = uMeteora.xy * uPix, B = uMeteora.zw * uPix, P = uv * uPix;
+      vec2 testa = mix(A, B, uMeteoraK), coda = mix(A, B, max(0., uMeteoraK - .3));
+      float dd = segmento(P, coda, testa), lungo = clamp(dot(P - coda, testa - coda) / max(1., dot(testa - coda, testa - coda)), 0., 1.);
+      stelle += vec3(.95, .97, 1.) * exp(-dd * dd / (.5 * scP * scP + .25)) * lungo * lungo * sin(3.14159 * uMeteoraK) * 1.6 * smoothstep(.3, .8, sky) * uNotte;
+    }
     float l = dot(col, vec3(.299, .587, .114)); l0 = l;
     /* notte finta (quando manca l'immagine della notte): luna, blu, poco colore */
     col = mix(col, vec3(l) * vec3(.55, .68, 1.) * .23, uNotteFinta);
@@ -306,6 +311,8 @@ void main(){
 
   /* luce dello schermo, buio dei cambi, rumore finissimo contro le fasce */
   col *= uLuce * (1. - uBuio);
+  /* stelle e stelle cadenti sono luci: dopo il buio della notte e la luce dello schermo (solo un po' attenuate) */
+  col += stelle * (.45 + .55 * sqrt(uLuce)) * (1. - uBuio);
   col += (h1(gl_FragCoord.xy + fract(uT) * 97.) - .5) / 255.;
   if (uHaImg > .5) gl_FragColor = vec4(max(col, 0.), 1.);
   else { float a = clamp(alfa, 0., 1.) * (1. - uBuio) + uBuio; gl_FragColor = vec4(max(col, 0.) * (1. - uBuio), a); }
@@ -319,19 +326,29 @@ void main(){
 const VENTO_FRAG = `
 precision highp float;
 varying vec2 vUv;
-uniform vec4 uMap;
-uniform float uT;
+uniform vec4 uMap, uCropD, uCieloM;
+uniform float uT, uCieloX;
+uniform sampler2D uAlberi, uCielo;
 float h1(vec2 p){ vec3 p3 = fract(vec3(p.xyx) * .1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
 float rumore(vec2 p){ vec2 i = floor(p), f = fract(p); f = f*f*(3.-2.*f);
   return mix(mix(h1(i), h1(i+vec2(1,0)), f.x), mix(h1(i+vec2(0,1)), h1(i+vec2(1,1)), f.x), f.y); }
 void main(){
   vec2 uv = uMap.xy + vUv * uMap.zw;
+  vec2 ti = clamp(uCropD.xy + uv * uCropD.zw, .001, .999);
+  float alberi = texture2D(uAlberi, ti).r;                      /* solo dove ci sono alberi (o vicino) */
+  float ombra = 0.;
+  if (uCieloM.x > 0.){                                          /* la nuvola che passa sopra quel punto, più o meno */
+    float pu = ti.x * uCieloM.z / (uCieloM.y * uCieloM.x) * 1.4 + uCieloX + .37;
+    float pv = mix(.75, .25, smoothstep(uCieloM.x, 1., ti.y));
+    vec3 cc = texture2D(uCielo, vec2(fract(pu), pv)).rgb;
+    ombra = smoothstep(.66, .9, dot(cc, vec3(.3, .59, .11)));
+  }
   float onda = .5 + .5 * sin(uT * .85 - uv.x * 6.5 + rumore(uv * 2.5 + vec2(uT * .04, 0.)) * 3.);
   float raffica = mix(.35, 1., smoothstep(.35, .95, onda));
   vec2 q = uv * vec2(11., 17.);
   float fx = rumore(q + vec2(uT * .8, 0.)) - .5, fy = rumore(q * 1.3 + vec2(3.7, uT * .65)) - .5;
   fx += (rumore(uv * vec2(34., 52.) + vec2(uT * 2.1, 1.3)) - .5) * .35;   /* foglie */
-  gl_FragColor = vec4(clamp(fx * .9 + .5, 0., 1.), clamp(fy * .9 + .5, 0., 1.), raffica, 1.);
+  gl_FragColor = vec4(clamp(fx * .9 + .5, 0., 1.), clamp(fy * .9 + .5, 0., 1.), raffica * alberi, ombra);
 }`;
 
 const METEO_FRAG = `
@@ -464,7 +481,7 @@ class Vista {
     const posizioni = (p, nomi) => { const u = {}; for (const n of nomi) u[n] = gl.getUniformLocation(p, n); return u; };
     /* il programma principale: paesaggio, cielo, nebbia, lampo, luce */
     this.p = programma(VERT, FRAG, ['aPos']);
-    this.u = posizioni(this.p, ['uOcchio','uImg0b','uVmix','uImg0','uImg1','uDep0','uDep1','uMap','uCrop0','uCrop1','uCropD0','uCropD1','uUccelli','uCielo0','uCielo1','uCieloM0','uCieloM1','uCieloX','uFermo0','uFermo1','uHaFermo0','uHaFermo1','uVentoT','uHaVento','uMix','uHaImg','uHaDep0','uHaDep1','uMovimento0','uMovimento1',
+    this.u = posizioni(this.p, ['uOcchio','uImg0b','uVmix','uImg0','uImg1','uDep0','uDep1','uMap','uCrop0','uCrop1','uCropD0','uCropD1','uUccelli','uCielo0','uCielo1','uCieloM0','uCieloM1','uCieloX','uFermo0','uFermo1','uHaFermo0','uHaFermo1','uVentoT','uHaVento','uU','uNU','uNotte','uOmbre','uMeteora','uMeteoraK','uMix','uHaImg','uHaDep0','uHaDep1','uMovimento0','uMovimento1',
       'uLato','uT','uAspetto','uPix','uCoperto','uNebbia','uPioggia','uNeve','uTempesta','uVento','uLampo','uLampoX',
       'uNotteFinta','uLuce','uBuio','uQualita','uColNebbia','uMeteo']);
     gl.useProgram(this.p);
@@ -474,7 +491,9 @@ class Vista {
     this.pm = programma(VERT, METEO_FRAG, ['aPos']);
     this.um = posizioni(this.pm, ['uMap','uT','uVento']);
     this.pv = programma(VERT, VENTO_FRAG, ['aPos']);
-    this.uv = posizioni(this.pv, ['uMap','uT']);
+    this.uv = posizioni(this.pv, ['uMap','uT','uCropD','uCieloM','uCieloX','uAlberi','uCielo']);
+    gl.useProgram(this.pv); gl.uniform1i(this.uv.uAlberi, 11); gl.uniform1i(this.uv.uCielo, 6);
+    this.bianca = this.texture(); this.carica(this.bianca, new Uint8Array([255, 255, 255, 255]), 1, 1);
     this.vento = [];
     /* gocce e fiocchi */
     this.pp = programma(PART_VERT, PART_FRAG, ['aAngolo', 'aSeme']);
@@ -533,6 +552,7 @@ class Vista {
     f.img = im; f.iw = im.naturalWidth; f.ih = im.naturalHeight; f.tex = this.texture(); this.carica(f.tex, im); this.mip(f.tex);
     let dimg = null;
     if (profondita){ try { dimg = await caricaImg(profondita); f.depTex = this.texture(); this.carica(f.depTex, dimg); this.mip(f.depTex); } catch(e) { dimg = null; } }
+    try { f.aTex = this.texture(); this.carica(f.aTex, mascheraAlberi(im, dimg)); } catch(e) { f.aTex = null; }
     /* il cielo che scorre (serve la profondità, per sapere dov'è il cielo). Il video resta per quello che
        si muove sotto il cielo (nebbia nelle valli, fumo dei camini): il suo cielo non si usa più */
     if (cielo && dimg){
@@ -566,9 +586,9 @@ class Vista {
   }
   togli(){ for (const f of this.fonti) this.libera(f); this.fonti = [this.fonteVuota(), this.fonteVuota()]; this.mix = 0; }
   libera(f){ const gl = this.gl; if (!f) return;
-    for (const t of [f.tex, f.depTex, f.vtex, f.vtexB, f.cTex, f.fTex]) if (t) gl.deleteTexture(t);
+    for (const t of [f.tex, f.depTex, f.vtex, f.vtexB, f.cTex, f.fTex, f.aTex]) if (t) gl.deleteTexture(t);
     if (f.video) f.video.forEach(v => { v.pause(); v.removeAttribute('src'); v.load(); });
-    f.tex = f.depTex = f.vtex = f.vtexB = f.cTex = f.fTex = null; f.ok = false; }
+    f.tex = f.depTex = f.vtex = f.vtexB = f.cTex = f.fTex = f.aTex = null; f.ok = false; }
   get urlInVista(){ return this.fonti[0].ok ? this.fonti[0].url : null; }
 
   /* (il video è già tagliato sull'inquadratura scelta quando è stato creato: lì il fuoco non serve)
@@ -655,6 +675,11 @@ class Vista {
       gl.uniform1f(u['u' + k2], s[k2.charAt(0).toLowerCase() + k2.slice(1)] || 0);
     gl.uniform3fv(u.uColNebbia, s.colNebbia);
     gl.uniform1f(u.uUccelli, haImg && !sp.has('uccelli') ? (s.uccelli || 0) : 0);
+    const uc = s.stormi || {dati: new Float32Array(96), n: 0};
+    gl.uniform4fv(u.uU, uc.dati); gl.uniform1f(u.uNU, sp.has('uccelli') ? 0 : uc.n);
+    gl.uniform1f(u.uNotte, s.notte || 0); gl.uniform1f(u.uOmbre, s.ombre || 0);
+    const me = s.meteora || null;
+    gl.uniform4fv(u.uMeteora, me ? me.da : [0,0,0,0]); gl.uniform1f(u.uMeteoraK, me ? me.k : 0);
     const oc = s.occhio || {x:0, z:0}; gl.uniform3f(u.uOcchio, oc.x || 0, 0, oc.z || 0);
     const marg = s.margine || 1.04;
     const tempo = (s.nebbia || 0) + (s.pioggia || 0) + (s.neve || 0) > .005 || (s.coperto || 0) > .01 || (s.lampo || 0) > .001;
@@ -673,20 +698,24 @@ class Vista {
         gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
         gl.bindFramebuffer(gl.FRAMEBUFFER, null);
       }
-      /* 1b. il vento sugli alberi, a un quarto di risoluzione */
+      /* 1b. il vento sugli alberi (e le ombre delle nuvole), a un quarto di risoluzione */
+      const c0v = f0.ok ? this.crop(v0 ? {iw:f0.video[0].videoWidth || f0.iw, ih:f0.video[0].videoHeight || f0.ih} : f0, foro.aspetto, marg, v0 ? null : f0.fuoco) : [0,0,1,1];
       let tv = null;
-      if (haImg && mov && this.unita >= 11){
+      if (haImg && mov && this.unita >= 12){
         const m = this.bufferMeteo(i, foro.w, foro.h, this.vento); tv = m.tex;
         lega(5, null); lega(10, null);
         gl.bindFramebuffer(gl.FRAMEBUFFER, m.fb); gl.disable(gl.SCISSOR_TEST); gl.viewport(0, 0, m.w, m.h);
+        lega(11, f0.aTex || this.bianca); lega(6, f0.cTex);
         gl.useProgram(this.pv);
         gl.uniform4fv(this.uv.uMap, foro.map); gl.uniform1f(this.uv.uT, s.t);
+        gl.uniform4fv(this.uv.uCropD, v0 ? this.cropProfondita(f0, c0v) : c0v);
+        gl.uniform4fv(this.uv.uCieloM, f0.cTex && !sp.has('cielo') ? f0.cm : [0,0,0,0]); gl.uniform1f(this.uv.uCieloX, s.cieloX || 0);
         gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
         gl.bindFramebuffer(gl.FRAMEBUFFER, null);
       }
       /* 2. il paesaggio col suo tempo */
       gl.useProgram(this.p);
-      lega(5, tm); if (this.unita >= 11) lega(10, tv); gl.uniform1f(u.uHaVento, tv ? 1 : 0);
+      lega(5, tm); if (this.unita >= 12) lega(10, tv); gl.uniform1f(u.uHaVento, tv ? 1 : 0);
       gl.enable(gl.SCISSOR_TEST);
       gl.viewport(foro.x, y, foro.w, foro.h); gl.scissor(foro.x, y, foro.w, foro.h);
       gl.uniform4fv(u.uMap, foro.map);
@@ -736,6 +765,29 @@ class Vista {
 
 /* dove finisce il cielo, dall'alto (0..1), letto dalla mappa di profondità: per ogni colonna fin dove scende
    il cielo (quasi nero nella mappa), poi un valore alto fra le colonne (il cielo arriva lì quasi ovunque) */
+/* dove ci sono alberi (e un po' intorno, perché le chiome escono dal contorno quando si piegano): verde, non
+   cielo, non lontanissimo; piccola e sfumata, per il passaggio del vento */
+function mascheraAlberi(img, dimg){
+  const W = 96, H = Math.max(8, Math.round(W * img.naturalHeight / img.naturalWidth));
+  const c = document.createElement('canvas'); c.width = W; c.height = H;
+  const x = c.getContext('2d', {willReadFrequently:true});
+  x.drawImage(img, 0, 0, W, H); const d = x.getImageData(0, 0, W, H);
+  let p = null; if (dimg){ x.drawImage(dimg, 0, 0, W, H); p = x.getImageData(0, 0, W, H).data; }
+  const m = new Float32Array(W * H);
+  for (let i = 0; i < W * H; i++){
+    const r = d.data[i * 4] / 255, g = d.data[i * 4 + 1] / 255, b = d.data[i * 4 + 2] / 255, mx = Math.max(r, g, b), sat = (mx - Math.min(r, g, b)) / Math.max(mx, .01);
+    const ss = (a, b2, v) => { const t = Math.max(0, Math.min(1, (v - a) / (b2 - a))); return t * t * (3 - 2 * t); };
+    const verde = ss(.88, .97, g / Math.max(r, .01)) * ss(.95, 1.05, g / Math.max(b, .01)) * ss(.06, .12, sat) * ss(.8, .6, r * .299 + g * .587 + b * .114);   /* come fogliame() nel disegno */
+    const n = p ? p[i * 4] / 255 : (i / W / H);
+    m[i] = verde * (n > .08 ? 1 : 0);
+  }
+  const o = new ImageData(W, H);
+  for (let y = 0; y < H; y++) for (let xx = 0; xx < W; xx++){
+    let v = 0; for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++){ const yy = y + dy, x2 = xx + dx; if (yy >= 0 && yy < H && x2 >= 0 && x2 < W) v = Math.max(v, m[yy * W + x2]); }
+    const k = (y * W + xx) * 4; o.data[k] = o.data[k + 1] = o.data[k + 2] = Math.round(Math.min(1, v * 1.5) * 255); o.data[k + 3] = 255;
+  }
+  return o;
+}
 function orizzonte(dimg){
   const W = 48, H = Math.max(8, Math.round(W * dimg.naturalHeight / dimg.naturalWidth));
   const c = document.createElement('canvas'); c.width = W; c.height = H;
