@@ -33,7 +33,7 @@ import argparse, collections, hashlib, json, os, subprocess, sys, tempfile, time
 import numpy as np
 import cv2
 
-SECONDI_GIRO = 2.0          # quanto dura la sfumatura fra la fine e l'inizio
+SECONDI_GIRO = 3.0          # quanto dura la sfumatura fra la fine e l'inizio (nebbia e fumo la nascondono bene)
 SECONDI_RIFERIMENTO = 2.0   # da quanti secondi iniziali nasce l'immagine ferma
 FPS_USCITA = 30
 
@@ -127,10 +127,18 @@ def analizza(percorso, n, fps, w, h, cielo):
     tendenza = np.abs(L[-q:].mean(0) - L[:q].mean(0))           # quanto cambia fra inizio e fine (nebbia che sale)
     # vivo davvero: si muove molto più del ribollire, e alla fine è com'era all'inizio
     soglia = max(6.0, float(np.percentile(vivo, 70)) * 1.8)
-    z = ((vivo > soglia) & (tendenza < vivo * .6)).astype(np.float32)
+    # ⚠ 30/10 (Maurizio: «si è perso l'effetto della nebbia sotto l'abbazia che mi piaceva molto»): la nebbia
+    # che c'è già nel paesaggio e si muove (e il fumo dei camini) resta viva anche se scorre; quella che nasce
+    # dal nulla a metà video (dove all'inizio c'era un prato) no
+    rif_p = np.median(P[:max(9, int(fps * SECONDI_RIFERIMENTO))], axis=0).astype(np.uint8)
+    hsv = cv2.cvtColor(rif_p, cv2.COLOR_BGR2HSV).astype(np.float32)
+    nebbioso = ((hsv[..., 1] < 70) & (hsv[..., 2] > 120)).astype(np.uint8)
+    nebbioso = cv2.dilate(nebbioso, np.ones((9, 9), np.uint8)) > 0
+    z = (((vivo > soglia) & (tendenza < vivo * .6)) | ((vivo > soglia * .45) & nebbioso)).astype(np.float32)
     z = cv2.morphologyEx(z, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))   # niente puntini sparsi
+    z = cv2.morphologyEx(z, cv2.MORPH_CLOSE, np.ones((9, 9), np.uint8))  # i banchi di nebbia interi, non a chiazze
     z = cv2.dilate(z, np.ones((3, 3), np.uint8))
-    zone = cv2.GaussianBlur(cv2.resize(z, (w, h), interpolation=cv2.INTER_LINEAR), (0, 0), 6)
+    zone = cv2.GaussianBlur(cv2.resize(z, (w, h), interpolation=cv2.INTER_LINEAR), (0, 0), 14)
     # il cielo: dove l'AI «inciampa» (un fotogramma di colpo più scuro e ridisegnato, a metà video) e quanto
     # scorre ogni nuvola, per ricucire lo strappo
     mc = cv2.resize(cielo, (L.shape[2], L.shape[1]))
@@ -175,7 +183,12 @@ class Cucitore:
         self.percorso, self.da, self.sp = percorso, da, sp
         self.guadagni, self.sostituti = guadagni, sostituti or {}
         self.rif = riferimento.astype(np.float32)
-        self.mc = cielo[..., None]; self.mz = np.clip(zone - cielo, 0, 1)[..., None]
+        # nelle zone vive si muove solo ciò che è chiaro e poco colorato (nebbia, fumo, acqua che luccica):
+        # i cipressi scuri dentro un banco di nebbia restano fermi, la nebbia intorno scorre
+        hsv = cv2.cvtColor(riferimento, cv2.COLOR_BGR2HSV).astype(np.float32) / 255
+        chiaro = np.clip((hsv[..., 2] - .38) / .22, 0, 1) * np.clip((.42 - hsv[..., 1]) / .22, 0, 1)
+        chiaro = cv2.GaussianBlur(chiaro, (0, 0), 2)
+        self.mc = cielo[..., None]; self.mz = (np.clip(zone - cielo, 0, 1) * chiaro)[..., None]
 
     def __iter__(self):
         primo = max(0, self.da - 2)
@@ -226,8 +239,12 @@ def cuci(entrata, uscita, profondita=None, immagine=None, fuoco_x=0.5, larghezza
         ff.stdin.write(a.tobytes()); scritti += 1
     # i primi fotogrammi di nuovo in coda: così anche quelli intermedi dell'ultimo tratto guardano
     # all'inizio del giro (poi si taglia al numero giusto: il giro dura esattamente lung / fps secondi)
-    for a in testa: ff.stdin.write(a.tobytes())
-    ff.stdin.close(); ff.wait()
+    try:
+        for a in testa: ff.stdin.write(a.tobytes())
+        ff.stdin.close()
+    except BrokenPipeError:
+        pass                                                  # ffmpeg ha già i fotogrammi che gli servivano
+    ff.wait()
     if ff.returncode: raise RuntimeError('ffmpeg non ha finito')
     info.update({'fotogrammi_in': n, 'fps_in': round(fps, 2), 'secondi_giro': round(lung / fps, 2),
                  'tremolio_max_px': round(float(np.abs(sp).max()), 2), 'cielo_pct': round(float(cielo.mean()) * 100, 1)})

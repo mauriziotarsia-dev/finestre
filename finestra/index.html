@@ -18,7 +18,7 @@
 <canvas id="c"></canvas>
 <script src="../js/supabase.js?v=2.1.0"></script>
 <script src="../js/canale.js?v=2.1.0"></script>
-<script src="../js/vista.js?v=2.6"></script>
+<script src="../js/vista.js?v=2.7"></script>
 <script src="../js/inseguitore.js?v=1"></script>
 <script>
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -337,7 +337,7 @@ function giro(ora){
   uccelli += (uTgt - uccelli) * k;
   /* il cielo panoramico scorre col vento (in giri del panorama al secondo): dal sereno ci mette un paio di minuti
      ad attraversare una finestra, col temporale meno di uno */
-  cieloX = (cieloX + dt * (.002 + .008 * met.vento)) % 1000;
+  cieloX = (cieloX + dt * (.0022 + .0088 * met.vento)) % 1000;   /* 30/10: +10% (Maurizio) */
   if (scena.meteo === 'temporale' && ora > prossimoLampo){ if (prossimoLampo) scocca(); prossimoLampo = ora + 4000 + Math.random() * 11000; }
   /* con «Come fuori» l'ora cambia da sola: la luce del paesaggio sfuma piano, in un minuto e mezzo */
   if (!inCambio){ const f = fonteDi(scena); if (f && vista.urlInVista && vista.urlInVista !== chiaveFonte(f) && !vista.inArrivo) vista.mostra(f, 90).catch(() => {}); }

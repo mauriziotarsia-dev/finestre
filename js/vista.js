@@ -101,7 +101,7 @@ vec3 paesaggio(sampler2D img, sampler2D dep, vec4 crop, vec4 cropD, float haDep,
   /* cielo che scorre: al posto del cielo dipinto, il panorama alla stessa scala dell'immagine, che si ripete
      ai lati e scorre all'infinito; verso l'orizzonte torna piano il cielo vero (la foschia sopra le colline) */
   if (cm.x > 0.){
-    vec2 ti = crop.xy + p * crop.zw;
+    vec2 ti = cropD.xy + p * cropD.zw;   /* coordinate dell'immagine intera (col video, il taglio della profondità) */
     vec2 pp = vec2(ti.x * cm.z / (cm.y * cm.x) + uCieloX, ti.y / cm.x);
 #if __VERSION__ >= 300
     vec2 cgx = dFdx(pp), cgy = dFdy(pp);
@@ -438,12 +438,12 @@ class Vista {
     f.img = im; f.iw = im.naturalWidth; f.ih = im.naturalHeight; f.tex = this.texture(); this.carica(f.tex, im); this.mip(f.tex);
     let dimg = null;
     if (profondita){ try { dimg = await caricaImg(profondita); f.depTex = this.texture(); this.carica(f.depTex, dimg); this.mip(f.depTex); } catch(e) { dimg = null; } }
-    /* il cielo che scorre (serve la profondità, per sapere dov'è il cielo). Se c'è, il video non serve:
-       del video si teneva vivo solo il cielo, ed è proprio quello che al giro saltava */
+    /* il cielo che scorre (serve la profondità, per sapere dov'è il cielo). Il video resta per quello che
+       si muove sotto il cielo (nebbia nelle valli, fumo dei camini): il suo cielo non si usa più */
     if (cielo && dimg){
       try {
         const ci = await caricaImg(cielo), oriz = orizzonte(dimg);
-        if (oriz > .05){ f.cTex = this.texture(); this.carica(f.cTex, ci); this.mip(f.cTex); f.cm = [oriz, ci.naturalWidth / ci.naturalHeight, f.iw / f.ih, 0]; video = null; }
+        if (oriz > .05){ f.cTex = this.texture(); this.carica(f.cTex, ci); this.mip(f.cTex); f.cm = [oriz, ci.naturalWidth / ci.naturalHeight, f.iw / f.ih, 0]; }
       } catch(e) { /* nessun cielo panoramico per questo paesaggio */ }
     }
     if (video){ try { f.video = await apriVideo(video); f.vtex = this.texture(); } catch(e) { f.video = null; } }
