@@ -49,7 +49,7 @@ function nomeFile(p, parte, est = 'jpg'){
   const kw = parole.map(x => slug(x, 20)).filter(Boolean).join('.');
   return `${p.id}_${p.tipo}_${slug(p.nome) || 'paesaggio'}${kw ? '@' + kw : ''}_${parte}.${est}`;
 }
-const MODELLO_NOME = /^([a-z0-9]+)_(painterly|inked|classic_oil|foto|video)_([a-z0-9-]+)(?:@([a-z0-9.-]+))?_(giorno|alba|tramonto|notte|profondita|anim-(?:giorno|alba|tramonto|notte)|yt-[0-9a-f]{22})\.(jpg|png|mp4)$/;
+const MODELLO_NOME = /^([a-z0-9]+)_(painterly|inked|classic_oil|foto|video)_([a-z0-9-]+)(?:@([a-z0-9.-]+))?_(giorno|alba|tramonto|notte|profondita|cielo-(?:giorno|alba|tramonto|notte)|anim-(?:giorno|alba|tramonto|notte)|yt-[0-9a-f]{22})\.(jpg|png|mp4)$/;
 
 /* l'elenco dei paesaggi, il più recente per primo:
    [{id, tipo, nome, parole[], immagini:{giorno, alba, tramonto, notte, profondita}, animati:{giorno…}, yt, file[]}] */
@@ -104,6 +104,8 @@ async function carica(casa, p, parte, blob, est){
 }
 const caricaLuce = (casa, p, ora, blob) => carica(casa, p, ora, blob, 'jpg');
 const caricaProfondita = (casa, p, blob) => carica(casa, p, 'profondita', blob, 'png');
+/* il cielo panoramico che scorre dietro il paesaggio (uno per luce): immagini['cielo-giorno'] … */
+const caricaCielo = (casa, p, ora, blob) => carica(casa, p, 'cielo-' + ora, blob, 'jpg');
 const caricaAnimazione = (casa, p, ora, blob) => carica(casa, p, 'anim-' + ora, blob, 'mp4');
 
 /* un video di YouTube nella libreria: un segnaposto minuscolo col nome giusto */

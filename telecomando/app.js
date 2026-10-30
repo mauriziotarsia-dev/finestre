@@ -11,7 +11,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
 const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 const euro = n => (n < .1 ? n.toFixed(3) : n.toFixed(2)).replace('.', ',') + ' $';
-const VERSIONE = '2.5';
+const VERSIONE = '2.6';
 
 /* ── la casa ──────────────────────────────────────────────────────────────── */
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
@@ -33,7 +33,7 @@ if (q.get('casa') !== casa) history.replaceState(null, '', location.pathname + '
 
 /* ── impostazioni ─────────────────────────────────────────────────────────── */
 const IMP_PRED = {modello:'openai:gpt-image-2', qualita:'alta', chiavi:{openai:'', google:'', pexels:''},
-  video:{modello:'omni-720p', secondi:8}, stile:'painterly', luci:{alba:true, tramonto:true, notte:true}, anima:false, elementi:['nuvole','alberi']};
+  video:{modello:'omni-720p', secondi:8}, stile:'painterly', luci:{alba:true, tramonto:true, notte:true}, anima:false, elementi:['nuvole','alberi'], cielo:true};
 const imp = Object.assign({}, IMP_PRED, leggi('finestre-impostazioni', {}));
 imp.chiavi = Object.assign({}, IMP_PRED.chiavi, imp.chiavi || {});
 imp.video = Object.assign({}, IMP_PRED.video, imp.video || {});
@@ -373,6 +373,7 @@ function apriPaesaggio(p){
       <p class="nota" style="margin:0 0 6px">Se l'immagine è più larga del foro, scegli quale parte si vede. Le finestre la seguono dal vivo.</p></div>`}
     <div class="azioni">
       ${p.yt || !MODELLI_VIDEO.length ? '' : `<button class="btn" data-fai="anima" data-v="${p.id}">${icona('anima', 18)}Anima</button>`}
+      ${p.yt ? '' : `<button class="btn" data-fai="cieli" data-v="${p.id}">${icona('nuvola', 18)}${['giorno','alba','tramonto','notte'].some(o => p.immagini['cielo-' + o]) ? 'Rifai il cielo' : 'Cielo che scorre'}</button>`}
       ${mancano.length ? `<button class="btn" data-fai="luci" data-v="${p.id}">${icona('alba', 18)}Luci (${mancano.length})</button>` : ''}
       ${p.yt ? '' : `<button class="btn" data-fai="riadatta" data-v="${p.id}">${icona('mirino', 18)}Riadatta</button>`}
       ${p.yt ? '' : `<button class="btn" data-fai="profondita" data-v="${p.id}">${icona('livelli', 18)}${p.immagini.profondita ? 'Rifai profondità' : 'Profondità'}</button>`}
@@ -458,6 +459,11 @@ No people in the foreground, no text, no signature, no watermark, no border, no 
 ${LUCI.giorno}`;
 }
 const promptLuce = ora => `Same exact view and composition as the input image: every hill, building, tree and river stays in the same place, same framing, same style. ${LUCI[ora]} Do not add a window frame, text or borders.`;
+/* ⚠ 30/10 · CIELO CHE SCORRE. Maurizio: «le nuvole quando reinizia il loop si spostano pesantemente».
+   Nuvole che vanno sempre da una parte non possono stare in un video breve che gira (alla fine sono altrove).
+   Per questo il cielo è un'immagine panoramica a parte, che si ripete senza cuciture e la finestra fa scorrere
+   all'infinito dietro torri e colline (anche da una trifora all'altra). Niente sole né luna: scorrerebbero. */
+const promptCielo = `Paint ONLY the sky of this image, as one very wide panoramic strip of sky. Same painting style, same light, same colors and the same kind of clouds as the sky in the image. No ground, no hills, no mountains, no buildings, no trees, no horizon line, no sun, no moon, no stars, no birds, no text, no frame, no border. Clouds spread across the whole width, varied in size and shape, with open sky between them. The bottom of the strip is the pale, hazy sky just above the horizon, the same color as the image right above the hills; the top is the deeper color of the top of the image's sky. Even lighting across the whole width, so the strip can repeat side by side.`;
 const promptRiadatta = `Recompose this exact landscape into a very tall and narrow vertical frame (2 wide by 5 high, like a slit window): same place, same style, same light. The main subject (for example the castle or the village) must be fully visible and centered in the width, never cut by the edges. Extend the sky above and the foreground below naturally. No window frame, no text, no borders.`;
 const promptAnima = (el, sec) => `[# Sources <FIRST_FRAME>@Image1 <LAST_FRAME>@Image1] A single continuous, unbroken shot of about ${sec} seconds, no scene cuts, of exactly this landscape. Locked-off static camera on a tripod: the camera does not move at all (no pan, no tilt, no zoom, no dolly, no shake). Gentle, natural, real-time motion only: ${el.map(e => (ELEMENTI.find(x => x[0] === e) || [])[3]).filter(Boolean).join('; ')}. Buildings, towers, rocks, mountains, fields and the ground stay perfectly still and identical in every frame, with no shimmering. Everything that moves keeps the same slow speed and direction for the whole clip. No birds, no mist or fog appearing, growing or fading, no new clouds popping in, no light change. Same framing, light and colors as the image for the whole clip. No people, no animals, no text, no dialogue, no music. Use this image as the first frame and the last frame.`;
 
@@ -518,6 +524,37 @@ async function faiLuci(p, foto, ore, misura){
     }
   }
 }
+/* il cielo panoramico: uno per ogni luce che il paesaggio ha, dipinto guardando il cielo di quella luce,
+   poi cucito ai lati (gli ultimi due decimi sfumano nei primi) perché ripetendosi non si veda la giunta */
+async function cucitoAiLati(blob){
+  const b = await createImageBitmap(blob), W = b.width, H = b.height, o = Math.round(W * .22), L = W - o;
+  const c = document.createElement('canvas'); c.width = L; c.height = H; const x = c.getContext('2d');
+  x.drawImage(b, 0, 0, L, H, 0, 0, L, H);                                   /* la parte centrale così com'è */
+  const t = document.createElement('canvas'); t.width = o; t.height = H; const tx = t.getContext('2d');
+  tx.drawImage(b, L, 0, o, H, 0, 0, o, H);                                  /* la coda… */
+  const g = tx.createLinearGradient(0, 0, o, 0); g.addColorStop(0, 'rgba(0,0,0,1)'); g.addColorStop(1, 'rgba(0,0,0,0)');
+  tx.globalCompositeOperation = 'destination-in'; tx.fillStyle = g; tx.fillRect(0, 0, o, H);
+  x.drawImage(t, 0, 0);                                                      /* …sfuma nell'inizio */
+  return await new Promise(r => c.toBlob(r, 'image/jpeg', .9));
+}
+async function faiCieli(p){
+  const ore = ['giorno','alba','tramonto','notte'].filter(o => p.immagini[o]);
+  for (const ora of ore){
+    const k = 'cielo-' + ora, nomeOra = NOME_ORA[ora][0].toUpperCase() + NOME_ORA[ora].slice(1);
+    passo(k, 'ora', `Cielo che scorre · ${nomeOra.toLowerCase()}: lo dipingo largo…`);
+    try {
+      const foto = await (await fetch(p.immagini[ora])).blob();
+      const r = await Ai.modifica({modello:imp.modello, chiavi:imp.chiavi, qualita:imp.qualita, prompt:promptCielo, foto, misura:'orizzontale',
+        bozza: b64 => { lavoro.anteprime[k] = {url:'data:image/png;base64,' + b64, bozza:true}; disegnaLavoro(); }});
+      const jpg = await cucitoAiLati(b64aBlob(r.b64, r.mime));
+      p.immagini[k] = await caricaCielo(casa, p, ora, jpg);
+      lavoro.anteprime[k] = {url:p.immagini[k]}; passo(k, 'fatto', 'Cielo che scorre · ' + nomeOra.toLowerCase());
+    } catch(e) {
+      passo(k, 'errore', 'Cielo · ' + NOME_ORA[ora] + ': ' + e.message);
+      if (e.tipo === 'credito' || e.tipo === 'chiave'){ segnala(e); break; }
+    }
+  }
+}
 async function faiProfondita(p, foto){
   passo('prof', 'ora', 'Profondità: la calcolo sul telefono…');
   try {
@@ -560,6 +597,7 @@ async function crea(){
     await faiLuci(p, jpg, ['alba','tramonto','notte'].filter(o => imp.luci[o]), misura);
     aggiornaInLibreria(p);
     await faiProfondita(p, jpg); aggiornaInLibreria(p);
+    if (imp.cielo !== false){ await faiCieli(p); aggiornaInLibreria(p); }
     if (imp.anima){ try { await faiAnimazione(p, jpg, 'giorno', imp.elementi); aggiornaInLibreria(p); } catch(e) { passo('anim', 'errore', 'Animazione: ' + e.message); segnala(e); } }
   });
 }
@@ -567,7 +605,7 @@ async function crea(){
 function disegnaCrea(){
   const s = $('#s-crea'); const m = Ai.modello(imp.modello), mv = MODELLI_VIDEO.find(x => x.id === imp.video.modello) || MODELLI_VIDEO[0] || {nome:'', euroSecondo:0};
   const nLuci = ['alba','tramonto','notte'].filter(o => imp.luci[o]).length;
-  const costo = (m.costo[imp.qualita] || m.costo.alta) * (1 + nLuci * 1.15) + (imp.anima ? mv.euroSecondo * imp.video.secondi : 0);
+  const costo = (m.costo[imp.qualita] || m.costo.alta) * (1 + nLuci * 1.15) * (imp.cielo !== false ? 2 : 1) + (imp.anima ? mv.euroSecondo * imp.video.secondi : 0);
   const desc = $('#creaDesc') ? $('#creaDesc').value : '', nome = $('#creaNome') ? $('#creaNome').value : '';
   s.innerHTML = testa('scintilla', 'Crea', 'Un paesaggio nuovo, dipinto dall\'AI') + `<div class="problema" hidden></div>
     <div class="pannello" style="display:flex;align-items:center;gap:12px">${icona('tavolozza', 22)}<div style="flex:1;min-width:0"><b style="font:500 12.5px var(--display);letter-spacing:.1em;text-transform:uppercase">${esc(m.nome)}</b><div class="nota" style="margin:0">qualità ${esc(imp.qualita)}${imp.chiavi[m.fornitore] ? '' : ' · manca la chiave'}</div></div><button class="btn piccolo" data-fai="vaiImp">Cambia</button></div>
@@ -580,6 +618,8 @@ function disegnaCrea(){
     <div class="sezione">${titolo('alba', 'Le luci del giorno')}
       <div class="scelte c4">${['giorno','alba','tramonto','notte'].map(o => `<button class="scelta" data-fai="luce" data-v="${o}" aria-pressed="${o === 'giorno' || !!imp.luci[o]}" ${o === 'giorno' ? 'disabled style="opacity:1"' : ''}>${icona(o === 'giorno' ? 'sole' : o === 'notte' ? 'luna' : o, 22)}<span>${NOME_ORA[o]}</span></button>`).join('')}</div>
       <p class="nota">Alba, tramonto e notte sono lo stesso paesaggio con un'altra luce: quando cambia l'ora, le finestre sfumano dall'una all'altra senza cambiare vista.</p></div>
+    <div class="sezione">${titolo('nuvola', 'Cielo che scorre')}
+      <div class="pannello" style="padding:2px 14px">${interruttore('cieloToggle', 'nuvola', 'Cielo panoramico', 'Le nuvole scorrono senza fine dietro il paesaggio, mai un salto · un\'immagine in più per luce', imp.cielo !== false)}</div></div>
     ${MODELLI_VIDEO.length ? `<div class="sezione">${titolo('anima', 'Movimento vero')}
       <div class="pannello" style="padding:2px 14px">${interruttore('animaToggle', 'anima', 'Animalo con ' + mv.nome, `${imp.video.secondi} secondi in loop · ≈ ${euro(mv.euroSecondo * imp.video.secondi)}`, imp.anima)}
         ${imp.anima ? `<div class="pillole" style="margin:0 0 12px">${ELEMENTI.map(([v, ic, t]) => `<button class="pillola" data-fai="elemento" data-v="${v}" aria-pressed="${imp.elementi.includes(v)}">${icona(ic, 15)}${t}</button>`).join('')}</div>` : ''}</div></div>`
@@ -706,6 +746,15 @@ const AZIONI = {
       aggiornaInLibreria(p);
     });
   },
+  cieli: async v => {
+    const p = libreria.find(x => x.id === v); if (!p) return;
+    const m = Ai.modello(imp.modello); if (!imp.chiavi[m.fornitore]){ avviso('Serve la chiave nelle Impostazioni.', true); return; }
+    await conLavoro('cieli', async L => {
+      L.p = p; L.anteprime.giorno = {url:p.immagini.giorno};
+      if (!p.immagini.profondita){ const foto = await (await fetch(p.immagini.giorno)).blob(); await faiProfondita(p, foto); }   /* serve a sapere dov'è il cielo */
+      await faiCieli(p); aggiornaInLibreria(p);
+    });
+  },
   riadatta: async v => {
     const p = libreria.find(x => x.id === v); if (!p) return;
     const m = Ai.modello(imp.modello); if (!imp.chiavi[m.fornitore]){ avviso('Serve la chiave nelle Impostazioni.', true); return; }
@@ -775,6 +824,7 @@ const AZIONI = {
   idea: v => { const [n, d] = IDEE[+v]; $('#creaNome').value = n; $('#creaDesc').value = d; },
   luce: v => { imp.luci[v] = !imp.luci[v]; salvaImp(); disegnaCrea(); },
   animaToggle: () => { imp.anima = !imp.anima; salvaImp(); disegnaCrea(); },
+  cieloToggle: () => { imp.cielo = imp.cielo === false; salvaImp(); disegnaCrea(); },
   crea: () => crea(),
   modello: v => { imp.modello = v; salvaImp(); disegnaImpostazioni(); },
   qualita: v => { imp.qualita = v; salvaImp(); disegnaImpostazioni(); },
