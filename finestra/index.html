@@ -18,7 +18,7 @@
 <canvas id="c"></canvas>
 <script src="../js/supabase.js?v=2.1.0"></script>
 <script src="../js/canale.js?v=2.1.0"></script>
-<script src="../js/vista.js?v=3.1"></script>
+<script src="../js/vista.js?v=3.2"></script>
 <script src="../js/inseguitore.js?v=1"></script>
 <script>
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -76,11 +76,14 @@ let geomGL = [];    /* gli stessi, in pixel del disegno (che può essere più pi
 let scala = 1;
 function impagina(){
   const W = Math.round(innerWidth), H = Math.round(innerHeight);
-  const CW = Math.round(W * scala), CH = Math.round(H * scala);
-  if (c.width !== CW || c.height !== CH){ c.width = CW; c.height = CH; }
   const px = assetto.fori.map(f => ({x:Math.round(f.x * W), y:Math.round(f.y * H), w:Math.max(2, Math.round(f.w * W)), h:Math.max(2, Math.round(f.h * H))}));
   const ux = Math.min(...px.map(f => f.x)), uy = Math.min(...px.map(f => f.y));
   const uw = Math.max(...px.map(f => f.x + f.w)) - ux, uh = Math.max(...px.map(f => f.y + f.h)) - uy;
+  /* ⚠ 30/10: il disegno copre solo i fori, non tutto lo schermo. Su uno schermo 4K la tela intera (anche
+     dimezzata) costava più del paesaggio: 25 immagini al secondo, uccelli a scatti */
+  const CW = Math.max(2, Math.round(uw * scala)), CH = Math.max(2, Math.round(uh * scala));
+  if (c.width !== CW || c.height !== CH){ c.width = CW; c.height = CH; }
+  Object.assign(c.style, {left: ux + 'px', top: uy + 'px', width: uw + 'px', height: uh + 'px', right: 'auto', bottom: 'auto'});
   const ordine = px.map((f, i) => [f.x, i]).sort((a, b) => a[0] - b[0]).map(x => x[1]);
   const zoom = Math.max(1, scena.zoom || 1), vx = scena.vx || 0;
   geom = px.map((f, i) => {
@@ -100,8 +103,8 @@ function impagina(){
     return Object.assign(f, {map, aspetto, lato});
   });
   geom.unione = {x:ux, y:uy, w:uw, h:uh};
-  geomGL = geom.map(f => { const x = Math.round(f.x * scala), y = Math.round(f.y * scala);
-    return Object.assign({}, f, {x, y, w:Math.max(2, Math.round((f.x + f.w) * scala) - x), h:Math.max(2, Math.round((f.y + f.h) * scala) - y)}); });
+  geomGL = geom.map(f => { const x = Math.round((f.x - ux) * scala), y = Math.round((f.y - uy) * scala);
+    return Object.assign({}, f, {x, y, w:Math.max(2, Math.round((f.x - ux + f.w) * scala) - x), h:Math.max(2, Math.round((f.y - uy + f.h) * scala) - y)}); });
   disegnaBordi(); impaginaVideo();
 }
 addEventListener('resize', impagina);
