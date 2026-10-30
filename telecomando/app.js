@@ -11,7 +11,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
 const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 const euro = n => (n < .1 ? n.toFixed(3) : n.toFixed(2)).replace('.', ',') + ' $';
-const VERSIONE = '2.7';
+const VERSIONE = '2.8';
 
 /* ── la casa ──────────────────────────────────────────────────────────────── */
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
@@ -33,7 +33,7 @@ if (q.get('casa') !== casa) history.replaceState(null, '', location.pathname + '
 
 /* ── impostazioni ─────────────────────────────────────────────────────────── */
 const IMP_PRED = {modello:'openai:gpt-image-2', qualita:'alta', chiavi:{openai:'', google:'', pexels:''},
-  video:{modello:'omni-720p', secondi:8}, stile:'painterly', luci:{alba:true, tramonto:true, notte:true}, anima:false, elementi:['nuvole','alberi'], cielo:true};
+  video:{modello:'omni-720p', secondi:8}, stile:'painterly', luci:{alba:true, tramonto:true, notte:true}, anima:false, elementi:['alberi','acqua','fumo'], cielo:true};
 const imp = Object.assign({}, IMP_PRED, leggi('finestre-impostazioni', {}));
 imp.chiavi = Object.assign({}, IMP_PRED.chiavi, imp.chiavi || {});
 imp.video = Object.assign({}, IMP_PRED.video, imp.video || {});

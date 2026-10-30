@@ -146,12 +146,22 @@ vec3 paesaggio(sampler2D img, sampler2D dep, vec4 crop, vec4 cropD, float haDep,
       vec3 cs = tot > .001 ? (a * wa + b * wb) / tot : c;
       c = mix(c, cs, sky * clamp(tot * 1.5, 0., 1.));
     }
-    /* alberi e prati: ondeggiano poco, a raffiche; solo dove c'è verde */
-    float verde = clamp((c.g - max(c.r, c.b)) * 6. + .15, 0., 1.) * smoothstep(.12, .45, n) * (1. - sky);
+    /* ⚠ 30/10 · ALBERI (Maurizio: «alberi li vedo sempre fermi»): prima si spostavano di mezzo pixel, ognuno per
+       conto suo. Ora il vento passa a raffiche che attraversano il paesaggio come onde, le chiome si piegano
+       insieme a gruppi (rami) e le foglie tremano fini; i vicini si muovono di più dei lontani: da 1-2 pixel
+       da 2-4 pixel col sereno a 8-9 col temporale (su un foro alto 1000). Solo dove c'è verde, mai nel cielo. */
+    float mxc = max(c.r, max(c.g, c.b)), satc = (mxc - min(c.r, min(c.g, c.b))) / max(mxc, .01);
+    float verde = clamp((c.g - max(c.r, c.b)) * 7. + .25, 0., 1.) * smoothstep(.05, .14, satc) * smoothstep(.1, .4, n) * (1. - sky);   /* anche gli ulivi grigio-verdi; non la nebbia */
     if (verde > .01){
-      float raffica = .55 + .45 * sin(uT * .37 + uv.y * 2.);
-      float d = sin(uT * 1.9 + rumore(uv * vec2(26., 52.)) * 6.283) * .0011 * (.35 + uVento) * raffica * verde;
-      c = mix(c, fotoG(img, crop, p + vec2(d, d * .3), gx, gy), verde);
+      float onda = .5 + .5 * sin(uT * .85 - uv.x * 6.5 + rumore(uv * 2.5 + vec2(uT * .04, 0.)) * 3.);
+      float raffica = mix(.3, 1., smoothstep(.35, .95, onda));
+      vec2 q = uv * vec2(13., 20.);
+      float fx = rumore(q + vec2(uT * .75, 0.)) - .5, fy = rumore(q * 1.3 + vec2(3.7, uT * .6)) - .5;
+      float foglie = sin(uT * 3.3 + rumore(uv * vec2(70., 110.)) * 6.283) * .3;
+      float px = (1.5 + 4. * n) * (.5 + uVento * 1.4) * raffica;
+      vec2 d = vec2(fx * 2. + foglie, fy * .7) * px * (uPix.y / 1000.) / uPix;
+      vec3 mosso = haF > .5 ? texture2D(fer, clamp(crop.xy + (p + d) * crop.zw, .0005, .9995)).rgb : fotoG(img, crop, p + d, gx, gy);
+      c = mix(c, mosso, verde);
     }
   }
   return c;
