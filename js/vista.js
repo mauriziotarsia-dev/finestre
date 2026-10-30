@@ -727,7 +727,7 @@ function nuovoFotogramma(v){
 }
 /* ⚠ 30/10: le animazioni cucite hanno sostituito i video dell'AI con lo stesso nome, e i browser tenevano
    il vecchio in memoria (fino a un'ora). Il segno qui sotto lo fa riscaricare; la libreria aggiunge anche la data del file. */
-const VERSIONE_VIDEO = 'c2';
+const VERSIONE_VIDEO = 'c3';
 function apriVideo(url){
   url += (url.includes('?') ? '&' : '?') + VERSIONE_VIDEO;
   const fai = () => { const v = document.createElement('video'); v.crossOrigin = 'anonymous'; v.muted = true; v.playsInline = true;
