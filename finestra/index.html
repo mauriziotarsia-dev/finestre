@@ -18,7 +18,7 @@
 <canvas id="c"></canvas>
 <script src="../js/supabase.js?v=2.1.0"></script>
 <script src="../js/canale.js?v=2.1.0"></script>
-<script src="../js/vista.js?v=3.0"></script>
+<script src="../js/vista.js?v=3.1"></script>
 <script src="../js/inseguitore.js?v=1"></script>
 <script>
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -211,7 +211,7 @@ const METEO = {
 };
 const NEBBIA_ORA = {alba:[.86,.74,.68], giorno:[.74,.77,.8], tramonto:[.78,.6,.52], notte:[.09,.11,.16]};
 const met = Object.assign({}, METEO.sereno), nebCol = [...NEBBIA_ORA.giorno];
-let uccelli = 0, cieloX = Math.random(), notteFinta = 0, luce = .7, lampo = null, prossimoLampo = 0, lampoX = .5;
+let fpsMisurati = 60, uccelli = 0, cieloX = Math.random(), notteFinta = 0, luce = .7, lampo = null, prossimoLampo = 0, lampoX = .5;
 
 function scocca(){ lampo = {t:performance.now(), forza:.75 + Math.random() * .5}; lampoX = .15 + Math.random() * .7; }
 function intensitaLampo(ora){
@@ -289,7 +289,9 @@ if (anteprima){
      prove di prospettiva valgono solo se vengono da lui; il telefono torna a comandare quando tace */
   let dmasterFino = 0;
   const comandaDM = () => Date.now() < dmasterFino;
-  const chi = () => ({lato: mio, assetto: casaFori, scena, schermo:{w:innerWidth, h:innerHeight}, comando: comandaDM() ? 'dmaster' : null});
+  /* con le prestazioni: immagini al secondo davvero disegnate, risoluzione del disegno, qualità (per capire da lontano se fatica) */
+  const chi = () => ({lato: mio, assetto: casaFori, scena, schermo:{w:innerWidth, h:innerHeight, dpr:devicePixelRatio}, comando: comandaDM() ? 'dmaster' : null,
+    prestazioni:{fps: Math.round(fpsMisurati), scala, qualita, disegno:{w:c.width, h:c.height}, gl: vista && vista.gl ? (vista.gl.getParameter(vista.gl.RENDERER) || '') : ''}});
   canale = apriCanale(casa, {
     suMessaggio(evento, dati){
       if (evento === 'dmaster'){ dmasterFino = dati.attivo ? Date.now() + 30000 : 0; return; }
@@ -319,6 +321,7 @@ function giro(ora){
     prossimo = ora - prossimo > passo ? ora + passo : prossimo + passo;
   }
   const dt = Math.min(.1, (ora - prima) / 1000); prima = ora;
+  if (dt > 0) fpsMisurati = fpsMisurati * .97 + (1 / dt) * .03;
   /* se il computer fa fatica: prima abbassa la risoluzione del disegno (fino a metà), poi toglie gli strati di gocce più fini */
   lentoR = lentoR * .96 + (dt * 1000 > passo * 1.3 ? .04 : 0);
   if (lentoR > .55 && scala > .5){ scala = Math.max(.5, Math.round((scala - .1) * 10) / 10); lentoR = 0; ultimoCalo = ora; impagina(); }
