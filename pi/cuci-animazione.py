@@ -30,17 +30,19 @@ Uso:
                                                                       qualità e a bassa priorità; nel frattempo le finestre
                                                                       usano il fermo e la maschera fatti dal telefono)
 Chi lo fa (Maurizio, 30/10: «dal più al meno performante, in ordine di disponibilità»): può girare insieme
-su più apparecchi, e lo fa il più potente acceso. Ognuno aspetta qualche minuto dalla creazione del video,
-così il più forte arriva prima; il primo che prende il lavoro lo segna e gli altri passano oltre.
-  mini PC GMKtec G10 (Ryzen 5 3500U)   --attesa 0    il più veloce (~6-8 minuti a video)
-  laptop (Intel N100)                  --attesa 3    quando è acceso (~10 minuti)
-  Raspberry Pi 4                       --attesa 10   sempre acceso, il più lento (~30-45 minuti)
+su più apparecchi, e lo fa il più potente acceso: ognuno si fa vedere ogni 20 secondi, e
+il più forte acceso lo prende subito; il primo che prende il lavoro lo segna e gli altri passano oltre.
+  mini PC GMKtec G10 (Ryzen 5 3500U)   --forza 3    il più veloce (~6-8 minuti a video)
+  laptop (Intel N100)                  --forza 2    quando è acceso (~10 minuti)
+  Raspberry Pi 4                       --forza 1    sempre acceso, il più lento (~30-45 minuti)
+Se il più forte è spento, il successivo parte al massimo entro un minuto e mezzo (subito, se è spento da prima); se è acceso ma occupato con un altro video,
+dopo 2 minuti.
 Su tutti gira a bassa priorità e con 2 processori: le finestre e il TV prima di tutto.
 Serve: Python 3 con opencv e numpy, e ffmpeg.
   Raspberry:  sudo apt install python3-opencv ffmpeg
   Windows:    winget install Python.Python.3.12 Gyan.FFmpeg  poi  pip install opencv-python numpy
 """
-import argparse, collections, hashlib, json, os, subprocess, sys, tempfile, time, urllib.error, urllib.parse, urllib.request
+import argparse, collections, hashlib, json, os, re, subprocess, sys, tempfile, threading, time, urllib.error, urllib.parse, urllib.request
 import numpy as np
 import cv2
 
@@ -310,32 +312,57 @@ def _libera(cart, segno):
     except Exception: pass
 
 
-def giro_casa(casa, larghezza=None, veloce=False, attesa=0, chi='?'):
+def _eta_agg(f):
+    """minuti dall'ultimo aggiornamento del file (per i segni rinfrescati)"""
+    return _eta_minuti({'created_at': f.get('updated_at') or f.get('created_at')})
+
+
+def _rinfresca(cart, nome):
+    _chiedi('POST', f'/storage/v1/object/{DEPOSITO}/{cart}/' + urllib.parse.quote(nome), PUNTO_PNG, 'image/png', {'x-upsert': 'true'})
+
+
+def giro_casa(casa, larghezza=None, veloce=False, forza=1, chi='pc'):
     """Un giro: cuce le animazioni nuove. Possono girare più apparecchi insieme (mini PC, laptop, Raspberry):
-    lo fa il più potente acceso. Ognuno aspetta la sua «attesa» (minuti dalla creazione del video: 0 il mini PC,
-    3 il laptop, 10 il Raspberry) e prende il lavoro con un file-segno (…_anim-giorno-incorso.png) che solo
-    uno riesce a creare. Un segno più vecchio di due ore è di qualcuno che si è spento a metà: si riprende."""
+    lo fa il più potente acceso, subito.
+      · ognuno si fa vedere a ogni giro (ogni 20 secondi) con un segno di presenza «zz-cucitore-<forza>-<chi>.png»;
+      · un video nuovo lo prende chi è acceso ed è il più forte: se uno più forte si è fatto vedere nell'ultimo
+        minuto e mezzo, si lascia a lui; se dopo 2 minuti non l'ha ancora preso (è occupato con un altro), lo
+        prende il primo libero;
+      · il lavoro si prende con un segno «…_anim-giorno-incorso.png» che solo uno riesce a creare e che chi
+        lavora rinfresca ogni 30 secondi: se non si rinfresca da 3 minuti, chi lavorava si è spento e si riprende.
+    (Maurizio, 30/10: «il fallback non può essere dopo così tanti minuti»: niente più attese fisse.)"""
     cart = 'finestre/' + cartella_di(casa)
+    io = f'zz-cucitore-{forza}-' + (re.sub(r'[^a-z0-9-]+', '-', chi.lower()).strip('-') or 'pc') + '.png'
+    try: _rinfresca(cart, io)
+    except Exception as e: print('presenza non segnata:', e, file=sys.stderr, flush=True)
     elenco = json.loads(_chiedi('POST', f'/storage/v1/object/list/{DEPOSITO}', json.dumps({'prefix': cart, 'limit': 1000}).encode()))
     file = {f['name']: f for f in elenco}
     nomi = list(file)
+    piu_forte = any(n != io and (m := re.match(r'zz-cucitore-(\d+)-', n)) and int(m.group(1)) > forza and _eta_agg(f) < 1.5
+                    for n, f in file.items())
     fatti = 0
     for nome in nomi:
         base, _, parte = nome.rpartition('_')                  # parte = anim-giorno.mp4
         if parte not in ('anim-giorno.mp4', 'anim-alba.mp4', 'anim-tramonto.mp4', 'anim-notte.mp4'): continue
         originale = f'{base}_{parte[:-4]}-originale.mp4'      # il file dell'AI resta qui, intatto (la libreria lo ignora)
         if originale in nomi: continue                         # già cucita
-        if _eta_minuti(file[nome]) < attesa: continue          # tocca prima a uno più potente, se è acceso
+        if piu_forte and _eta_minuti(file[nome]) < 2: continue  # c'è uno più forte acceso: tocca a lui
         segno = f'{base}_{parte[:-4]}-incorso.png'
         if segno in file:
-            if _eta_minuti(file[segno]) < 120: continue        # ci sta lavorando un altro
+            if _eta_agg(file[segno]) < 3: continue             # ci sta lavorando un altro
             _libera(cart, segno)
         if not _prenota(cart, segno, chi): continue
         print(chi, 'cuce', nome, flush=True)
+        vivo = threading.Event()
+        def battito():
+            while not vivo.wait(30):
+                try: _rinfresca(cart, segno); _rinfresca(cart, io)
+                except Exception: pass
+        threading.Thread(target=battito, daemon=True).start()
         try:
             fatti += _cuci_uno(cart, nomi, nome, base, parte, originale, larghezza, veloce)
         finally:
-            _libera(cart, segno)
+            vivo.set(); _libera(cart, segno)
     return fatti
 
 
@@ -373,7 +400,7 @@ def main():
     a.add_argument('--veloce', action='store_true', help='fotogrammi intermedi sfumati invece che calcolati (Raspberry)')
     a.add_argument('--casa', help='chiave della casa: cuce le animazioni nuove nel deposito')
     a.add_argument('--una', action='store_true', help='con --casa: un giro solo e poi esce')
-    a.add_argument('--attesa', type=float, default=0, help='con --casa: minuti da aspettare dopo la creazione (0 mini PC, 3 laptop, 10 Raspberry)')
+    a.add_argument('--forza', type=int, default=1, help='con --casa: quanto è potente (3 mini PC, 2 laptop, 1 Raspberry): lo fa il più forte acceso')
     a.add_argument('--chi', default=os.environ.get('COMPUTERNAME') or (os.uname().nodename if hasattr(os, 'uname') else 'pc'), help='nome di questo apparecchio (nei segni)')
     o = a.parse_args()
     if o.casa:
@@ -385,10 +412,10 @@ def main():
             except Exception: pass
         cv2.setNumThreads(2); global FF_THREADS; FF_THREADS = '2'
         while True:
-            try: giro_casa(o.casa, o.larghezza, veloce=o.veloce, attesa=o.attesa, chi=o.chi)
+            try: giro_casa(o.casa, o.larghezza, veloce=o.veloce, forza=o.forza, chi=o.chi)
             except Exception as e: print('giro non riuscito:', e, file=sys.stderr, flush=True)
             if o.una: break
-            time.sleep(120)
+            time.sleep(20)
         return
     if not (o.entrata and o.uscita): a.error('servono entrata e uscita (oppure --casa)')
     print(json.dumps(cuci(o.entrata, o.uscita, o.profondita, o.immagine, o.fuoco, o.larghezza, o.veloce), indent=1))
