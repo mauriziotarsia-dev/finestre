@@ -146,28 +146,69 @@ vec3 paesaggio(sampler2D img, sampler2D dep, vec4 crop, vec4 cropD, float haDep,
 }
 
 float segmento(vec2 p, vec2 a, vec2 b){ vec2 pa = p - a, ba = b - a; float h = clamp(dot(pa, ba) / dot(ba, ba), 0., 1.); return length(pa - ba * h); }
-/* due stormi lontani; ognuno torna ogni tanto, attraversa tutta la vista (le due finestre sono un'unica vista:
-   l'uccello che esce dalla prima entra nella seconda) e in mezzo plana, battendo le ali solo a tratti */
+/* ⚠ 30/10 · UCCELLI (Maurizio: «migliora gli uccelli in volo»). Due stormi e, ogni tanto, un rapace.
+   Gli stormi entrano da un bordo ed escono dall'altro su una traiettoria che ondeggia, a V larga e scomposta;
+   ognuno ha il suo ritmo: qualche battito, poi plana. Il rapace invece gira in tondo sopra la valle, ad ali
+   tese, e se ne va. Le ali sono curve (spalla, gomito, punta) e si assottigliano verso la punta; più lontano
+   (più in alto nel cielo) vuol dire più piccolo e più chiaro. La vista è una sola fra le due finestre: chi esce
+   dalla prima entra nella seconda. */
+float ala(vec2 q, float s, float su, float giu){
+  /* un'ala destra (x > 0): spalla in 0, gomito alzato di «su», punta alzata di «giu» (negativo = sotto) */
+  vec2 g = vec2(s * .45, -s * su), p = vec2(s, -s * giu);
+  float d1 = segmento(q, vec2(0.), g), d2 = segmento(q, g, p);
+  float t = clamp(q.x / s, 0., 1.);
+  return min(d1, d2) - (1. - t) * .35;             /* più spessa alla spalla */
+}
+float uccello(vec2 q, float s, float fase, float plana, float sc){
+  float b = sin(fase) * (1. - plana);              /* battito: -1 ali giù, 1 ali su */
+  float su = .32 + .22 * b, giu = .12 + .55 * b - .1 * plana;
+  q.x = abs(q.x);                                  /* le due ali sono una lo specchio dell'altra */
+  float d = ala(q, s, su, giu);
+  d = min(d, length(q * vec2(1., 1.6)) - .45 * sc);   /* il corpo */
+  return 1. - smoothstep(.35 * sc, .35 * sc + .9, d);
+}
 float uccelli(vec2 uv){
   float a = 0., sc = uPix.y / 1000.;
   for (int k = 0; k < 2; k++){
     float fk = float(k), P = 53. + fk * 31., T = 30. + fk * 8., tt = uT + fk * 19.;
     float ciclo = floor(tt / P), tc = tt - ciclo * P;
     if (tc > T) continue;
-    float r1 = h1(vec2(ciclo + 3.1, fk * 7.1)), r2 = h1(vec2(fk * 3.3, ciclo + 1.7));
+    float r1 = h1(vec2(ciclo + 3.1, fk * 7.1)), r2 = h1(vec2(fk * 3.3, ciclo + 1.7)), r3 = h1(vec2(ciclo, fk + 11.));
     float dir = r1 < .5 ? 1. : -1., pr = tc / T;
-    vec2 c = vec2(dir > 0. ? mix(-.2, 1.2, pr) : mix(1.2, -.2, pr), .06 + .2 * r2 + .02 * sin(uT * .31 + fk * 2.));
+    float quota = .07 + .2 * r2;
+    vec2 c = vec2(dir > 0. ? mix(-.2, 1.2, pr) : mix(1.2, -.2, pr),
+                  quota + .035 * sin(pr * 5.2 + r3 * 6.) + .012 * sin(uT * .5 + fk));
+    float lont = mix(1.25, .7, clamp((quota - .07) / .2, 0., 1.));   /* più in basso nel cielo = più vicino */
     vec2 d = (uv - c) * uPix;
-    if (abs(d.x) > 70. * sc || abs(d.y) > 40. * sc) continue;
-    for (int j = 0; j < 4; j++){
+    if (abs(d.x) > 90. * sc || abs(d.y) > 50. * sc) continue;
+    for (int j = 0; j < 5; j++){
       float fj = float(j);
-      vec2 o = vec2(-dir * (fj * 12. + 9. * h1(vec2(fj, ciclo))), (h1(vec2(ciclo, fj + 4.)) - .5) * 18. + 2.5 * sin(uT * .6 + fj * 2.1)) * sc;
+      float lato = mod(fj, 2.) * 2. - 1., fila = floor((fj + 1.) * .5);   /* a V: il capo, poi a coppie dietro */
+      vec2 o = vec2(-dir * (fila * 13. + 4. * h1(vec2(fj, ciclo))), lato * fila * 6.5 + 3. * sin(uT * (.4 + .1 * fj) + fj * 2.1)) * sc * lont;
+      o += vec2(2.5 * sin(uT * .23 + fj * 4.), 0.) * sc;
       vec2 q = d - o;
-      float s = (2.5 + .9 * h1(vec2(fj + 9., fk))) * sc;
-      float battito = smoothstep(.55, .9, sin(uT * .9 + fj * 1.7 + fk));
-      float w = .28 + .32 * sin(uT * 9. + fj * 1.3) * battito;
-      float dd = min(segmento(q, vec2(0.), vec2(s, -s * w)), segmento(q, vec2(0.), vec2(-s, -s * w)));
-      a = max(a, 1. - smoothstep(.25 + .35 * sc, .8 + .6 * sc, dd));
+      q.x *= dir;                                 /* guardano dove vanno (la forma è simmetrica, ma il ritmo no) */
+      float s = (3.4 + 1.1 * h1(vec2(fj + 9., fk))) * sc * lont;
+      float plana = smoothstep(-.2, .5, sin(uT * (.55 + .07 * fj) + fj * 1.7 + fk * 3.));
+      a = max(a, uccello(q, s, uT * (8.5 + fj * .6) + fj, plana, sc) * (.75 + .25 * lont));
+    }
+  }
+  /* il rapace: ogni tanto, gira in tondo ad ali tese sopra la valle mentre il vento lo sposta */
+  {
+    float P = 97., T = 42., tt = uT + 37.;
+    float ciclo = floor(tt / P), tc = tt - ciclo * P;
+    if (tc < T){
+      float r1 = h1(vec2(ciclo + 5.3, 2.7)), r2 = h1(vec2(1.9, ciclo + 8.1));
+      float dir = r1 < .5 ? 1. : -1., pr = tc / T;
+      float th = uT * .45 * dir;
+      vec2 c = vec2(dir > 0. ? mix(-.15, 1.15, pr) : mix(1.15, -.15, pr), .12 + .14 * r2) + vec2(cos(th) * .09, sin(th) * .025);
+      vec2 d = (uv - c) * uPix;
+      if (abs(d.x) < 40. * sc && abs(d.y) < 30. * sc){
+        float inclina = sin(th) * .35;            /* in virata un'ala si abbassa */
+        vec2 q = vec2(d.x * cos(inclina) - d.y * sin(inclina), d.x * sin(inclina) + d.y * cos(inclina));
+        float plana = smoothstep(-.6, .2, sin(uT * .3 + r2 * 6.));
+        a = max(a, uccello(q, 7.5 * sc, uT * 4.5, plana, sc));
+      }
     }
   }
   return a;
@@ -179,7 +220,7 @@ void main(){
   float l0 = 0.;
   if (uHaImg > .5){
     float n0, s0; vec3 c0 = paesaggio(uImg0, uDep0, uCrop0, uCropD0, uHaDep0, uMovimento0, uCielo0, uCieloM0, uv, n0, s0);
-    if (uVmix > .001){ float nb, sb; c0 = mix(c0, paesaggio(uImg0b, uDep0, uCrop0, uCropD0, uHaDep0, 0., uCielo0, vec4(0.), uv, nb, sb), uVmix); }
+    if (uVmix > .001){ float nb, sb; c0 = mix(c0, paesaggio(uImg0b, uDep0, uCrop0, uCropD0, uHaDep0, 0., uCielo0, uCieloM0, uv, nb, sb), uVmix); }
     if (uMix > .001){
       float n1, s1; vec3 c1 = paesaggio(uImg1, uDep1, uCrop1, uCropD1, uHaDep1, uMovimento1, uCielo1, uCieloM1, uv, n1, s1);
       col = mix(c0, c1, uMix); n = mix(n0, n1, uMix); sky = mix(s0, s1, uMix);
