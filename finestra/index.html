@@ -18,7 +18,8 @@
 <canvas id="c"></canvas>
 <script src="../js/supabase.js?v=2.1.0"></script>
 <script src="../js/canale.js?v=2.1.0"></script>
-<script src="../js/vista.js?v=2.2.1"></script>
+<script src="../js/vista.js?v=2.3"></script>
+<script src="../js/inseguitore.js?v=1"></script>
 <script>
 /* ═══════════════════════════════════════════════════════════════════════════
    La pagina che il Raspberry mostra dietro il traforo.
@@ -211,22 +212,47 @@ function intensitaLampo(ora){
    Il sensore (radar HLK-LD2450 dietro il traforo) è letto sul Raspberry da pi/sensore.py, che lo
    offre qui come flusso di eventi su http://localhost:8787/persone. Funziona per una persona sola:
    con nessuno o con più persone l'immagine torna ferma, piano. Dal telefono si può provare a mano. */
+/* ⚠ riordino del 30/10 · TEMPO REALE (obiettivo di Maurizio: al massimo 80 ms). Prima la posizione
+   arrivava 10 volte al secondo e la si seguiva «a molla» (mezzo secondo per arrivare a due terzi):
+   adesso ogni lettura del radar arriva appena c'è, con l'età misurata dal ricevitore, e passa per
+   l'Inseguitore (js/inseguitore.js): ferma da fermi, pronta in movimento, e a ogni immagine disegna
+   dove sarai fra un attimo. La molla resta solo per tornare al centro quando non c'è nessuno. */
 const occhio = {x:0, z:0}, occhioTgt = {x:0, z:0};
-let margine = 1.04, provaFino = 0, sensore = null, ultimoSensore = 0;
-function daPersone(lista){
-  ultimoSensore = performance.now();
-  const p = (lista || []).filter(x => x && x.y > 200);
-  if (p.length !== 1 || performance.now() < provaFino){ if (performance.now() >= provaFino){ occhioTgt.x = 0; occhioTgt.z = 0; } return; }
+const inseguitore = new Inseguitore(q.get('anticipo') ? {anticipo: +q.get('anticipo') / 1000} : {});
+let margine = 1.04, provaFino = 0, sensore = null, ultimoSensore = 0, ultimaPresenza = 0;
+const misura = {n:0, t0:0, eta:0, intervallo:0, ultimo:0};
+function verso(x, y){
   /* x in mm a destra-sinistra del sensore, y in mm di distanza: angolo di vista e vicinanza */
-  const ang = Math.atan2(p[0].x, p[0].y);
-  occhioTgt.x = Math.max(-1, Math.min(1, ang / (Math.PI / 4)));
-  occhioTgt.z = Math.max(-1, Math.min(1, (2600 - p[0].y) / 1600));
+  const ang = Math.atan2(x, y);
+  return {x: Math.max(-1, Math.min(1, ang / (Math.PI / 4))), z: Math.max(-1, Math.min(1, (2600 - y) / 1600))};
 }
+function daPersone(lista, etaMs = 0){
+  const ora = performance.now();
+  ultimoSensore = ora;
+  if (ora < provaFino) return;                       /* sta provando il telefono: il radar aspetta */
+  const p = (lista || []).filter(x => x && x.y > 200);
+  if (p.length !== 1){ occhioTgt.x = 0; occhioTgt.z = 0; return; }
+  const v = verso(p[0].x, p[0].y), quando = ora - Math.max(0, etaMs || 0);
+  inseguitore.campione(v.x, v.z, quando / 1000);
+  ultimaPresenza = ora;
+  if (misura.ultimo){ misura.intervallo = misura.intervallo * .9 + (quando - misura.ultimo) * .1; }
+  misura.ultimo = quando; misura.eta = misura.eta * .9 + (etaMs || 0) * .1; misura.n++;
+}
+/* la prova dal telefono passa dallo stesso inseguitore */
+/* ?misura=1: in un angolo, quante letture arrivano, ogni quanto, e quanto sono vecchie quando arrivano */
+const misuraVisibile = q.get('misura') === '1';
+let cartellino = null;
+function mostraMisura(){
+  if (!cartellino){ cartellino = document.createElement('div'); cartellino.style.cssText = 'position:fixed;left:8px;bottom:8px;z-index:99;font:13px/1.4 monospace;color:#9f9;background:rgba(0,0,0,.7);padding:6px 9px;border-radius:6px;pointer-events:none'; document.body.appendChild(cartellino); }
+  const p = inseguitore.posizione(performance.now() / 1000);
+  cartellino.textContent = `radar: ${misura.intervallo ? (1000 / misura.intervallo).toFixed(1) : '—'} letture/s · ogni ${misura.intervallo.toFixed(0)} ms · età all'arrivo ${misura.eta.toFixed(0)} ms · anticipo ${(inseguitore.o.anticipo * 1000).toFixed(0)} ms` + (p ? ` · x ${p.x.toFixed(2)} z ${p.z.toFixed(2)}` : '');
+}
+function daTelefono(x, z){ provaFino = performance.now() + 8000; inseguitore.campione(+x || 0, +z || 0, performance.now() / 1000); ultimaPresenza = performance.now(); }
 function apriSensore(){
   if (sensore || anteprima) return;
   try {
-    sensore = new EventSource('http://localhost:8787/persone');
-    sensore.onmessage = e => { try { daPersone(JSON.parse(e.data).persone); } catch(x) {} };
+    sensore = new EventSource('http://localhost:8788/persone');
+    sensore.onmessage = e => { try { const d = JSON.parse(e.data); daPersone(d.persone, d.eta_ms); } catch(x) {} };
     sensore.onerror = () => { sensore.close(); sensore = null; setTimeout(() => { if (scena.prospettivaViva) apriSensore(); }, 15000); };
   } catch(e) { sensore = null; }
 }
@@ -243,7 +269,7 @@ function calibra(d){
 }
 let canale = null;
 if (anteprima){
-  addEventListener('message', e => { const d = e.data || {}; if (d.tipo === 'occhio'){ provaFino = performance.now() + 8000; occhioTgt.x = +d.x || 0; occhioTgt.z = +d.z || 0; } else if (d.tipo === 'scena') applica(d.scena, false); else if (d.tipo === 'fori') calibra(Object.assign({}, d, {salva:false})); else if (d.tipo === 'lampo') scocca(); });
+  addEventListener('message', e => { const d = e.data || {}; if (d.tipo === 'occhio') daTelefono(d.x, d.z); else if (d.tipo === 'scena') applica(d.scena, false); else if (d.tipo === 'fori') calibra(Object.assign({}, d, {salva:false})); else if (d.tipo === 'lampo') scocca(); });
 } else if (casa && window.supabase){
   /* DMaster al comando: finché arriva il suo battito (ogni 10 s, 30 s di tolleranza) scene, lampi e
      prove di prospettiva valgono solo se vengono da lui; il telefono torna a comandare quando tace */
@@ -259,7 +285,7 @@ if (anteprima){
       else if (evento === 'lampo') scocca();
       else if (evento === 'fori') calibra(dati);
       else if (evento === 'ricarica') location.reload();
-      else if (evento === 'occhio'){ provaFino = performance.now() + 8000; occhioTgt.x = +dati.x || 0; occhioTgt.z = +dati.z || 0; }
+      else if (evento === 'occhio') daTelefono(dati.x, dati.z);
       else if (evento === 'chi') canale.manda('eccomi', chi());
     },
     suStato(ok){ if (ok) canale.manda('eccomi', chi()); }
@@ -307,9 +333,15 @@ function giro(ora){
   /* prospettiva viva: acceso dal telefono (o in prova); morbido, così non trema */
   const viva = scena.prospettivaViva || performance.now() < provaFino;
   if (scena.prospettivaViva) apriSensore(); else chiudiSensore();
-  if (!viva){ occhioTgt.x = 0; occhioTgt.z = 0; }
-  const ko = 1 - Math.exp(-dt * 2.2);
-  occhio.x += (occhioTgt.x - occhio.x) * ko; occhio.z += (occhioTgt.z - occhio.z) * ko;
+  const presente = viva && ora - ultimaPresenza < 600;
+  const pos = presente ? inseguitore.posizione(ora / 1000) : null;
+  if (pos){ occhio.x = Math.max(-1.1, Math.min(1.1, pos.x)); occhio.z = Math.max(-1.1, Math.min(1.1, pos.z)); }
+  else {   /* nessuno (o più persone): si torna al centro, piano */
+    if (!presente){ occhioTgt.x = 0; occhioTgt.z = 0; }
+    const ko = 1 - Math.exp(-dt * 2.2);
+    occhio.x += (occhioTgt.x - occhio.x) * ko; occhio.z += (occhioTgt.z - occhio.z) * ko;
+  }
+  if (misuraVisibile && ora - misura.t0 > 500){ misura.t0 = ora; mostraMisura(); }
   margine += ((viva || Math.abs(occhio.x) > .01 ? 1.2 : 1.04) - margine) * (1 - Math.exp(-dt * .8));
   vista.disegna(geomGL, {
     t: (ora / 1000) % 3588, trasparente: !!scena.yt, movimento: scena.movimento !== false, prospettiva: scena.prospettiva !== false,

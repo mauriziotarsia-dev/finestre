@@ -300,7 +300,8 @@ const SEMI = 40000;
 class Vista {
   constructor(canvas){
     this.c = canvas;
-    const opz = {alpha:true, premultipliedAlpha:false, antialias:false, preserveDrawingBuffer:false};
+    /* desynchronized: Chromium disegna senza aspettare il compositore (un fotogramma di ritardo in meno, utile alla prospettiva viva) */
+    const opz = {alpha:true, premultipliedAlpha:false, antialias:false, preserveDrawingBuffer:false, desynchronized:true};
     /* WebGL2 dove c'è (Raspberry compresi): mipmap anche sulle immagini non quadrate, e gocce «in serie» */
     let gl = canvas.getContext('webgl2', opz);
     this.gl2 = !!gl;
