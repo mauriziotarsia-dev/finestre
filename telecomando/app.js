@@ -11,7 +11,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
 const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 const euro = n => (n < .1 ? n.toFixed(3) : n.toFixed(2)).replace('.', ',') + ' $';
-const VERSIONE = '3.2';
+const VERSIONE = '3.3';
 
 /* ── la casa ──────────────────────────────────────────────────────────────── */
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
@@ -32,7 +32,8 @@ if (invitoArrivato) sessionStorage.setItem('atm-invito-arrivato', invitoArrivato
 const nomeTelefono = () => /iPhone/.test(navigator.userAgent) ? 'iPhone' : /iPad/.test(navigator.userAgent) ? 'iPad' : /Android/.test(navigator.userAgent) ? 'Telefono Android' : 'Telefono';
 if (casa) scrivi('finestre-casa', casa);
 /* il codice della casa resta nell'indirizzo (così «Aggiungi alla schermata Home» se lo porta dietro); quello dello schermo no */
-history.replaceState(null, '', location.pathname + (casa ? '?casa=' + casa : '') + location.hash);
+/* «code» è del tasto «Entra» dell'email di accesso: lo legge l'accesso (js/accesso.js), poi sparisce anche lui */
+history.replaceState(null, '', location.pathname + (casa || q.get('code') ? '?' + [casa ? 'casa=' + casa : '', q.get('code') ? 'code=' + encodeURIComponent(q.get('code')) : ''].filter(Boolean).join('&') : '') + location.hash);
 
 /* ── impostazioni ─────────────────────────────────────────────────────────── */
 const IMP_PRED = {modello:'openai:gpt-image-2', qualita:'alta', chiavi:{openai:'', google:'', pexels:''},
@@ -143,6 +144,7 @@ const sonoProprietario = () => !!account && (!casaPrivata || casaPrivata.mioRuol
 async function avviaAccesso(){
   try {
     account = await Accesso.conAccount();
+    if (q.get('code')) history.replaceState(null, '', location.pathname + (casa ? '?casa=' + casa : '') + location.hash);
     if (account){
       const case_ = await Accesso.mieCase();
       casaPrivata = (casa && case_.find(c => c.chiave_vecchia === casa)) || (!casa ? case_[0] : null) || null;
@@ -183,13 +185,13 @@ function apriBenvenuto(){
   const testaPassi = `<div class="passi-guida">${passi.map((t, i) => `<span class="${i < ora ? 'fatto' : i === ora ? 'ora' : ''}">${i < ora ? icona('spunta', 14) : i + 1} ${t}</span>`).join('')}</div>`;
   let corpo;
   if (ora === 0) corpo = emailInAttesa
-    ? `<h3>Controlla la posta</h3><p class="nota">Ti ho mandato un codice a <b>${esc(emailInAttesa)}</b>: l'oggetto è «Accesso DMaster: codice …».</p>
+    ? `<h3>Controlla la posta</h3><p class="nota">Email mandata a <b>${esc(emailInAttesa)}</b>. Premi «Entra» nell'email, oppure scrivi qui il codice che c'è dentro.</p>
        <label class="campo"><span>Codice</span><input id="accCodice" inputmode="numeric" autocomplete="one-time-code" maxlength="10" placeholder="123456"></label>
        <button class="btn oro piena" data-fai="accEntra">${icona('spunta', 18)}Entra</button><button class="btn piena" style="margin-top:8px" data-fai="accAltra">Usa un'altra email</button>`
     : `<h3>Benvenuto in DMaster Atmosphere</h3><p class="nota">Hai già fatto l'accesso in DMaster? Lì, nella lanterna Atmosfera, premi «Collega il telefono» e inquadra il QR che compare: questo telefono entra nella tua stanza, senza email.</p>
        <button class="btn oro piena" data-fai="inquadraInvito">${icona('qr', 18)}Inquadra il QR di DMaster</button>
        <details class="altra-via"><summary>Non hai DMaster qui? Entra con l'email</summary>
-         <p class="nota">Ti arriva un codice di 6 cifre, niente password. È lo stesso account di DMaster.</p>
+         <p class="nota">Ti arriva un'email: aprila su questo telefono e premi «Entra», oppure scrivi qui il codice che c'è dentro. È lo stesso account di DMaster.</p>
          <label class="campo"><span>Email</span><input id="accEmail" type="email" autocomplete="email" inputmode="email" placeholder="nome@esempio.it" value="${esc(leggi('atm-email', ''))}"></label>
          <button class="btn piena" data-fai="accCodiceEmail">${icona('posta', 18)}Mandami il codice</button></details>
        ${casa ? '<button class="btn piena" style="margin-top:8px" data-fai="benvenutoDopo">Più tardi</button>' : ''}`;

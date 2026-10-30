@@ -20,7 +20,7 @@ const Accesso = {
   _sb: null,
   get sb(){
     if (!this._sb) this._sb = supabase.createClient(SUPABASE_URL, SUPABASE_CHIAVE_PUBBLICA, {
-      auth:{persistSession:true, autoRefreshToken:true, storageKey:'atm-accesso', detectSessionInUrl:true},
+      auth:{persistSession:true, autoRefreshToken:true, storageKey:'atm-accesso', detectSessionInUrl:true, flowType:'pkce'},
       realtime:{params:{eventsPerSecond:20}}});
     return this._sb;
   },
