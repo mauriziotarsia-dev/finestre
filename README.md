@@ -7,7 +7,9 @@ Finestre virtuali per la stanza medievale: schermi in cantina dietro i trafori, 
 - `js/vista.js` — il motore grafico (WebGL): profondità, nuvole e alberi in movimento, nebbia, pioggia, neve, lampi.
 - `js/canale.js` — telefono ↔ finestre su Supabase Realtime (canale privato della casa).
 - `js/libreria.js` — i paesaggi nel deposito di DMaster (`dmaster-media/finestre/<cartella>/`), tutto nei nomi dei file.
-- `js/ai.js` — immagini (OpenAI GPT Image, Google Nano Banana) e animazioni (Sora 2) con la propria chiave.
+- `js/ai.js` — immagini (OpenAI GPT Image, Google Nano Banana) e animazioni (Gemini Omni) con la propria chiave.
+- `pi/sensore.py` — il radar della prospettiva viva (porta 8788), `esp32/radar-udp/` la schedina accanto al radar.
+- `pi/cuci-animazione.py` — ripulisce le animazioni dell'AI: case e campi fermi, cielo senza uccelli spuntati dal nulla, giro invisibile, 30 immagini al secondo. Sul Raspberry: `python3 pi/cuci-animazione.py --casa CODICE` le cuce da sole appena create (serve `sudo apt install python3-opencv ffmpeg`).
 - `js/profondita.js` — mappa di profondità sul telefono (Depth Anything V2, transformers.js).
 - `js/foto-online.js` — foto vere da Wikimedia Commons e Pexels.
 

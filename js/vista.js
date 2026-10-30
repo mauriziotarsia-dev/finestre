@@ -33,6 +33,8 @@ uniform sampler2D uImg0, uImg1, uDep0, uDep1, uImg0b;
 uniform float uVmix;         /* video in loop: l'ultimo tratto sfuma nel primo */
 uniform vec4 uMap;           /* dal foro all'immagine «vista»: uv = uMap.xy + vUv * uMap.zw */
 uniform vec4 uCrop0, uCrop1; /* dalla vista alla texture (copertura): t = crop.xy + uv * crop.zw */
+uniform vec4 uCropD0, uCropD1; /* lo stesso per la mappa di profondità: con un video è diverso (la mappa è dell'immagine intera, il video ne è un taglio) */
+uniform float uUccelli;      /* 0..1: quanti uccelli (di giorno, col bel tempo) */
 uniform float uMix;          /* 0 = immagine 0, 1 = immagine 1 (dissolvenza) */
 uniform float uHaImg, uHaDep0, uHaDep1, uMovimento0, uMovimento1;
 uniform float uLato, uT, uAspetto;
@@ -83,8 +85,8 @@ float profG(sampler2D d, vec4 crop, vec2 uv, float ha, vec2 gx, vec2 gy){
 }
 
 /* un'immagine del paesaggio, già col suo movimento */
-vec3 paesaggio(sampler2D img, sampler2D dep, vec4 crop, float haDep, float mov, vec2 uv, out float n, out float sky){
-  n = prof(dep, crop, uv, haDep);
+vec3 paesaggio(sampler2D img, sampler2D dep, vec4 crop, vec4 cropD, float haDep, float mov, vec2 uv, out float n, out float sky){
+  n = prof(dep, cropD, uv, haDep);
   /* prospettiva: le cose vicine si spostano di più fra una finestra e l'altra */
   vec2 p = uv; p.x += uLato * .012 * (n - .35);
   /* prospettiva viva: chi si sposta a destra vede più paesaggio a sinistra (il lontano scorre con lui, il vicino meno);
@@ -93,21 +95,21 @@ vec3 paesaggio(sampler2D img, sampler2D dep, vec4 crop, float haDep, float mov, 
   p = .5 + (p - .5) * (1. + uOcchio.z * .07);
   vec3 c = foto(img, crop, p);
   sky = cielo(c, n, p.y, haDep);
-  if (mov > .5){
+  if (mov > .25){   /* 1 = nuvole e alberi (immagine ferma), .5 = solo alberi (video: le nuvole le ha già) */
 #if __VERSION__ >= 300
     vec2 gx = dFdx(p) * crop.zw, gy = dFdy(p) * crop.zw;
 #else
     vec2 gx = vec2(0.), gy = vec2(0.);
 #endif
     /* nuvole: flusso a due fasi, ogni fase dura 26 s, nessun salto; solo dove c'è cielo */
-    if (sky > .002){
+    if (sky > .002 && mov > .75){
       float ph = uT / 26.;
       float f1 = fract(ph), f2 = fract(ph + .5);
       vec2 dir = vec2(.012 + .02 * uVento, .0015);
       vec2 pa = p - dir * (f1 - .5), pb = p - dir * (f2 - .5);
       vec3 a = fotoG(img, crop, pa, gx, gy), b = fotoG(img, crop, pb, gx, gy);
       /* si prende solo cielo: un pezzo di monte o di castello spostato dentro il cielo darebbe il contorno doppio */
-      float sa = cielo(a, profG(dep, crop, pa, haDep, gx, gy), pa.y, haDep), sb = cielo(b, profG(dep, crop, pb, haDep, gx, gy), pb.y, haDep);
+      float sa = cielo(a, profG(dep, cropD, pa, haDep, gx, gy), pa.y, haDep), sb = cielo(b, profG(dep, cropD, pb, haDep, gx, gy), pb.y, haDep);
       float w = abs(f1 - .5) * 2., wa = (1. - w) * sa, wb = w * sb, tot = wa + wb;
       vec3 cs = tot > .001 ? (a * wa + b * wb) / tot : c;
       c = mix(c, cs, sky * clamp(tot * 1.5, 0., 1.));
@@ -123,17 +125,47 @@ vec3 paesaggio(sampler2D img, sampler2D dep, vec4 crop, float haDep, float mov, 
   return c;
 }
 
+float segmento(vec2 p, vec2 a, vec2 b){ vec2 pa = p - a, ba = b - a; float h = clamp(dot(pa, ba) / dot(ba, ba), 0., 1.); return length(pa - ba * h); }
+/* due stormi lontani; ognuno torna ogni tanto, attraversa tutta la vista (le due finestre sono un'unica vista:
+   l'uccello che esce dalla prima entra nella seconda) e in mezzo plana, battendo le ali solo a tratti */
+float uccelli(vec2 uv){
+  float a = 0., sc = uPix.y / 1000.;
+  for (int k = 0; k < 2; k++){
+    float fk = float(k), P = 53. + fk * 31., T = 30. + fk * 8., tt = uT + fk * 19.;
+    float ciclo = floor(tt / P), tc = tt - ciclo * P;
+    if (tc > T) continue;
+    float r1 = h1(vec2(ciclo + 3.1, fk * 7.1)), r2 = h1(vec2(fk * 3.3, ciclo + 1.7));
+    float dir = r1 < .5 ? 1. : -1., pr = tc / T;
+    vec2 c = vec2(dir > 0. ? mix(-.2, 1.2, pr) : mix(1.2, -.2, pr), .06 + .2 * r2 + .02 * sin(uT * .31 + fk * 2.));
+    vec2 d = (uv - c) * uPix;
+    if (abs(d.x) > 70. * sc || abs(d.y) > 40. * sc) continue;
+    for (int j = 0; j < 4; j++){
+      float fj = float(j);
+      vec2 o = vec2(-dir * (fj * 12. + 9. * h1(vec2(fj, ciclo))), (h1(vec2(ciclo, fj + 4.)) - .5) * 18. + 2.5 * sin(uT * .6 + fj * 2.1)) * sc;
+      vec2 q = d - o;
+      float s = (2.5 + .9 * h1(vec2(fj + 9., fk))) * sc;
+      float battito = smoothstep(.55, .9, sin(uT * .9 + fj * 1.7 + fk));
+      float w = .28 + .32 * sin(uT * 9. + fj * 1.3) * battito;
+      float dd = min(segmento(q, vec2(0.), vec2(s, -s * w)), segmento(q, vec2(0.), vec2(-s, -s * w)));
+      a = max(a, 1. - smoothstep(.25 + .35 * sc, .8 + .6 * sc, dd));
+    }
+  }
+  return a;
+}
+
 void main(){
   vec2 uv = uMap.xy + vUv * uMap.zw;
   vec3 col = vec3(0.); float n = .5, sky = 0., alfa = 1.;
   float l0 = 0.;
   if (uHaImg > .5){
-    float n0, s0; vec3 c0 = paesaggio(uImg0, uDep0, uCrop0, uHaDep0, uMovimento0, uv, n0, s0);
-    if (uVmix > .001){ float nb, sb; c0 = mix(c0, paesaggio(uImg0b, uDep0, uCrop0, uHaDep0, 0., uv, nb, sb), uVmix); }
+    float n0, s0; vec3 c0 = paesaggio(uImg0, uDep0, uCrop0, uCropD0, uHaDep0, uMovimento0, uv, n0, s0);
+    if (uVmix > .001){ float nb, sb; c0 = mix(c0, paesaggio(uImg0b, uDep0, uCrop0, uCropD0, uHaDep0, 0., uv, nb, sb), uVmix); }
     if (uMix > .001){
-      float n1, s1; vec3 c1 = paesaggio(uImg1, uDep1, uCrop1, uHaDep1, uMovimento1, uv, n1, s1);
+      float n1, s1; vec3 c1 = paesaggio(uImg1, uDep1, uCrop1, uCropD1, uHaDep1, uMovimento1, uv, n1, s1);
       col = mix(c0, c1, uMix); n = mix(n0, n1, uMix); sky = mix(s0, s1, uMix);
     } else { col = c0; n = n0; sky = s0; }
+    /* uccelli: entrano da un bordo ed escono dall'altro, mai dal nulla; solo nel cielo, quindi dietro torri e monti */
+    if (uUccelli > .01 && sky > .2){ float b = uccelli(uv) * uUccelli * smoothstep(.2, .7, sky); col = mix(col, col * .3 + vec3(.035, .035, .045), b * .8); }
     float l = dot(col, vec3(.299, .587, .114)); l0 = l;
     /* notte finta (quando manca l'immagine della notte): luna, blu, poco colore */
     col = mix(col, vec3(l) * vec3(.55, .68, 1.) * .23, uNotteFinta);
@@ -321,7 +353,7 @@ class Vista {
     const posizioni = (p, nomi) => { const u = {}; for (const n of nomi) u[n] = gl.getUniformLocation(p, n); return u; };
     /* il programma principale: paesaggio, cielo, nebbia, lampo, luce */
     this.p = programma(VERT, FRAG, ['aPos']);
-    this.u = posizioni(this.p, ['uOcchio','uImg0b','uVmix','uImg0','uImg1','uDep0','uDep1','uMap','uCrop0','uCrop1','uMix','uHaImg','uHaDep0','uHaDep1','uMovimento0','uMovimento1',
+    this.u = posizioni(this.p, ['uOcchio','uImg0b','uVmix','uImg0','uImg1','uDep0','uDep1','uMap','uCrop0','uCrop1','uCropD0','uCropD1','uUccelli','uMix','uHaImg','uHaDep0','uHaDep1','uMovimento0','uMovimento1',
       'uLato','uT','uAspetto','uPix','uCoperto','uNebbia','uPioggia','uNeve','uTempesta','uVento','uLampo','uLampoX',
       'uNotteFinta','uLuce','uBuio','uQualita','uColNebbia','uMeteo']);
     gl.useProgram(this.p);
@@ -407,15 +439,32 @@ class Vista {
   aggiornaVideo(f){
     f.vk = 0;
     if (!f.video || !f.vtex) return false;
-    const [a, b] = f.video, D = a.duration || 0, coda = Math.min(1.5, D * .2);
+    /* ⚠ 30/10: le animazioni sono «cucite» (pi/cuci-animazione.py): la fine sfuma già nell'inizio dentro il
+       file. Qui basta un passaggio cortissimo da un lettore all'altro, solo perché il giro non inciampi
+       (prima: un secondo e mezzo di dissolvenza, con due video da decodificare insieme sul Raspberry,
+       e uccelli e nebbia che comparivano e sparivano). */
+    const [a, b] = f.video, D = a.duration || 0, coda = Math.min(.25, D * .05);
     if (D > 2 && a.currentTime > D - coda && b.paused){ b.currentTime = 0; b.play().catch(() => {}); }
     if (!b.paused){
       const k = Math.min(1, Math.max(0, (a.currentTime - (D - coda)) / coda));
-      if (a.ended || k >= 1){ a.pause(); f.video = [b, a]; return this.aggiornaVideo(f); }
-      if (b.readyState >= 2){ if (!f.vtexB) f.vtexB = this.texture(); this.carica(f.vtexB, b); f.vk = k; }
+      if (a.ended || k >= 1){ a.pause(); f.video = [b, a]; f.vNuovo = true; return this.aggiornaVideo(f); }
+      if (b.readyState >= 2 && nuovoFotogramma(b)){ if (!f.vtexB) f.vtexB = this.texture(); this.carica(f.vtexB, b); }
+      f.vk = f.vtexB ? k : 0;
     }
-    if (a.readyState >= 2){ this.carica(f.vtex, a); return true; }
+    /* il fotogramma si carica sulla scheda solo quando è nuovo: il video ne ha 30 al secondo, lo schermo
+       60 giri (prima lo si ricaricava a ogni giro: il doppio del lavoro, e sul Raspberry si perdevano immagini) */
+    if (a.readyState >= 2){ if (nuovoFotogramma(a) || f.vNuovo){ this.carica(f.vtex, a); f.vNuovo = false; } return true; }
     return false;
+  }
+
+  /* ⚠ 30/10: la mappa di profondità è dell'immagine intera, il video invece ne è un taglio 9:16 (fatto quando
+     è stato creato: copertura, orizzontale dall'inquadratura scelta, verticale al centro). Prima si leggeva
+     la mappa col taglio del video: profondità sfasate, e le case si spostavano come fossero cielo. */
+  cropProfondita(f, c){
+    const vw = f.video[0].videoWidth || 9, vh = f.video[0].videoHeight || 16;
+    const s = Math.max(vw / f.iw, vh / f.ih), rw = vw / s / f.iw, rh = vh / s / f.ih;
+    const fx = f.fuoco && f.fuoco.x != null ? f.fuoco.x : .5, rx = (1 - rw) * fx, ry = (1 - rh) / 2;
+    return [rx + c[0] * rw, ry + c[1] * rh, c[2] * rw, c[3] * rh];
   }
 
   crop(f, aspettoVista, margine = 1.04, fuoco = null){
@@ -455,11 +504,13 @@ class Vista {
     gl.uniform1f(u.uMix, haImg && f1.ok ? k : 0);
     gl.uniform1f(u.uHaDep0, f0.depTex ? 1 : 0); gl.uniform1f(u.uHaDep1, f1.depTex ? 1 : 0);
     /* il movimento «finto» delle nuvole serve solo sulle immagini ferme: un video si muove già da sé */
-    gl.uniform1f(u.uMovimento0, s.movimento && !v0 ? 1 : 0); gl.uniform1f(u.uMovimento1, s.movimento && !v1 ? 1 : 0);
+    /* con un video le nuvole si muovono già da sé: restano solo gli alberi (nel video cucito sono fermi come le case) */
+    gl.uniform1f(u.uMovimento0, s.movimento ? (v0 ? .5 : 1) : 0); gl.uniform1f(u.uMovimento1, s.movimento ? (v1 ? .5 : 1) : 0);
     gl.uniform1f(u.uT, s.t);
     for (const k2 of ['Coperto','Nebbia','Pioggia','Neve','Tempesta','Vento','Lampo','LampoX','NotteFinta','Luce','Buio','Qualita'])
       gl.uniform1f(u['u' + k2], s[k2.charAt(0).toLowerCase() + k2.slice(1)] || 0);
     gl.uniform3fv(u.uColNebbia, s.colNebbia);
+    gl.uniform1f(u.uUccelli, haImg ? (s.uccelli || 0) : 0);
     const oc = s.occhio || {x:0, z:0}; gl.uniform3f(u.uOcchio, oc.x || 0, 0, oc.z || 0);
     const marg = s.margine || 1.04;
     const tempo = (s.nebbia || 0) + (s.pioggia || 0) + (s.neve || 0) > .005 || (s.coperto || 0) > .01 || (s.lampo || 0) > .001;
@@ -487,8 +538,10 @@ class Vista {
       gl.uniform1f(u.uAspetto, foro.aspetto);
       gl.uniform2f(u.uPix, foro.w / foro.map[2], foro.h / foro.map[3]);   /* pixel della vista intera */
       gl.uniform1f(u.uLato, s.prospettiva ? foro.lato : 0);
-      gl.uniform4fv(u.uCrop0, f0.ok ? this.crop(v0 ? {iw:f0.video[0].videoWidth || f0.iw, ih:f0.video[0].videoHeight || f0.ih} : f0, foro.aspetto, marg, v0 ? null : f0.fuoco) : [0,0,1,1]);
-      gl.uniform4fv(u.uCrop1, f1.ok ? this.crop(v1 ? {iw:f1.video[0].videoWidth || f1.iw, ih:f1.video[0].videoHeight || f1.ih} : f1, foro.aspetto, marg, v1 ? null : f1.fuoco) : [0,0,1,1]);
+      const c0 = f0.ok ? this.crop(v0 ? {iw:f0.video[0].videoWidth || f0.iw, ih:f0.video[0].videoHeight || f0.ih} : f0, foro.aspetto, marg, v0 ? null : f0.fuoco) : [0,0,1,1];
+      const c1 = f1.ok ? this.crop(v1 ? {iw:f1.video[0].videoWidth || f1.iw, ih:f1.video[0].videoHeight || f1.ih} : f1, foro.aspetto, marg, v1 ? null : f1.fuoco) : [0,0,1,1];
+      gl.uniform4fv(u.uCrop0, c0); gl.uniform4fv(u.uCrop1, c1);
+      gl.uniform4fv(u.uCropD0, v0 ? this.cropProfondita(f0, c0) : c0); gl.uniform4fv(u.uCropD1, v1 ? this.cropProfondita(f1, c1) : c1);
       gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
       /* 3. pioggia e neve, goccia per goccia, sopra */
       if (gocce) this.disegnaGocce(foro, s);
@@ -529,6 +582,18 @@ class Vista {
 function caricaImg(url){
   return new Promise((ok, no) => { const im = new Image(); im.crossOrigin = 'anonymous';
     im.onload = () => ok(im); im.onerror = () => no(new Error('immagine non caricata: ' + url)); im.src = url; });
+}
+/* è arrivato un fotogramma nuovo da quando l'ho chiesto l'ultima volta? (con requestVideoFrameCallback
+   lo dice il lettore; senza, si guarda se il tempo del video è cambiato) */
+function nuovoFotogramma(v){
+  if ('requestVideoFrameCallback' in v){
+    if (!v._ascolto){ v._ascolto = performance.now(); v._nuovo = true;
+      const giro = () => { v._nuovo = true; v._ascolto = performance.now(); v.requestVideoFrameCallback(giro); }; v.requestVideoFrameCallback(giro); }
+    /* se il lettore non avvisa (video fuori pagina su qualche browser), si carica sempre come prima */
+    if (!v.paused && performance.now() - v._ascolto > 300) return true;
+    const n = v._nuovo; v._nuovo = false; return n;
+  }
+  const t = v.currentTime; if (t === v._ultimo) return false; v._ultimo = t; return true;
 }
 function apriVideo(url){
   const fai = () => { const v = document.createElement('video'); v.crossOrigin = 'anonymous'; v.muted = true; v.playsInline = true;
