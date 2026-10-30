@@ -18,7 +18,7 @@
 <canvas id="c"></canvas>
 <script src="../js/supabase.js?v=2.1.0"></script>
 <script src="../js/canale.js?v=2.1.0"></script>
-<script src="../js/vista.js?v=3.5"></script>
+<script src="../js/vista.js?v=3.6"></script>
 <script src="../js/inseguitore.js?v=1"></script>
 <script>
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -305,6 +305,8 @@ if (anteprima){
       else if (evento === 'lampo') scocca();
       else if (evento === 'fori') calibra(dati);
       else if (evento === 'ricarica') location.reload();
+      /* prova delle prestazioni da lontano: spegne per un po' alcune parti del disegno (poi si ricarica e torna tutto) */
+      else if (evento === 'prova' && Array.isArray(dati.spegni)) vista.spegni = new Set(dati.spegni);
       else if (evento === 'occhio') daTelefono(dati.x, dati.z);
       else if (evento === 'chi') canale.manda('eccomi', chi());
     },

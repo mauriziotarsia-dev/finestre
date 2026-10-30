@@ -606,7 +606,8 @@ class Vista {
       if (this.mix === 0 && this.vecchiaDaLiberare){ this.libera(this.vecchiaDaLiberare); this.vecchiaDaLiberare = null; }
     }
     const [f0, f1] = this.fonti;
-    const v0 = this.aggiornaVideo(f0), v1 = this.mix > 0 && this.aggiornaVideo(f1);
+    const sp = this.spegni || new Set();
+    const v0 = !sp.has('video') && this.aggiornaVideo(f0), v1 = !sp.has('video') && this.mix > 0 && this.aggiornaVideo(f1);
     const haImg = f0.ok && !s.trasparente;
     const lega = (unita, t) => { gl.activeTexture(gl.TEXTURE0 + unita); gl.bindTexture(gl.TEXTURE_2D, t || this.vuota); };
     lega(0, haImg ? (v0 ? f0.vtex : f0.tex) : null);
@@ -621,15 +622,16 @@ class Vista {
     gl.uniform1f(u.uHaDep0, f0.depTex ? 1 : 0); gl.uniform1f(u.uHaDep1, f1.depTex ? 1 : 0);
     /* il movimento «finto» delle nuvole serve solo sulle immagini ferme: un video si muove già da sé */
     /* con un video le nuvole si muovono già da sé: restano solo gli alberi (nel video cucito sono fermi come le case) */
-    gl.uniform1f(u.uMovimento0, s.movimento ? (v0 || f0.cTex ? .5 : 1) : 0); gl.uniform1f(u.uMovimento1, s.movimento ? (v1 || f1.cTex ? .5 : 1) : 0);
-    gl.uniform4fv(u.uCieloM0, haImg && f0.cTex && s.movimento ? f0.cm : [0,0,0,0]); gl.uniform4fv(u.uCieloM1, haImg && f1.cTex && s.movimento ? f1.cm : [0,0,0,0]);
+    const mov = s.movimento && !sp.has('alberi');
+    gl.uniform1f(u.uMovimento0, mov ? (v0 || f0.cTex ? .5 : 1) : 0); gl.uniform1f(u.uMovimento1, mov ? (v1 || f1.cTex ? .5 : 1) : 0);
+    gl.uniform4fv(u.uCieloM0, haImg && f0.cTex && s.movimento && !sp.has('cielo') ? f0.cm : [0,0,0,0]); gl.uniform4fv(u.uCieloM1, haImg && f1.cTex && s.movimento ? f1.cm : [0,0,0,0]);
     gl.uniform1f(u.uCieloX, s.cieloX || 0);
     gl.uniform1f(u.uHaFermo0, haImg && v0 && f0.fTex ? 1 : 0); gl.uniform1f(u.uHaFermo1, haImg && v1 && f1.fTex ? 1 : 0);
     gl.uniform1f(u.uT, s.t);
     for (const k2 of ['Coperto','Nebbia','Pioggia','Neve','Tempesta','Vento','Lampo','LampoX','NotteFinta','Luce','Buio','Qualita'])
       gl.uniform1f(u['u' + k2], s[k2.charAt(0).toLowerCase() + k2.slice(1)] || 0);
     gl.uniform3fv(u.uColNebbia, s.colNebbia);
-    gl.uniform1f(u.uUccelli, haImg ? (s.uccelli || 0) : 0);
+    gl.uniform1f(u.uUccelli, haImg && !sp.has('uccelli') ? (s.uccelli || 0) : 0);
     const oc = s.occhio || {x:0, z:0}; gl.uniform3f(u.uOcchio, oc.x || 0, 0, oc.z || 0);
     const marg = s.margine || 1.04;
     const tempo = (s.nebbia || 0) + (s.pioggia || 0) + (s.neve || 0) > .005 || (s.coperto || 0) > .01 || (s.lampo || 0) > .001;
