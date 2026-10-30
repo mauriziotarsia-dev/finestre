@@ -50,6 +50,8 @@ uniform float uLampo, uLampoX;
 uniform float uNotteFinta, uLuce, uBuio, uQualita;
 uniform vec3 uColNebbia;
 uniform sampler2D uMeteo;     /* nebbia e nuvole, calcolate a bassa risoluzione (r: banchi di nebbia, g: nuvole, b: velo) */
+uniform sampler2D uVentoT;    /* il vento sugli alberi, calcolato a un quarto di risoluzione (r, g: spostamento, b: raffica) */
+uniform float uHaVento;
 
 /* hash senza seno: sulle schede dei Raspberry il seno costa caro */
 float h1(vec2 p){ vec3 p3 = fract(vec3(p.xyx) * .1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
@@ -153,21 +155,19 @@ vec3 paesaggio(sampler2D img, sampler2D dep, vec4 crop, vec4 cropD, float haDep,
     float mxc = max(c.r, max(c.g, c.b)), satc = (mxc - min(c.r, min(c.g, c.b))) / max(mxc, .01);
     float verde = clamp((c.g - max(c.r, c.b)) * 7. + .25, 0., 1.) * smoothstep(.05, .14, satc) * smoothstep(.1, .4, n);   /* anche gli ulivi grigio-verdi; non la nebbia */
     float vicino = smoothstep(.1, .4, n);
-    if (vicino > .01){
-      float onda = .5 + .5 * sin(uT * .85 - uv.x * 6.5 + rumore(uv * 2.5 + vec2(uT * .04, 0.)) * 3.);
-      float raffica = mix(.35, 1., smoothstep(.35, .95, onda));
-      vec2 q = uv * vec2(11., 17.);
-      float fx = rumore(q + vec2(uT * .8, 0.)) - .5, fy = rumore(q * 1.3 + vec2(3.7, uT * .65)) - .5;
-      float foglie = sin(uT * 3.3 + rumore(uv * vec2(70., 110.)) * 6.283) * .3;
-      float px = (2.5 + 6. * n) * (.5 + uVento * 1.4) * raffica;
-      vec2 d = vec2(fx * 2. + foglie, fy * .7) * px * (uPix.y / 1000.) / uPix;
+    if (vicino > .01 && uHaVento > .5){
+      /* ⚠ 30/10: il vento (raffiche e rami) arriva già calcolato a un quarto di risoluzione: sul Raspberry
+         calcolarlo per ogni pixel costava un terzo delle immagini al secondo */
+      vec4 vt = texture2D(uVentoT, vUv);
+      float px = (2.5 + 6. * n) * (.5 + uVento * 1.4) * vt.b;
+      vec2 d = vec2((vt.r - .5) * 2.2, (vt.g - .5) * .8) * px * (uPix.y / 1000.) / uPix;
       vec3 mosso = haF > .5 ? texture2D(fer, clamp(crop.xy + (p + d) * crop.zw, .0005, .9995)).rgb : fotoG(img, crop, p + d, gx, gy);
       /* la chioma si sposta davvero, anche oltre il suo contorno: dove adesso c'è un ramo spostato lo si disegna
          (anche contro il cielo); dove la chioma se n'è andata si vede quello che c'era accanto, ma mai il cielo
          dipinto al posto del cielo che scorre */
       float mxs = max(mosso.r, max(mosso.g, mosso.b)), sats = (mxs - min(mosso.r, min(mosso.g, mosso.b))) / max(mxs, .01);
       float verdeS = clamp((mosso.g - max(mosso.r, mosso.b)) * 7. + .25, 0., 1.) * smoothstep(.05, .14, sats);
-      float nS = profG(dep, cropD, p + d, haDep, gx, gy), cieloS = cielo(mosso, nS, p.y + d.y, haDep);
+      float nS = profG(dep, cropD, p + d, haDep, gx, gy), cieloS = haDep > .5 ? smoothstep(.022, .004, nS) * smoothstep(.85, .45, p.y + d.y) : sky;
       float w = max(verdeS * smoothstep(.1, .4, nS), verde * (1. - cieloS));
       c = mix(c, mosso, w);
     }
@@ -314,6 +314,26 @@ void main(){
 /* ── nebbia e nuvole a bassa risoluzione ──────────────────────────────────────
    Sono forme morbide: calcolarle su un pixel ogni sedici e poi sfumarle non si vede, e costa
    sedici volte meno. Esce una piccola immagine che il programma principale legge. */
+/* ── il vento sugli alberi, a un quarto di risoluzione: raffiche che attraversano il paesaggio come onde,
+   rami che si piegano a gruppi, un po' di tremolio più fine ── */
+const VENTO_FRAG = `
+precision highp float;
+varying vec2 vUv;
+uniform vec4 uMap;
+uniform float uT;
+float h1(vec2 p){ vec3 p3 = fract(vec3(p.xyx) * .1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
+float rumore(vec2 p){ vec2 i = floor(p), f = fract(p); f = f*f*(3.-2.*f);
+  return mix(mix(h1(i), h1(i+vec2(1,0)), f.x), mix(h1(i+vec2(0,1)), h1(i+vec2(1,1)), f.x), f.y); }
+void main(){
+  vec2 uv = uMap.xy + vUv * uMap.zw;
+  float onda = .5 + .5 * sin(uT * .85 - uv.x * 6.5 + rumore(uv * 2.5 + vec2(uT * .04, 0.)) * 3.);
+  float raffica = mix(.35, 1., smoothstep(.35, .95, onda));
+  vec2 q = uv * vec2(11., 17.);
+  float fx = rumore(q + vec2(uT * .8, 0.)) - .5, fy = rumore(q * 1.3 + vec2(3.7, uT * .65)) - .5;
+  fx += (rumore(uv * vec2(34., 52.) + vec2(uT * 2.1, 1.3)) - .5) * .35;   /* foglie */
+  gl_FragColor = vec4(clamp(fx * .9 + .5, 0., 1.), clamp(fy * .9 + .5, 0., 1.), raffica, 1.);
+}`;
+
 const METEO_FRAG = `
 precision highp float;
 varying vec2 vUv;
@@ -444,15 +464,18 @@ class Vista {
     const posizioni = (p, nomi) => { const u = {}; for (const n of nomi) u[n] = gl.getUniformLocation(p, n); return u; };
     /* il programma principale: paesaggio, cielo, nebbia, lampo, luce */
     this.p = programma(VERT, FRAG, ['aPos']);
-    this.u = posizioni(this.p, ['uOcchio','uImg0b','uVmix','uImg0','uImg1','uDep0','uDep1','uMap','uCrop0','uCrop1','uCropD0','uCropD1','uUccelli','uCielo0','uCielo1','uCieloM0','uCieloM1','uCieloX','uFermo0','uFermo1','uHaFermo0','uHaFermo1','uMix','uHaImg','uHaDep0','uHaDep1','uMovimento0','uMovimento1',
+    this.u = posizioni(this.p, ['uOcchio','uImg0b','uVmix','uImg0','uImg1','uDep0','uDep1','uMap','uCrop0','uCrop1','uCropD0','uCropD1','uUccelli','uCielo0','uCielo1','uCieloM0','uCieloM1','uCieloX','uFermo0','uFermo1','uHaFermo0','uHaFermo1','uVentoT','uHaVento','uMix','uHaImg','uHaDep0','uHaDep1','uMovimento0','uMovimento1',
       'uLato','uT','uAspetto','uPix','uCoperto','uNebbia','uPioggia','uNeve','uTempesta','uVento','uLampo','uLampoX',
       'uNotteFinta','uLuce','uBuio','uQualita','uColNebbia','uMeteo']);
     gl.useProgram(this.p);
-    gl.uniform1i(this.u.uImg0, 0); gl.uniform1i(this.u.uImg1, 1); gl.uniform1i(this.u.uDep0, 2); gl.uniform1i(this.u.uDep1, 3); gl.uniform1i(this.u.uImg0b, 4); gl.uniform1i(this.u.uMeteo, 5); gl.uniform1i(this.u.uCielo0, 6); gl.uniform1i(this.u.uCielo1, 7); gl.uniform1i(this.u.uFermo0, 8); gl.uniform1i(this.u.uFermo1, 9);
+    gl.uniform1i(this.u.uImg0, 0); gl.uniform1i(this.u.uImg1, 1); gl.uniform1i(this.u.uDep0, 2); gl.uniform1i(this.u.uDep1, 3); gl.uniform1i(this.u.uImg0b, 4); gl.uniform1i(this.u.uMeteo, 5); gl.uniform1i(this.u.uCielo0, 6); gl.uniform1i(this.u.uCielo1, 7); gl.uniform1i(this.u.uFermo0, 8); gl.uniform1i(this.u.uFermo1, 9); gl.uniform1i(this.u.uVentoT, 10);
     this.unita = gl.getParameter(gl.MAX_TEXTURE_IMAGE_UNITS) || 8;   /* il fermo vuole 10 unità (il Raspberry 4 ne ha 16) */
     /* nebbia e nuvole a bassa risoluzione */
     this.pm = programma(VERT, METEO_FRAG, ['aPos']);
     this.um = posizioni(this.pm, ['uMap','uT','uVento']);
+    this.pv = programma(VERT, VENTO_FRAG, ['aPos']);
+    this.uv = posizioni(this.pv, ['uMap','uT']);
+    this.vento = [];
     /* gocce e fiocchi */
     this.pp = programma(PART_VERT, PART_FRAG, ['aAngolo', 'aSeme']);
     this.up = posizioni(this.pp, ['uFori','uT','uVento','uScala','uTipo','uDens','uSale','uStrato','uColore','uMorb','uAlfa']);
@@ -472,16 +495,16 @@ class Vista {
   quad(){ const gl = this.gl; gl.bindBuffer(gl.ARRAY_BUFFER, this.bQuad); gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
     if (this.ist){ this.ist.div(1, 0); gl.disableVertexAttribArray(1); } }
   /* la piccola immagine della nebbia per il foro i, grande un quarto per lato */
-  bufferMeteo(i, w, h){
+  bufferMeteo(i, w, h, lista = this.meteo){
     const gl = this.gl, W = Math.max(8, Math.ceil(w / 4)), H = Math.max(8, Math.ceil(h / 4));
-    let m = this.meteo[i];
+    let m = lista[i];
     if (m && m.w === W && m.h === H) return m;
     if (m){ gl.deleteTexture(m.tex); gl.deleteFramebuffer(m.fb); }
     const tex = this.texture(); this.carica(tex, null, W, H);
     const fb = gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
     gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-    return this.meteo[i] = {tex, fb, w:W, h:H};
+    return lista[i] = {tex, fb, w:W, h:H};
   }
   texture(){ const gl = this.gl, t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
@@ -650,9 +673,20 @@ class Vista {
         gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
         gl.bindFramebuffer(gl.FRAMEBUFFER, null);
       }
+      /* 1b. il vento sugli alberi, a un quarto di risoluzione */
+      let tv = null;
+      if (haImg && mov && this.unita >= 11){
+        const m = this.bufferMeteo(i, foro.w, foro.h, this.vento); tv = m.tex;
+        lega(5, null); lega(10, null);
+        gl.bindFramebuffer(gl.FRAMEBUFFER, m.fb); gl.disable(gl.SCISSOR_TEST); gl.viewport(0, 0, m.w, m.h);
+        gl.useProgram(this.pv);
+        gl.uniform4fv(this.uv.uMap, foro.map); gl.uniform1f(this.uv.uT, s.t);
+        gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+        gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      }
       /* 2. il paesaggio col suo tempo */
       gl.useProgram(this.p);
-      lega(5, tm);
+      lega(5, tm); if (this.unita >= 11) lega(10, tv); gl.uniform1f(u.uHaVento, tv ? 1 : 0);
       gl.enable(gl.SCISSOR_TEST);
       gl.viewport(foro.x, y, foro.w, foro.h); gl.scissor(foro.x, y, foro.w, foro.h);
       gl.uniform4fv(u.uMap, foro.map);
