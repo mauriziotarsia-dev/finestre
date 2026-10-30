@@ -61,9 +61,12 @@ const Ai = {
     return m.fornitore === 'google' ? this.googleImmagine(o, m.id.split(':')[1], o.foto) : this.openaiImmagine(o, m.id.split(':')[1], o.foto);
   },
 
+  rapporto(misura){ return misura === 'orizzontale' ? '21:9' : misura === 'tv' ? '16:9' : '9:16'; },
   misureOpenai(modello, preferita){
     /* orizzontale: il cielo panoramico (largo 5 per 2) */
     if (preferita === 'orizzontale') return modello === 'gpt-image-2' ? ['2080x832', '1536x1024'] : ['1536x1024'];
+    /* tv: la vista est del TV, 16:9 (poi il mini PC la porta al 4K vero, pi/cuci-animazione.py) */
+    if (preferita === 'tv') return modello === 'gpt-image-2' ? ['2560x1440', '2048x1152', '1536x1024'] : ['1536x1024'];
     const tutte = modello === 'gpt-image-2' ? ['832x2080', '1024x1536'] : ['1024x1536'];
     return preferita ? [preferita, ...tutte.filter(x => x !== preferita)] : tutte;
   },
@@ -137,7 +140,7 @@ const Ai = {
     parti.push({text:o.prompt});
     const richiesta = () => fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modello}:generateContent`, {
       method:'POST', headers:{'Content-Type':'application/json', 'x-goog-api-key':chiave},
-      body: JSON.stringify({contents:[{parts:parti}], generationConfig:{responseModalities:['IMAGE'], imageConfig:{aspectRatio: o.misura === 'orizzontale' ? '21:9' : '9:16'}}})
+      body: JSON.stringify({contents:[{parts:parti}], generationConfig:{responseModalities:['IMAGE'], imageConfig:{aspectRatio: Ai.rapporto(o.misura)}}})
     });
     let r;
     try { r = await richiesta(); } catch(e) { try { r = await richiesta(); } catch(e2) { throw this.rete('Google', e2); } }
@@ -146,7 +149,7 @@ const Ai = {
     const p = (j.candidates || []).flatMap(c => (c.content && c.content.parts) || []).find(x => (x.inlineData || x.inline_data));
     const d = p && (p.inlineData || p.inline_data);
     if (!d) throw new Error('Google non ha mandato l\'immagine' + (j.candidates && j.candidates[0] && j.candidates[0].finishReason ? ' (' + j.candidates[0].finishReason + ')' : '') + '.');
-    return {b64:d.data, mime:d.mimeType || d.mime_type || 'image/png', misura: o.misura === 'orizzontale' ? '21:9' : '9:16'};
+    return {b64:d.data, mime:d.mimeType || d.mime_type || 'image/png', misura: Ai.rapporto(o.misura)};
   },
 
   inBase64(blob){ return new Promise((ok, no) => { const fr = new FileReader(); fr.onload = () => ok(String(fr.result).split(',')[1]); fr.onerror = no; fr.readAsDataURL(blob); }); },

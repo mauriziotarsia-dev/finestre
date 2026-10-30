@@ -345,12 +345,12 @@ def ingrandisci_foto(cart, file, nomi, piu_forte, forza, chi, io):
     pub = lambda n: f'{URL}/storage/v1/object/public/{DEPOSITO}/{cart}/' + urllib.parse.quote(n)
     for nome in nomi:
         base, _, coda = nome.rpartition('_')
-        m = re.fullmatch(r'(giorno|alba|tramonto|notte|cielo-(?:giorno|alba|tramonto|notte)|fermo-(giorno|alba|tramonto|notte))\.jpg', coda)
+        m = re.fullmatch(r'((?:est-)?(?:giorno|alba|tramonto|notte|cielo-(?:giorno|alba|tramonto|notte)|fermo-(giorno|alba|tramonto|notte)))\.jpg', coda)
         if not m: continue
-        parte = m.group(1)
+        parte = m.group(1); pre = 'est-' if parte.startswith('est-') else ''
         originale = f'{base}_{parte}-originale.jpg'
         if originale in nomi: continue                                         # già ingrandita
-        if m.group(2) and f'{base}_anim-{m.group(2)}-originale.mp4' not in nomi: continue   # fermo del telefono: arriva quello cucito
+        if m.group(2) and f'{base}_{pre}anim-{m.group(2)}-originale.mp4' not in nomi: continue   # fermo del telefono: arriva quello cucito
         quando = file[nome].get('updated_at') or ''
         if visti.get(nome) == quando: continue                                 # già guardata: è grande abbastanza
         if piu_forte and _eta_agg(file[nome]) < 2: continue
@@ -364,13 +364,13 @@ def ingrandisci_foto(cart, file, nomi, piu_forte, forza, chi, io):
             with tempfile.TemporaryDirectory() as d:
                 e = os.path.join(d, 'e.jpg'); urllib.request.urlretrieve(pub(nome), e)
                 img = cv2.imread(e); h, w = img.shape[:2]
-                misura = misura_giusta(w, h, parte)
+                misura = misura_giusta(w, h, parte[len(pre):])
                 if not misura:
                     visti[nome] = quando
                     json.dump(visti, open(_visti_percorso(), 'w')); continue
                 print(chi, 'ingrandisce', nome, f'{w}x{h} → {misura[0]}x{misura[1]}', flush=True)
                 t = time.time()
-                u = ingrandisci(img, *misura, giro=parte.startswith('cielo-'))
+                u = ingrandisci(img, *misura, giro=parte[len(pre):].startswith('cielo-'))
                 if u is None: return fatti
                 ok, jpg = cv2.imencode('.jpg', u, [cv2.IMWRITE_JPEG_QUALITY, 92])
                 _chiedi('POST', f'/storage/v1/object/{DEPOSITO}/{cart}/' + urllib.parse.quote(originale), open(e, 'rb').read(), 'image/jpeg', {'x-upsert': 'true'})
@@ -461,7 +461,7 @@ def giro_casa(casa, larghezza=None, veloce=False, forza=1, chi='pc'):
     fatti = 0
     for nome in nomi:
         base, _, parte = nome.rpartition('_')                  # parte = anim-giorno.mp4
-        if parte not in ('anim-giorno.mp4', 'anim-alba.mp4', 'anim-tramonto.mp4', 'anim-notte.mp4'): continue
+        if not re.fullmatch(r'(est-)?anim-(giorno|alba|tramonto|notte)\.mp4', parte): continue   # est-: la vista del TV
         originale = f'{base}_{parte[:-4]}-originale.mp4'      # il file dell'AI resta qui, intatto (la libreria lo ignora)
         if originale in nomi: continue                         # già cucita
         if piu_forte and _eta_minuti(file[nome]) < 2: continue  # c'è uno più forte acceso: tocca a lui
@@ -498,9 +498,10 @@ def _cuci_uno(cart, nomi, nome, base, parte, originale, larghezza, veloce):
             e, u = os.path.join(d, 'e.mp4'), os.path.join(d, 'u.mp4')
             urllib.request.urlretrieve(pub(nome), e)
             prof = imm = None
-            if f'{base}_profondita.png' in nomi and f'{base}_giorno.jpg' in nomi:
+            pre = 'est-' if parte.startswith('est-') else ''                 # la vista del TV ha la sua profondità
+            if f'{base}_{pre}profondita.png' in nomi and f'{base}_{pre}giorno.jpg' in nomi:
                 prof, imm = os.path.join(d, 'p.png'), os.path.join(d, 'g.jpg')
-                urllib.request.urlretrieve(pub(f'{base}_profondita.png'), prof); urllib.request.urlretrieve(pub(f'{base}_giorno.jpg'), imm)
+                urllib.request.urlretrieve(pub(f'{base}_{pre}profondita.png'), prof); urllib.request.urlretrieve(pub(f'{base}_{pre}giorno.jpg'), imm)
             fx = 0.5
             for kw in (base.split('@', 1)[1].split('.') if '@' in base else []):
                 if kw.startswith('fx') and kw[2:].isdigit(): fx = min(100, int(kw[2:])) / 100
@@ -512,8 +513,8 @@ def _cuci_uno(cart, nomi, nome, base, parte, originale, larghezza, veloce):
             # fermo e maschera nuovi, al posto di quelli fatti dal telefono alla creazione (js/fermo.js).
             # Il fermo disegna tutto quello che non si muove: se qui c'è la scheda video si ingrandisce subito,
             # altrimenti lo farà il primo computer che ce l'ha (togliendo il suo vecchio originale, se c'era)
-            ora = parte[5:-4]
-            nfo = f'{base}_fermo-{ora}-originale.jpg'
+            ora = parte[len(pre) + 5:-4]
+            nfo = f'{base}_{pre}fermo-{ora}-originale.jpg'
             fimg = cv2.imread(fj); misura = misura_giusta(fimg.shape[1], fimg.shape[0], 'fermo-' + ora)
             grande = ingrandisci(fimg, *misura) if misura and ingranditore() else None
             if grande is not None:
@@ -521,7 +522,7 @@ def _cuci_uno(cart, nomi, nome, base, parte, originale, larghezza, veloce):
                 cv2.imwrite(fj, grande, [cv2.IMWRITE_JPEG_QUALITY, 92])
             elif nfo in nomi:
                 _libera(cart, nfo)
-            for nf, fl, tipo in ((f'{base}_fermo-{ora}.jpg', fj, 'image/jpeg'), (f'{base}_maschera-{ora}.png', mp, 'image/png')):
+            for nf, fl, tipo in ((f'{base}_{pre}fermo-{ora}.jpg', fj, 'image/jpeg'), (f'{base}_{pre}maschera-{ora}.png', mp, 'image/png')):
                 _chiedi('POST', f'/storage/v1/object/{DEPOSITO}/{cart}/' + urllib.parse.quote(nf), open(fl, 'rb').read(), tipo,
                         {'x-upsert': 'true', 'cache-control': 'max-age=60'})
             print('  fatto:', info, flush=True)

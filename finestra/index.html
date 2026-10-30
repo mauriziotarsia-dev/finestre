@@ -26,6 +26,8 @@
    La pagina che il Raspberry mostra dietro il traforo.
    Indirizzo: ?casa=CODICE   (collega la finestra al telecomando della casa)
    Facoltativi: lato=sinistra|destra (una finestra per uscita), x,y,w,h (un foro, in pixel),
+                vista=est (il TV: tutto lo schermo, la vista verso est del paesaggio; tvx, tvy = dove sta il centro
+                del TV rispetto al radar, in mm: x verso destra guardando le finestrelle, y verso la stanza),
                 anteprima=1 (dentro l'app: niente canale, la scena arriva dalla pagina che la contiene),
                 forza=1 (usa i parametri dell'indirizzo anche se c'è una scena memorizzata).
    I fori, la scena e la calibrazione arrivano dal telefono e restano memorizzati qui.
@@ -54,14 +56,18 @@ function foroPredefinito(){ const H = .9, W = H * innerHeight * 2 / 5 / innerWid
 /* Le finestre della casa sono una o due, ognuna sul suo schermo (a due metri l'una dall'altra):
    questa pagina è quella della finestra «sinistra» o «destra» (?lato=…; senza, «sinistra»).
    Il telefono manda {n, finestre:{sinistra:{x,y,w,h}, destra:{…}}}; ogni pagina usa il suo foro. */
-const mio = q.get('lato') === 'destra' ? 'destra' : 'sinistra';
+/* ⚠ 30/10 · IL TV (Maurizio: TV 65" verso est, in 4K, sincronizzato con le finestrelle: stessa ora, stesso tempo,
+   soggetto diverso). La stessa pagina, con ?vista=est: tutto lo schermo è la finestra, mostra la vista «est-…» del
+   paesaggio (se non c'è ancora, quella delle finestrelle allargata) e ignora i fori delle finestrelle. */
+const tv = q.get('vista') === 'est' || q.get('lato') === 'tv';
+const mio = tv ? 'tv' : q.get('lato') === 'destra' ? 'destra' : 'sinistra';
 function normalizza(a){
   if (a && a.finestre) return {n: a.n === 2 ? 2 : 1, finestre: a.finestre};
   if (a && a.fori && a.fori.length === 1) return {n:1, finestre:{sinistra:a.fori[0]}};   /* formato di prima */
   return {n:1, finestre:{}};
 }
 let casaFori = normalizza(leggi('finestre-fori', null));
-const derivato = () => ({modo:'singola', fori:[(casaFori.finestre || {})[mio] || foroPredefinito()]});
+const derivato = () => tv ? {modo:'singola', fori:[{x:0, y:0, w:1, h:1}]} : ({modo:'singola', fori:[(casaFori.finestre || {})[mio] || foroPredefinito()]});
 let assetto = derivato();
 if (q.get('w') && q.get('h')) assetto = {modo:'unica', fori:[{x:+q.get('x') / innerWidth, y:+q.get('y') / innerHeight, w:+q.get('w') / innerWidth, h:+q.get('h') / innerHeight}]};
 let mostraBordi = false;
@@ -91,7 +97,7 @@ function impagina(){
     let map, aspetto, lato;
     if (assetto.modo === 'singola'){
       /* la finestra di questo schermo: il paesaggio intero, con la prospettiva del suo lato se le finestre sono due */
-      map = [0, 0, 1, 1]; aspetto = f.w / f.h; lato = casaFori.n === 2 ? (mio === 'destra' ? 1 : -1) : latoUrl;
+      map = [0, 0, 1, 1]; aspetto = f.w / f.h; lato = tv ? 0 : casaFori.n === 2 ? (mio === 'destra' ? 1 : -1) : latoUrl;
     } else if (assetto.modo === 'doppia' && px.length > 1){
       /* ogni foro ha il paesaggio intero, con la sua prospettiva: sinistra e destra */
       map = [0, 0, 1, 1]; aspetto = f.w / f.h; lato = ordine.indexOf(i) === 0 ? -1 : 1;
@@ -115,7 +121,7 @@ function disegnaBordi(){
   if (!mostraBordi) return;
   geom.forEach((f, i) => { const d = document.createElement('div'); d.className = 'bordo';
     Object.assign(d.style, {left:f.x + 'px', top:f.y + 'px', width:f.w + 'px', height:f.h + 'px'});
-    d.innerHTML = '<span>' + (casaFori.n === 2 ? 'Finestra ' + mio : 'Finestra') + '</span>'; document.body.appendChild(d); });
+    d.innerHTML = '<span>' + (tv ? 'TV' : casaFori.n === 2 ? 'Finestra ' + mio : 'Finestra') + '</span>'; document.body.appendChild(d); });
 }
 
 /* ── i video di YouTube: sotto il disegno, ritagliati sui fori ─────────────── */
@@ -152,11 +158,22 @@ function impaginaVideo(){
 
 /* ── scena in vista ────────────────────────────────────────────────────────── */
 function oraDi(s){ return s.ora === 'vera' ? oraVera() : s.ora; }
+/* le immagini della vista di questo schermo: sul TV quelle «est-…», se il paesaggio le ha */
+function vistaDi(s){
+  const est = tv && s.immagini && s.immagini['est-giorno'];
+  if (!est) return {im: s.immagini || {}, an: s.animati || {}};
+  const im = {}, an = {};
+  for (const k in s.immagini) if (k.startsWith('est-')) im[k.slice(4)] = s.immagini[k];
+  for (const k of ['giorno','alba','tramonto','notte']) if (s.immagini['cielo-' + k]) im['cielo-' + k] = s.immagini['cielo-' + k];   /* lo stesso cielo delle finestrelle */
+  for (const k in (s.animati || {})) if (k.startsWith('est-')) an[k.slice(4)] = s.animati[k];
+  return {im, an};
+}
 function fonteDi(s){
   if (!s.immagini || s.yt) return null;
+  const {im, an} = vistaDi(s);
+  s = Object.assign({}, s, {immagini: im, animati: an});
   const o = oraDi(s), url = s.immagini[o] || s.immagini.giorno;
   if (!url) return null;
-  const an = s.animati || {};
   const video = an[o] || (!s.immagini[o] || o === 'giorno' ? an.giorno : null) || null;
   /* il cielo che scorre: quello della luce che si vede; se la scena non lo porta (da DMaster, per esempio)
      si prova il file con lo stesso nome (…_alba.jpg → …_cielo-alba.jpg): se non c'è, niente */
@@ -166,10 +183,10 @@ function fonteDi(s){
      Anche qui, se la scena non li porta, si provano i file con lo stesso nome del video */
   let fermo = null, maschera = null;
   if (video){
-    const m = video.split('?')[0].match(/_anim-(giorno|alba|tramonto|notte)\.mp4$/), oraV = m && m[1];
+    const m = video.split('?')[0].match(/_((?:est-)?)anim-(giorno|alba|tramonto|notte)\.mp4$/), oraV = m && m[2], pre = m ? m[1] : '';
     if (oraV){
-      fermo = s.immagini['fermo-' + oraV] || video.split('?')[0].replace(/_anim-\w+\.mp4$/, '_fermo-' + oraV + '.jpg');
-      maschera = s.immagini['maschera-' + oraV] || video.split('?')[0].replace(/_anim-\w+\.mp4$/, '_maschera-' + oraV + '.png');
+      fermo = s.immagini['fermo-' + oraV] || video.split('?')[0].replace(/_(?:est-)?anim-\w+\.mp4$/, '_' + pre + 'fermo-' + oraV + '.jpg');
+      maschera = s.immagini['maschera-' + oraV] || video.split('?')[0].replace(/_(?:est-)?anim-\w+\.mp4$/, '_' + pre + 'maschera-' + oraV + '.png');
     }
   }
   return {url, profondita: s.immagini.profondita || null, video, fuoco: s.fuoco || null, cielo: s.immagini.profondita ? cielo : null, fermo, maschera};
@@ -241,7 +258,14 @@ const occhio = {x:0, z:0}, occhioTgt = {x:0, z:0};
 const inseguitore = new Inseguitore(q.get('anticipo') ? {anticipo: +q.get('anticipo') / 1000} : {});
 let margine = 1.04, provaFino = 0, sensore = null, ultimoSensore = 0, ultimaPresenza = 0;
 const misura = {n:0, t0:0, eta:0, intervallo:0, ultimo:0};
+const TV_POS = {x: +q.get('tvx') || 2600, y: +q.get('tvy') || 1800};   /* da misurare sabato (pianta della stanza) */
 function verso(x, y){
+  /* il TV è a 90° dalle finestrelle: chi va verso le finestrelle (y più piccolo) per il TV va a sinistra,
+     chi va verso il TV (x più grande) gli si avvicina */
+  if (tv){
+    const d = Math.max(300, TV_POS.x - x), ang = Math.atan2(y - TV_POS.y, d);
+    return {x: Math.max(-1, Math.min(1, ang / (Math.PI / 4))), z: Math.max(-1, Math.min(1, (2600 - d) / 1600))};
+  }
   /* x in mm a destra-sinistra del sensore, y in mm di distanza: angolo di vista e vicinanza */
   const ang = Math.atan2(x, y);
   return {x: Math.max(-1, Math.min(1, ang / (Math.PI / 4))), z: Math.max(-1, Math.min(1, (2600 - y) / 1600))};
@@ -281,7 +305,7 @@ function chiudiSensore(){ if (sensore){ sensore.close(); sensore = null; } }
 /* ── collegamento ──────────────────────────────────────────────────────────── */
 function calibra(d){
   const prima = JSON.stringify(assetto.modo) + assetto.fori.length;
-  if (d.finestre){ casaFori = normalizza(d); if (d.salva !== false) scrivi('finestre-fori', casaFori); assetto = derivato(); }
+  if (d.finestre){ casaFori = normalizza(d); if (d.salva !== false) scrivi('finestre-fori', casaFori); assetto = derivato(); }   /* il TV resta a tutto schermo */
   else if (d.fori && d.fori.length) assetto = {modo: d.modo === 'doppia' ? 'doppia' : 'unica', fori: d.fori.slice(0, 2)};   /* l'anteprima dell'app */
   if ('mostra' in d) mostraBordi = !!d.mostra;
   impagina();
@@ -297,7 +321,7 @@ if (anteprima){
   const comandaDM = () => Date.now() < dmasterFino;
   /* con le prestazioni: immagini al secondo davvero disegnate, risoluzione del disegno, qualità (per capire da lontano se fatica) */
   const schedaVideo = () => { try { const g = vista.gl, e = g.getExtension('WEBGL_debug_renderer_info'); return e ? g.getParameter(e.UNMASKED_RENDERER_WEBGL) : g.getParameter(g.RENDERER); } catch(e) { return ''; } };
-  const chi = () => ({lato: mio, assetto: casaFori, scena, schermo:{w:innerWidth, h:innerHeight, dpr:devicePixelRatio}, comando: comandaDM() ? 'dmaster' : null,
+  const chi = () => ({lato: mio, assetto: tv ? null : casaFori, scena, schermo:{w:innerWidth, h:innerHeight, dpr:devicePixelRatio}, comando: comandaDM() ? 'dmaster' : null,
     prestazioni:{fps: Math.round(fpsMisurati), hzSchermo: Math.round(1000 / intervalloSchermo), msDisegno: Math.round(msDisegno * 10) / 10, scala, qualita, disegno:{w:c.width, h:c.height}, gl: schedaVideo(), browser: navigator.userAgent}});
   canale = apriCanale(casa, {
     suMessaggio(evento, dati){
@@ -355,7 +379,7 @@ function giro(ora){
   }
   const nc = NEBBIA_ORA[o];
   for (let i = 0; i < 3; i++){ const grigio = o === 'notte' ? .1 : .6; nebCol[i] += (nc[i] + (grigio - nc[i]) * met.coperto * .35 - nebCol[i]) * k; }
-  const finta = o === 'notte' && scena.immagini && !scena.immagini.notte && !scena.yt ? 1 : 0;
+  const finta = o === 'notte' && scena.immagini && !vistaDi(scena).im.notte && !scena.yt ? 1 : 0;
   notteFinta += (finta - notteFinta) * k;
   const luceTgt = (o === 'notte' ? scena.luceNotte : scena.luceGiorno) / 100;
   luce += (luceTgt - luce) * Math.min(1, dt * 3);

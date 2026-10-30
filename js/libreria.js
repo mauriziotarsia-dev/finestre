@@ -49,7 +49,10 @@ function nomeFile(p, parte, est = 'jpg'){
   const kw = parole.map(x => slug(x, 20)).filter(Boolean).join('.');
   return `${p.id}_${p.tipo}_${slug(p.nome) || 'paesaggio'}${kw ? '@' + kw : ''}_${parte}.${est}`;
 }
-const MODELLO_NOME = /^([a-z0-9]+)_(painterly|inked|classic_oil|foto|video)_([a-z0-9-]+)(?:@([a-z0-9.-]+))?_(giorno|alba|tramonto|notte|profondita|cielo-(?:giorno|alba|tramonto|notte)|fermo-(?:giorno|alba|tramonto|notte)|maschera-(?:giorno|alba|tramonto|notte)|anim-(?:giorno|alba|tramonto|notte)|yt-[0-9a-f]{22})\.(jpg|png|mp4)$/;
+const MODELLO_NOME = /^([a-z0-9]+)_(painterly|inked|classic_oil|foto|video)_([a-z0-9-]+)(?:@([a-z0-9.-]+))?_((?:est-)?(?:giorno|alba|tramonto|notte|profondita|cielo-(?:giorno|alba|tramonto|notte)|fermo-(?:giorno|alba|tramonto|notte)|maschera-(?:giorno|alba|tramonto|notte)|anim-(?:giorno|alba|tramonto|notte))|yt-[0-9a-f]{22})\.(jpg|png|mp4)$/;
+/* «est-…»: la vista per il TV (Maurizio, 29/10: TV verso est, orizzontale e in 4K, finestrelle verso nord; ogni paesaggio
+   ha due soggetti, uno al centro di ciascuna vista; stessa ora e stesso tempo). est-giorno, est-alba…, est-profondita,
+   est-anim-giorno, est-fermo-giorno… accanto a quelli della vista nord, nello stesso paesaggio */
 
 /* l'elenco dei paesaggi, il più recente per primo:
    [{id, tipo, nome, parole[], immagini:{giorno, alba, tramonto, notte, profondita}, animati:{giorno…}, yt, file[]}] */
@@ -77,7 +80,8 @@ async function leggiLibreria(casa){
     /* video e immagini possono essere riscritti col nome di prima (cucito o ingrandito dopo: pi/cuci-animazione.py)
        e restano un anno nella memoria del browser: l'indirizzo porta la loro data, così nessuno tiene il vecchio */
     const v = '?v=' + (Date.parse(f.updated_at || f.created_at || '') || 0).toString(36);
-    if (parte.startsWith('anim-')) p.animati[parte.slice(5)] = url + v;
+    const vEst = parte.startsWith('est-') ? 'est-' : '', pp = parte.slice(vEst.length);
+    if (pp.startsWith('anim-')) p.animati[vEst + pp.slice(5)] = url + v;
     else if (parte.startsWith('yt-')) p.yt = hexInYt(parte.slice(3));
     else p.immagini[parte] = url + v;
   }
@@ -116,6 +120,8 @@ const caricaCielo = (casa, p, ora, blob) => carica(casa, p, 'cielo-' + ora, blob
 const caricaFermo = (casa, p, ora, blob) => carica(casa, p, 'fermo-' + ora, blob, 'jpg');
 const caricaMaschera = (casa, p, ora, blob) => carica(casa, p, 'maschera-' + ora, blob, 'png');
 const caricaAnimazione = (casa, p, ora, blob) => carica(casa, p, 'anim-' + ora, blob, 'mp4');
+/* la vista per il TV: caricaEst(casa, p, 'giorno' | 'alba' | … | 'profondita', blob) → …_est-giorno.jpg */
+const caricaEst = (casa, p, parte, blob) => carica(casa, p, 'est-' + parte, blob, parte === 'profondita' ? 'png' : 'jpg');
 
 /* un video di YouTube nella libreria: un segnaposto minuscolo col nome giusto */
 async function salvaVideoYT(casa, {id, nome, parole}){
@@ -146,7 +152,8 @@ async function rinominaPaesaggio(casa, p, nome, parole, fuoco = p.fuoco){
   const url = n => urlPubblico('finestre/' + cartella + '/' + n);
   p.immagini = {}; p.animati = {};
   for (const n of nuoviFile){ const m = n.match(MODELLO_NOME); if (!m) continue; const parte = m[5];
-    if (parte.startsWith('anim-')) p.animati[parte.slice(5)] = url(n); else if (!parte.startsWith('yt-')) p.immagini[parte] = url(n); }
+    const vEst = parte.startsWith('est-') ? 'est-' : '', pp = parte.slice(vEst.length);
+    if (pp.startsWith('anim-')) p.animati[vEst + pp.slice(5)] = url(n); else if (!parte.startsWith('yt-')) p.immagini[parte] = url(n); }
   return p;
 }
 

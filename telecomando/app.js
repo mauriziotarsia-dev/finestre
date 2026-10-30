@@ -11,7 +11,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
 const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 const euro = n => (n < .1 ? n.toFixed(3) : n.toFixed(2)).replace('.', ',') + ' $';
-const VERSIONE = '2.8';
+const VERSIONE = '2.9';
 
 /* ── la casa ──────────────────────────────────────────────────────────────── */
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
@@ -33,7 +33,7 @@ if (q.get('casa') !== casa) history.replaceState(null, '', location.pathname + '
 
 /* ── impostazioni ─────────────────────────────────────────────────────────── */
 const IMP_PRED = {modello:'openai:gpt-image-2', qualita:'alta', chiavi:{openai:'', google:'', pexels:''},
-  video:{modello:'omni-720p', secondi:8}, stile:'painterly', luci:{alba:true, tramonto:true, notte:true}, anima:false, elementi:['alberi','acqua','fumo'], cielo:true};
+  video:{modello:'omni-720p', secondi:8}, stile:'painterly', luci:{alba:true, tramonto:true, notte:true}, anima:false, elementi:['alberi','acqua','fumo'], cielo:true, tv:true};
 const imp = Object.assign({}, IMP_PRED, leggi('finestre-impostazioni', {}));
 imp.chiavi = Object.assign({}, IMP_PRED.chiavi, imp.chiavi || {});
 imp.video = Object.assign({}, IMP_PRED.video, imp.video || {});
@@ -368,6 +368,10 @@ function apriPaesaggio(p){
         ${p.yt ? '' : `<div class="luci">${ora.map(o => p.immagini[o] ? `<button data-fai="vediLuce" data-v="${o}" aria-pressed="${o === 'giorno'}"><img alt="" src="${esc(p.immagini[o])}" style="object-position:${Math.round(fx * 100)}% 50%"><span>${NOME_ORA[o].toUpperCase()}</span></button>` : `<span class="manca" title="manca">${icona(o === 'notte' ? 'luna' : o === 'giorno' ? 'sole' : o, 16)}</span>`).join('')}</div>`}
       </div>
     </div>
+    ${p.yt ? '' : `<div class="pannello vista-tv" style="margin-top:12px;padding:10px 14px">${titolo('tv', 'Verso est · il TV')}
+      ${p.immagini['est-giorno'] ? `<img alt="" src="${esc(p.immagini['est-giorno'])}" style="width:100%;aspect-ratio:16/9;object-fit:cover;border-radius:8px;display:block">` : '<p class="nota" style="margin:0 0 8px">Questo paesaggio non ha ancora la vista per il TV: il TV mostra la stessa delle finestrelle, allargata.</p>'}
+      <label class="campo" style="margin-top:10px"><span>Che cosa si vede verso est</span><input id="tvDesc" placeholder="Vuoto: lo sceglie l'AI"></label>
+      <button class="btn piena" data-fai="vistaTv" data-v="${p.id}">${icona('tv', 18)}${p.immagini['est-giorno'] ? 'Rifai la vista TV' : 'Crea la vista TV'}</button></div>`}
     <button class="btn oro piena" style="margin-top:14px" data-fai="mostra" data-v="${p.id}">${icona('play', 18)}Mostra alle finestre</button>
     ${p.yt ? '' : `<div class="pannello" style="margin-top:12px;padding:6px 14px">${cursore('inquadra', 'mirino', 'Inquadratura', 0, 100, Math.round(fx * 100), fx === .5 ? 'centro' : Math.round(fx * 100) + '%')}
       <p class="nota" style="margin:0 0 6px">Se l'immagine è più larga del foro, scegli quale parte si vede. Le finestre la seguono dal vivo.</p></div>`}
@@ -426,15 +430,16 @@ const STILI = [
    tela:'radial-gradient(18% 14% at 72% 30%,#b3261e 0,#b3261e 60%,transparent 62%),repeating-linear-gradient(45deg,#1a1a1a 0 1.5px,#e9e2d0 1.5px 4px)',
    prefisso:'Dark ink illustration in the style of woodcut engraving, dense crosshatching, monochrome with red accents, gothic etched line art, evocative of Berserk and Gustave Doré'}
 ];
+/* [nome, vista nord (le finestrelle), vista est (il TV): un altro soggetto della stessa terra] */
 const IDEE = [
-  ['Valle col castello', 'Una valle verde con un castello medievale su una collina, un fiume che serpeggia, colline e boschi fino all\'orizzonte'],
-  ['Campagna romana', 'Campagna laziale con i resti di un acquedotto romano, pini marittimi, pecore lontane, colli all\'orizzonte'],
-  ['Borgo sul lago', 'Un borgo medievale di pietra sulla riva di un lago tra le montagne, tetti di coppi, un campanile, fumo dai camini'],
-  ['Foresta antica', 'Una foresta di querce e faggi secolari, un ruscello tra le rocce, luce che filtra tra i rami'],
-  ['Scogliera sul mare', 'Una costa rocciosa sul mare aperto, una torre di avvistamento sul promontorio, onde che si infrangono'],
-  ['Montagne innevate', 'Picchi innevati sopra una valle alpina, un villaggio di legno con il fumo dai camini, abeti'],
-  ['Abbazia nella nebbia', 'Un\'abbazia romanica su un colle, cipressi, colline che sfumano nella nebbia del mattino'],
-  ['Città dalle torri', 'Una città medievale con molte torri di pietra su una collina, campagna coltivata intorno, strade bianche']
+  ['Valle col castello', 'Una valle verde con un castello medievale su una collina, un fiume che serpeggia, colline e boschi fino all\'orizzonte', 'Un villaggio di case di pietra lungo lo stesso fiume, con un mulino ad acqua e un ponte di pietra ad arco'],
+  ['Campagna romana', 'Campagna laziale con i resti di un acquedotto romano, pini marittimi, pecore lontane, colli all\'orizzonte', 'Le rovine di una villa romana tra gli ulivi, colonne spezzate e un piccolo tempio su un poggio'],
+  ['Borgo sul lago', 'Un borgo medievale di pietra sulla riva di un lago tra le montagne, tetti di coppi, un campanile, fumo dai camini', 'Un castello su un isolotto dello stesso lago, legato alla riva da un lungo ponte di legno, barche di pescatori'],
+  ['Foresta antica', 'Una foresta di querce e faggi secolari, un ruscello tra le rocce, luce che filtra tra i rami', 'Una radura nella stessa foresta con un antico cerchio di pietre e una cascata che scende da una rupe muschiosa'],
+  ['Scogliera sul mare', 'Una costa rocciosa sul mare aperto, una torre di avvistamento sul promontorio, onde che si infrangono', 'Un porto di pescatori nella baia vicina, case di pietra, barche a vela latina e un faro sul molo'],
+  ['Montagne innevate', 'Picchi innevati sopra una valle alpina, un villaggio di legno con il fumo dai camini, abeti', 'Un monastero arroccato su una rupe sopra la stessa valle, un ghiacciaio e un sentiero che sale tra gli abeti'],
+  ['Abbazia nella nebbia', 'Un\'abbazia romanica su un colle, cipressi, colline che sfumano nella nebbia del mattino', 'Un borgo fortificato su un colle vicino, con le mura, una porta e una torre, vigneti sui pendii'],
+  ['Città dalle torri', 'Una città medievale con molte torri di pietra su una collina, campagna coltivata intorno, strade bianche', 'Un castello con un lago ai suoi piedi e un mulino a vento sulla collina, campi di grano']
 ];
 const LUCI = {
   giorno:'Time of day: clear daytime, soft natural daylight from a high sun.',
@@ -458,7 +463,29 @@ Compose for this narrow vertical frame: the main subject is fully visible and ce
 No people in the foreground, no text, no signature, no watermark, no border, no vignette.
 ${LUCI.giorno}`;
 }
-const promptLuce = ora => `Same exact view and composition as the input image: every hill, building, tree and river stays in the same place, same framing, same style. ${LUCI[ora]} Do not add a window frame, text or borders.`;
+/* ⚠ 30/10 · DUE VISTE (Maurizio, 29/10: finestrelle verso nord, TV verso est, due soggetti diversi; «mai due soli né
+   due lune: al massimo compaiono in una sola delle due viste»). Quando il paesaggio ha anche la vista per il TV, il sole
+   sta dove starebbe davvero: all'alba sorge a est (nel TV; a nord se ne vede solo il chiarore, da destra), al tramonto
+   cala a ovest (alle spalle del TV e a sinistra delle finestrelle: nessuna delle due lo vede); la luna resta a nord. */
+const LUCI_NORD_TV = {
+  alba:'Change only the time of day to dawn: the sun is rising out of frame to the right (east), so the sun disc itself is NOT visible; warm pink and orange light comes from the right, long soft shadows, light mist in the valleys.',
+  tramonto:'Change only the time of day to sunset: the sun is setting out of frame to the left (west), so the sun disc itself is NOT visible; warm golden-orange light from the left, glowing sky on the left side, deepening blue on the right.'
+};
+const LUCI_EST = {
+  giorno:'Clear daytime, soft natural daylight; the sun disc is not visible in this view.',
+  alba:'Change only the time of day to dawn: the sun just rising at the horizon, slightly off-centre, warm pink and orange light, long soft shadows toward the viewer, light mist in the valleys.',
+  albaSenzaSole:'Change only the time of day to dawn: a warm pink and orange glow at the horizon, long soft shadows, light mist in the valleys; the sun disc itself is not visible.',
+  tramonto:'Change only the time of day to sunset: the sun is setting behind the viewer (west), so no sun disc is visible; the land and the buildings glow warm orange-pink in the last light, long shadows stretch away from the viewer toward the horizon, the sky above the horizon is pink and violet.',
+  notte:'Change only the time of day to night: a clear night with soft moonlight coming from the left, but no moon disc visible in this view; deep blue tones, stars visible, very dark but readable shapes; if there are buildings, a few windows glow with warm candlelight.'
+};
+const promptLuce = (ora, conTv = false) => `Same exact view and composition as the input image: every hill, building, tree and river stays in the same place, same framing, same style. ${(conTv && LUCI_NORD_TV[ora]) || LUCI[ora]} Do not add a window frame, text or borders.`;
+const promptLuceEst = (ora, conSole) => `Same exact view and composition as the input image: every hill, building, tree and river stays in the same place, same wide framing, same style. ${LUCI_EST[ora === 'alba' && !conSole ? 'albaSenzaSole' : ora]} Do not add a window frame, text or borders.`;
+const promptEst = desc => `The input image is the view from a high window of a medieval house looking NORTH. Paint the view from the same house looking EAST, 90 degrees to the right of it, as one wide landscape picture (16:9, like a large window).
+It is the same land seen in another direction: same region, same kind of terrain, vegetation and architecture, same weather, same time of day, same painting style, palette and level of detail, and the horizon at the same height. The main subject of the input image is NOT in this view (it stays far to the left, out of frame).
+The main subject of this view, fully visible and centered in the width: ${desc || 'a different landmark that belongs to this same land (for example a village, a bridge on a river, a monastery or a distant castle), chosen to complement the input view'}.
+A generous sky in the upper part, the land descending toward the viewer in the lower part, natural eye-level perspective, deep atmospheric distance with several layers (near, middle, far).
+The picture IS the view itself: no window frame, no walls, no curtains, nothing of the room. No people in the foreground, no text, no signature, no watermark, no border, no vignette.
+${LUCI_EST.giorno}`;
 /* ⚠ 30/10 · CIELO CHE SCORRE. Maurizio: «le nuvole quando reinizia il loop si spostano pesantemente».
    Nuvole che vanno sempre da una parte non possono stare in un video breve che gira (alla fine sono altrove).
    Per questo il cielo è un'immagine panoramica a parte, che si ripete senza cuciture e la finestra fa scorrere
@@ -483,6 +510,7 @@ function disegnaLavoro(){
     <ul class="passi">${lavoro.passi.map(p => `<li class="${p.cls}">${icona(p.cls === 'fatto' ? 'spunta' : p.cls === 'errore' ? 'chiudi' : p.cls === 'ora' ? 'ricarica' : 'orologio', 16)}<span>${esc(p.testo)}</span></li>`).join('')}</ul>
     ${lavoro.av != null ? `<div class="barra-av"><i style="width:${Math.round(lavoro.av)}%"></i></div>` : ''}
     ${Object.keys(lavoro.anteprime).length ? `<div class="anteprime">${['giorno','alba','tramonto','notte'].filter(o => lavoro.anteprime[o]).map(o => `<figure><img alt="" src="${esc(lavoro.anteprime[o].url)}" style="opacity:${lavoro.anteprime[o].bozza ? .55 : 1}"><figcaption>${NOME_ORA[o]}</figcaption></figure>`).join('')}</div>` : ''}
+    ${['giorno','alba','tramonto','notte'].some(o => lavoro.anteprime['est-' + o]) ? `<div class="anteprime tv">${['giorno','alba','tramonto','notte'].filter(o => lavoro.anteprime['est-' + o]).map(o => `<figure><img alt="" src="${esc(lavoro.anteprime['est-' + o].url)}" style="opacity:${lavoro.anteprime['est-' + o].bozza ? .55 : 1}"><figcaption>TV · ${NOME_ORA[o]}</figcaption></figure>`).join('')}</div>` : ''}
     ${lavoro.fatto && lavoro.p ? `<div class="azioni"><button class="btn oro" data-fai="mostra" data-v="${lavoro.p.id}">${icona('play', 18)}Mostra</button><button class="btn" data-fai="apri" data-v="${lavoro.p.id}">${icona('quadro', 18)}Apri</button></div>` : ''}`;
   posti.forEach(el => el.innerHTML = html);
   if (problema) mostraProblema();
@@ -498,27 +526,30 @@ async function conLavoro(nome, fn){
 }
 const misuraDi = async blob => { const b = await createImageBitmap(blob); return {w:b.width, h:b.height, openai: Math.abs(b.width / b.height - .4) < .03 ? '832x2080' : '1024x1536'}; };
 
-async function faiLuci(p, foto, ore, misura){
+/* le altre luci: della vista nord (le finestrelle) o, con o.est, della vista est (il TV) */
+async function faiLuci(p, foto, ore, misura, o = {}){
   let reti = 0;
+  const pre = o.est ? 'est-' : '', eti = ora => (o.est ? 'TV · ' : '') + NOME_ORA[ora][0].toUpperCase() + NOME_ORA[ora].slice(1);
   for (const ora of ore){
-    passo(ora, 'ora', NOME_ORA[ora][0].toUpperCase() + NOME_ORA[ora].slice(1) + ': stessa vista, altra luce…');
+    const k = pre + ora;
+    passo(k, 'ora', eti(ora) + ': stessa vista, altra luce…');
     try {
-      const r = await Ai.modifica({modello:imp.modello, chiavi:imp.chiavi, qualita:imp.qualita, prompt:promptLuce(ora), foto, misura,
-        bozza: b64 => { lavoro.anteprime[ora] = {url:'data:image/png;base64,' + b64, bozza:true}; disegnaLavoro(); }});
+      const r = await Ai.modifica({modello:imp.modello, chiavi:imp.chiavi, qualita:imp.qualita, prompt: o.est ? promptLuceEst(ora, o.conSole) : promptLuce(ora, o.conTv), foto, misura: o.est ? 'tv' : misura,
+        bozza: b64 => { lavoro.anteprime[k] = {url:'data:image/png;base64,' + b64, bozza:true}; disegnaLavoro(); }});
       const jpg = await inJpeg(b64aBlob(r.b64, r.mime));
-      p.immagini[ora] = await caricaLuce(casa, p, ora, jpg);
+      p.immagini[k] = o.est ? await caricaEst(casa, p, ora, jpg) : await caricaLuce(casa, p, ora, jpg);
       risolto(Ai.modello(imp.modello).fornitore === 'google' ? 'Google' : 'OpenAI');
-      lavoro.anteprime[ora] = {url:p.immagini[ora]}; passo(ora, 'fatto', NOME_ORA[ora][0].toUpperCase() + NOME_ORA[ora].slice(1));
+      lavoro.anteprime[k] = {url:p.immagini[k]}; passo(k, 'fatto', eti(ora));
     } catch(e) {
       if (e.tipo === 'rete'){
         lavoro.errore = e.message; reti++;
-        passo(ora, 'errore', NOME_ORA[ora] + ': connessione interrotta');
-        if (reti >= 2){ ore.slice(ore.indexOf(ora) + 1).forEach(o2 => passo(o2, '', NOME_ORA[o2] + ': non provata')); break; }   /* la rete non regge: inutile insistere */
+        passo(k, 'errore', eti(ora) + ': connessione interrotta');
+        if (reti >= 2){ ore.slice(ore.indexOf(ora) + 1).forEach(o2 => passo(pre + o2, '', eti(o2) + ': non provata')); break; }   /* la rete non regge: inutile insistere */
         continue;
       }
-      passo(ora, 'errore', NOME_ORA[ora] + ': ' + e.message);
+      passo(k, 'errore', eti(ora) + ': ' + e.message);
       if (e.tipo === 'credito' || e.tipo === 'chiave'){                 /* inutile provare le altre: si fermano qui */
-        ore.slice(ore.indexOf(ora) + 1).forEach(o2 => passo(o2, '', NOME_ORA[o2] + ': non provata'));
+        ore.slice(ore.indexOf(ora) + 1).forEach(o2 => passo(pre + o2, '', eti(o2) + ': non provata'));
         segnala(e); break;
       }
     }
@@ -555,13 +586,30 @@ async function faiCieli(p){
     }
   }
 }
-async function faiProfondita(p, foto){
-  passo('prof', 'ora', 'Profondità: la calcolo sul telefono…');
+async function faiProfondita(p, foto, est = false){
+  const k = est ? 'est-prof' : 'prof', eti = est ? 'TV · profondità' : 'Profondità';
+  passo(k, 'ora', eti + ': la calcolo sul telefono…');
   try {
-    const png = await calcolaProfondita(foto, pc => passo('prof', 'ora', 'Profondità: scarico il modello ' + pc + '%'));
-    p.immagini.profondita = await caricaProfondita(casa, p, png);
-    passo('prof', 'fatto', 'Profondità');
-  } catch(e) { passo('prof', 'errore', 'Profondità non calcolata (la finestra fa da sé): ' + e.message); }
+    const png = await calcolaProfondita(foto, pc => passo(k, 'ora', eti + ': scarico il modello ' + pc + '%'));
+    if (est) p.immagini['est-profondita'] = await caricaEst(casa, p, 'profondita', png);
+    else p.immagini.profondita = await caricaProfondita(casa, p, png);
+    passo(k, 'fatto', eti);
+  } catch(e) { passo(k, 'errore', eti + ' non calcolata (la finestra fa da sé): ' + e.message); }
+}
+/* la vista per il TV (verso est): dipinta guardando quella nord, così è la stessa terra con la stessa luce e lo
+   stesso stile; poi le stesse luci del giorno che ha la vista nord e la sua profondità. Il cielo che scorre è lo
+   stesso delle finestrelle (è lo stesso cielo). Il mini PC la porta al 4K vero (pi/cuci-animazione.py) */
+async function faiVistaEst(p, fotoNord, descrizione, conSole){
+  passo('est-giorno', 'ora', 'TV · vista verso est: la dipingo…');
+  const r = await Ai.modifica({modello:imp.modello, chiavi:imp.chiavi, qualita:imp.qualita, prompt:promptEst(descrizione), foto:fotoNord, misura:'tv',
+    bozza: b64 => { lavoro.anteprime['est-giorno'] = {url:'data:image/png;base64,' + b64, bozza:true}; disegnaLavoro(); }});
+  const jpg = await inJpeg(b64aBlob(r.b64, r.mime));
+  p.immagini['est-giorno'] = await caricaEst(casa, p, 'giorno', jpg);
+  lavoro.anteprime['est-giorno'] = {url:p.immagini['est-giorno']}; passo('est-giorno', 'fatto', 'TV · vista verso est');
+  aggiornaInLibreria(p);
+  await faiLuci(p, jpg, ['alba','tramonto','notte'].filter(o => p.immagini[o]), null, {est:true, conSole});
+  aggiornaInLibreria(p);
+  await faiProfondita(p, jpg, true);
 }
 async function faiAnimazione(p, foto, ora, elementi){
   const mv = MODELLI_VIDEO.find(m => m.id === imp.video.modello) || MODELLI_VIDEO[0];
@@ -603,9 +651,11 @@ async function crea(){
     L.anteprime.giorno = {url:p.immagini.giorno}; passo('giorno', 'fatto', 'Giorno'); L.p = p;
     aggiornaInLibreria(p);
     const misura = m.fornitore === 'openai' ? r.misura : null;
-    await faiLuci(p, jpg, ['alba','tramonto','notte'].filter(o => imp.luci[o]), misura);
+    const conTv = imp.tv !== false, descEst = conTv && $('#creaEst') ? $('#creaEst').value.trim() : '';
+    await faiLuci(p, jpg, ['alba','tramonto','notte'].filter(o => imp.luci[o]), misura, {conTv});
     aggiornaInLibreria(p);
     await faiProfondita(p, jpg); aggiornaInLibreria(p);
+    if (conTv){ try { await faiVistaEst(p, jpg, descEst, true); aggiornaInLibreria(p); } catch(e) { passo('est-giorno', 'errore', 'TV · vista verso est: ' + e.message); segnala(e); } }
     if (imp.cielo !== false){ await faiCieli(p); aggiornaInLibreria(p); }
     if (imp.anima){ try { await faiAnimazione(p, jpg, 'giorno', imp.elementi); aggiornaInLibreria(p); } catch(e) { passo('anim', 'errore', 'Animazione: ' + e.message); segnala(e); } }
   });
@@ -614,8 +664,9 @@ async function crea(){
 function disegnaCrea(){
   const s = $('#s-crea'); const m = Ai.modello(imp.modello), mv = MODELLI_VIDEO.find(x => x.id === imp.video.modello) || MODELLI_VIDEO[0] || {nome:'', euroSecondo:0};
   const nLuci = ['alba','tramonto','notte'].filter(o => imp.luci[o]).length;
-  const costo = (m.costo[imp.qualita] || m.costo.alta) * (1 + nLuci * 1.15) * (imp.cielo !== false ? 2 : 1) + (imp.anima ? mv.euroSecondo * imp.video.secondi : 0);
-  const desc = $('#creaDesc') ? $('#creaDesc').value : '', nome = $('#creaNome') ? $('#creaNome').value : '';
+  const unaVista = (m.costo[imp.qualita] || m.costo.alta) * (1 + nLuci * 1.15);
+  const costo = unaVista * (imp.cielo !== false ? 2 : 1) + (imp.tv !== false ? unaVista * 1.3 : 0) + (imp.anima ? mv.euroSecondo * imp.video.secondi : 0);
+  const desc = $('#creaDesc') ? $('#creaDesc').value : '', nome = $('#creaNome') ? $('#creaNome').value : '', descEst = $('#creaEst') ? $('#creaEst').value : '';
   s.innerHTML = testa('scintilla', 'Crea', 'Un paesaggio nuovo, dipinto dall\'AI') + `<div class="problema" hidden></div>
     <div class="pannello" style="display:flex;align-items:center;gap:12px">${icona('tavolozza', 22)}<div style="flex:1;min-width:0"><b style="font:500 12.5px var(--display);letter-spacing:.1em;text-transform:uppercase">${esc(m.nome)}</b><div class="nota" style="margin:0">qualità ${esc(imp.qualita)}${imp.chiavi[m.fornitore] ? '' : ' · manca la chiave'}</div></div><button class="btn piccolo" data-fai="vaiImp">Cambia</button></div>
     <div class="sezione">${titolo('tavolozza', 'Stile', 'quelli di DMaster')}
@@ -624,6 +675,10 @@ function disegnaCrea(){
       <label class="campo"><span>Nome</span><input id="creaNome" maxlength="40" placeholder="Es. Valle col castello" value="${esc(nome)}"></label>
       <label class="campo"><span>Descrizione</span><textarea id="creaDesc" placeholder="Descrivi il paesaggio fuori dalla finestra, anche in poche parole.">${esc(desc)}</textarea></label>
       <div class="pillole">${IDEE.map(([n], i) => `<button class="pillola" data-fai="idea" data-v="${i}">${esc(n)}</button>`).join('')}</div></div>
+    <div class="sezione">${titolo('tv', 'Verso est · il TV', 'un altro soggetto, stessa terra')}
+      <div class="pannello" style="padding:2px 14px">${interruttore('tvToggle', 'tv', 'Vista per il TV', 'Larga 16:9, portata al 4K dal mini PC · stessa ora, stesso tempo, stesso cielo delle finestrelle', imp.tv !== false)}</div>
+      ${imp.tv !== false ? `<label class="campo" style="margin-top:12px"><span>Che cosa si vede verso est</span><textarea id="creaEst" placeholder="Il secondo soggetto, al centro del TV (es. un villaggio sul fiume). Vuoto: lo sceglie l'AI.">${esc(descEst)}</textarea></label>
+      <p class="nota">Il sole sta dove starebbe davvero: all'alba sorge nel TV, al tramonto non si vede in nessuna delle due viste, la luna solo nelle finestrelle.</p>` : ''}</div>
     <div class="sezione">${titolo('alba', 'Le luci del giorno')}
       <div class="scelte c4">${['giorno','alba','tramonto','notte'].map(o => `<button class="scelta" data-fai="luce" data-v="${o}" aria-pressed="${o === 'giorno' || !!imp.luci[o]}" ${o === 'giorno' ? 'disabled style="opacity:1"' : ''}>${icona(o === 'giorno' ? 'sole' : o === 'notte' ? 'luna' : o, 22)}<span>${NOME_ORA[o]}</span></button>`).join('')}</div>
       <p class="nota">Alba, tramonto e notte sono lo stesso paesaggio con un'altra luce: quando cambia l'ora, le finestre sfumano dall'una all'altra senza cambiare vista.</p></div>
@@ -830,7 +885,19 @@ const AZIONI = {
     catch(e) { avviso(e.message, true); }
   },
   stile: v => { imp.stile = v; salvaImp(); disegnaCrea(); },
-  idea: v => { const [n, d] = IDEE[+v]; $('#creaNome').value = n; $('#creaDesc').value = d; },
+  idea: v => { const [n, d, e] = IDEE[+v]; $('#creaNome').value = n; $('#creaDesc').value = d; if ($('#creaEst')) $('#creaEst').value = e || ''; },
+  tvToggle: () => { imp.tv = imp.tv === false; salvaImp(); disegnaCrea(); },
+  vistaTv: async v => {
+    const p = libreria.find(x => x.id === v); if (!p) return;
+    const m = Ai.modello(imp.modello); if (!imp.chiavi[m.fornitore]){ avviso('Serve la chiave nelle Impostazioni.', true); return; }
+    const desc = ($('#tvDesc') || {}).value || '';
+    await conLavoro('tv', async L => {
+      L.p = p; L.anteprime.giorno = {url:p.immagini.giorno};
+      const foto = await (await fetch(p.immagini.giorno)).blob();
+      /* le luci della vista nord ci sono già, magari col sole: qui all'alba se ne vede solo il chiarore (mai due soli) */
+      await faiVistaEst(p, foto, desc.trim(), false); aggiornaInLibreria(p);
+    });
+  },
   luce: v => { imp.luci[v] = !imp.luci[v]; salvaImp(); disegnaCrea(); },
   animaToggle: () => { imp.anima = !imp.anima; salvaImp(); disegnaCrea(); },
   cieloToggle: () => { imp.cielo = imp.cielo === false; salvaImp(); disegnaCrea(); },

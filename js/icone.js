@@ -16,6 +16,8 @@ const TRATTI = {
   tavolozza: `<path d="M12 3.5a8.5 8.5 0 1 0 0 17c1.2 0 1.8-.8 1.8-1.7 0-1.3-1-1.6-1-2.6 0-.9.7-1.6 1.6-1.6H17a3.5 3.5 0 0 0 3.5-3.5C20.5 7 16.7 3.5 12 3.5z"/>${PUNTO(7.5, 11)}${PUNTO(10, 7.3)}${PUNTO(14.5, 7.3)}`,
   occhio: '<path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="3"/>',
   schermo: '<rect x="3" y="5" width="18" height="12" rx="1.5"/><path d="M8.5 20h7M12 17v3"/>',
+  /* il TV a finestra, nella sua cornice di legno, con le colline dentro */
+  tv: '<rect x="2.5" y="4.5" width="19" height="13" rx="1.2"/><rect x="5" y="7" width="14" height="8" rx=".4"/><path d="M5 13.2l3.6-2.8 2.8 2 3-2.7L19 13.4"/><path d="M8 20.5h8"/>',
   chiave: '<circle cx="8" cy="12" r="3.5"/><path d="M11.5 12h9M17 12v3M20 12v2.5"/>',
   lente: '<circle cx="10.5" cy="10.5" r="6"/><path d="M15 15l5 5"/>',
   casa: '<path d="M4 11 12 4l8 7"/><path d="M6 9.5V20h12V9.5M10 20v-5.5h4V20"/>',
