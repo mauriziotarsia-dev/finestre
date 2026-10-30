@@ -342,7 +342,6 @@ def ingrandisci_foto(cart, file, nomi, piu_forte, forza, chi, io):
     Lo fa solo chi ha una scheda video (forza 2 o più), uno alla volta, come le animazioni."""
     if forza < 2: return 0
     visti = _visti(); fatti = 0
-    pub = lambda n: f'{URL}/storage/v1/object/public/{DEPOSITO}/{cart}/' + urllib.parse.quote(n)
     for nome in nomi:
         base, _, coda = nome.rpartition('_')
         m = re.fullmatch(r'((?:est-)?(?:giorno|alba|tramonto|notte|cielo-(?:giorno|alba|tramonto|notte)|fermo-(giorno|alba|tramonto|notte)))\.jpg', coda)
@@ -362,7 +361,7 @@ def ingrandisci_foto(cart, file, nomi, piu_forte, forza, chi, io):
         if not _prenota(cart, segno, chi): continue
         try:
             with tempfile.TemporaryDirectory() as d:
-                e = os.path.join(d, 'e.jpg'); urllib.request.urlretrieve(pub(nome), e)
+                e = os.path.join(d, 'e.jpg'); _scarica(cart, nome, e)
                 img = cv2.imread(e); h, w = img.shape[:2]
                 misura = misura_giusta(w, h, parte[len(pre):])
                 if not misura:
@@ -390,12 +389,66 @@ CHIAVE_PUBBLICA = ('eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSI
                    'YXQiOjE3NzU4NTEyMjAsImV4cCI6MjA5MTQyNzIyMH0.hw1jx9Jzoi2YVdEghS4nT4BW4RKSmv6qLT93buxeoUc')
 
 
+# ── casa privata (30/10): questo computer è un membro «lavoratore» della casa, abbinato col codice ──────
+# Entra con un accesso anonimo (ricordato in ~/.cucitore-accesso.json) e lavora nel deposito privato
+# «atmosfera/<casa>/»; senza abbinamento resta il vecchio modo (--casa <chiave>, deposito pubblico).
+ACCESSO = None
+FILE_ACCESSO = os.path.join(os.path.expanduser('~'), '.cucitore-accesso.json')
+
+
+def _salva_accesso():
+    with open(FILE_ACCESSO, 'w') as f: json.dump(ACCESSO, f)
+    try: os.chmod(FILE_ACCESSO, 0o600)
+    except Exception: pass
+
+
+def _sessione(d):
+    return {'access_token': d['access_token'], 'refresh_token': d['refresh_token'], 'scade': time.time() + int(d.get('expires_in', 3600)),
+            'utente': (d.get('user') or {}).get('id') or (ACCESSO or {}).get('utente'), 'casa': (ACCESSO or {}).get('casa')}
+
+
+def _gettone():
+    global ACCESSO
+    if not ACCESSO: return CHIAVE_PUBBLICA
+    if time.time() > ACCESSO['scade'] - 120:
+        r = urllib.request.Request(URL + '/auth/v1/token?grant_type=refresh_token', data=json.dumps({'refresh_token': ACCESSO['refresh_token']}).encode(),
+                                   method='POST', headers={'apikey': CHIAVE_PUBBLICA, 'Content-Type': 'application/json'})
+        with urllib.request.urlopen(r, timeout=60) as x: ACCESSO = _sessione(json.loads(x.read()))
+        _salva_accesso()
+    return ACCESSO['access_token']
+
+
+def abbina(chi):
+    """Accesso anonimo, codice di 6 cifre da scrivere sul telefono (Impostazioni → Account e casa → Abbina), attesa."""
+    global ACCESSO
+    if not ACCESSO:
+        r = urllib.request.Request(URL + '/auth/v1/signup', data=json.dumps({'data': {}}).encode(), method='POST',
+                                   headers={'apikey': CHIAVE_PUBBLICA, 'Content-Type': 'application/json'})
+        with urllib.request.urlopen(r, timeout=60) as x: ACCESSO = _sessione(json.loads(x.read()))
+        _salva_accesso()
+    codice = json.loads(_chiedi('POST', '/rest/v1/rpc/atm_chiedi_codice', json.dumps({'ruolo': 'lavoratore', 'nome': 'Rifinitura · ' + chi}).encode()))
+    print('\n   Codice per abbinare questo computer alla casa:   ' + codice[:3] + ' ' + codice[3:] +
+          '\n   Sul telefono: Illusionist → Impostazioni → Account e casa → «Abbina uno schermo». Vale 10 minuti.\n', flush=True)
+    for _ in range(200):
+        time.sleep(3)
+        righe = json.loads(_chiedi('GET', f"/rest/v1/atm_membri?select=casa&utente=eq.{ACCESSO['utente']}"))
+        if righe:
+            ACCESSO['casa'] = righe[0]['casa']; _salva_accesso()
+            print('   Abbinato alla casa ✓', flush=True); return True
+    print('   Codice scaduto: rilancia con --abbina', flush=True); return False
+
+
+def _scarica(cart, nome, dest):
+    via = 'authenticated' if ACCESSO else 'public'
+    with open(dest, 'wb') as f: f.write(_chiedi('GET', f'/storage/v1/object/{via}/{DEPOSITO}/{cart}/' + urllib.parse.quote(nome)))
+
+
 def _chiedi(metodo, percorso, corpo=None, tipo='application/json', extra=None):
-    h = {'apikey': CHIAVE_PUBBLICA, 'Authorization': 'Bearer ' + CHIAVE_PUBBLICA}
+    h = {'apikey': CHIAVE_PUBBLICA, 'Authorization': 'Bearer ' + _gettone()}
     if corpo is not None: h['Content-Type'] = tipo
     h.update(extra or {})
     r = urllib.request.Request(URL + percorso, data=corpo, method=metodo, headers=h)
-    with urllib.request.urlopen(r, timeout=120) as x: return x.read()
+    with urllib.request.urlopen(r, timeout=300) as x: return x.read()
 
 
 def cartella_di(casa):
@@ -449,7 +502,7 @@ def giro_casa(casa, larghezza=None, veloce=False, forza=1, chi='pc'):
       · il lavoro si prende con un segno «…_anim-giorno-incorso.png» che solo uno riesce a creare e che chi
         lavora rinfresca ogni 30 secondi: se non si rinfresca da 3 minuti, chi lavorava si è spento e si riprende.
     (Maurizio, 30/10: «il fallback non può essere dopo così tanti minuti»: niente più attese fisse.)"""
-    cart = 'finestre/' + cartella_di(casa)
+    cart = ACCESSO['casa'] if ACCESSO and ACCESSO.get('casa') else 'finestre/' + cartella_di(casa)
     io = f'zz-cucitore-{forza}-' + (re.sub(r'[^a-z0-9-]+', '-', chi.lower()).strip('-') or 'pc') + '.png'
     try: _rinfresca(cart, io)
     except Exception as e: print('presenza non segnata:', e, file=sys.stderr, flush=True)
@@ -493,15 +546,14 @@ def giro_casa(casa, larghezza=None, veloce=False, forza=1, chi='pc'):
 
 def _cuci_uno(cart, nomi, nome, base, parte, originale, larghezza, veloce):
     if True:
-        pub = lambda n: f'{URL}/storage/v1/object/public/{DEPOSITO}/{cart}/' + urllib.parse.quote(n)
         with tempfile.TemporaryDirectory() as d:
             e, u = os.path.join(d, 'e.mp4'), os.path.join(d, 'u.mp4')
-            urllib.request.urlretrieve(pub(nome), e)
+            _scarica(cart, nome, e)
             prof = imm = None
             pre = 'est-' if parte.startswith('est-') else ''                 # la vista del TV ha la sua profondità
             if f'{base}_{pre}profondita.png' in nomi and f'{base}_{pre}giorno.jpg' in nomi:
                 prof, imm = os.path.join(d, 'p.png'), os.path.join(d, 'g.jpg')
-                urllib.request.urlretrieve(pub(f'{base}_{pre}profondita.png'), prof); urllib.request.urlretrieve(pub(f'{base}_{pre}giorno.jpg'), imm)
+                _scarica(cart, f'{base}_{pre}profondita.png', prof); _scarica(cart, f'{base}_{pre}giorno.jpg', imm)
             fx = 0.5
             for kw in (base.split('@', 1)[1].split('.') if '@' in base else []):
                 if kw.startswith('fx') and kw[2:].isdigit(): fx = min(100, int(kw[2:])) / 100
@@ -539,8 +591,19 @@ def main():
     a.add_argument('--casa', help='chiave della casa: cuce le animazioni nuove nel deposito')
     a.add_argument('--una', action='store_true', help='con --casa: un giro solo e poi esce')
     a.add_argument('--forza', type=int, default=1, help='con --casa: quanto è potente (3 mini PC, 2 laptop, 1 Raspberry): lo fa il più forte acceso')
+    a.add_argument('--abbina', action='store_true', help='abbina questo computer alla casa privata (codice da scrivere sul telefono)')
     a.add_argument('--chi', default=os.environ.get('COMPUTERNAME') or (os.uname().nodename if hasattr(os, 'uname') else 'pc'), help='nome di questo apparecchio (nei segni)')
     o = a.parse_args()
+    global ACCESSO, DEPOSITO
+    try: ACCESSO = json.load(open(FILE_ACCESSO))
+    except Exception: ACCESSO = None
+    if o.abbina and not (ACCESSO and ACCESSO.get('casa')):
+        if not abbina(o.chi): return
+    if ACCESSO and not ACCESSO.get('casa'): ACCESSO = None if not o.abbina else ACCESSO
+    if ACCESSO and ACCESSO.get('casa'):
+        DEPOSITO = 'atmosfera'                                   # la casa privata: il suo deposito
+        print('casa privata:', ACCESSO['casa'], flush=True)
+        o.casa = o.casa or 'privata'
     if o.casa:
         # sul Raspberry che intanto disegna le finestre: priorità bassa e pochi processori, le finestre prima di tutto
         try: os.nice(19)

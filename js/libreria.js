@@ -21,6 +21,9 @@ async function cartellaDi(casa){
   return Array.from(new Uint8Array(b)).slice(0, 12).map(x => x.toString(16).padStart(2, '0')).join('');
 }
 let _deposito = null;
+/* la casa privata (js/accesso.js): quando il telefono ha collegato la casa al suo account e copiato i file,
+   la libreria legge e scrive nel deposito privato «atmosfera/<casa>/», con indirizzi firmati */
+let CASA_PRIVATA = null;
 function clientDeposito(){ return _deposito || (_deposito = supabase.createClient(SUPABASE_URL, SUPABASE_CHIAVE_PUBBLICA, {auth:{persistSession:false}})); }
 function urlPubblico(percorso){ return SUPABASE_URL + '/storage/v1/object/public/' + DEPOSITO + '/' + percorso.split('/').map(encodeURIComponent).join('/'); }
 
@@ -58,8 +61,14 @@ const MODELLO_NOME = /^([a-z0-9]+)_(painterly|inked|classic_oil|foto|video)_([a-
    [{id, tipo, nome, parole[], immagini:{giorno, alba, tramonto, notte, profondita}, animati:{giorno…}, yt, file[]}] */
 async function leggiLibreria(casa){
   const cartella = await cartellaDi(casa);
-  const {data, error} = await clientDeposito().storage.from(DEPOSITO)
-    .list('finestre/' + cartella, {limit:1000, sortBy:{column:'name', order:'desc'}});
+  let data, error, firmati = null;
+  if (CASA_PRIVATA){
+    data = (await Accesso.elenco(CASA_PRIVATA)).filter(f => MODELLO_NOME.test(f.name) || /-originale\.(jpg|png|mp4)$/.test(f.name));
+    const buoni = data.filter(f => MODELLO_NOME.test(f.name));
+    firmati = await Accesso.firma(CASA_PRIVATA, buoni.map(f => f.name), Object.fromEntries(buoni.map(f => [f.name, f.updated_at || ''])));
+  } else {
+    ({data, error} = await clientDeposito().storage.from(DEPOSITO).list('finestre/' + cartella, {limit:1000, sortBy:{column:'name', order:'desc'}}));
+  }
   if (error) throw new Error('Lettura della libreria non riuscita: ' + error.message);
   const per = new Map();
   for (const f of data || []){
@@ -74,12 +83,12 @@ async function leggiLibreria(casa){
         parole: tutte.filter(x => x !== fx), fuoco: fx ? {x: Math.min(100, +fx.slice(2)) / 100} : null,
         immagini:{}, animati:{}, yt:null, file:[], creato: parseInt(id, 36) || 0});
     }
-    const p = per.get(id), url = urlPubblico('finestre/' + cartella + '/' + f.name);
+    const p = per.get(id), url = firmati ? firmati[f.name] : urlPubblico('finestre/' + cartella + '/' + f.name);
     p.file.push(f.name);
     if (compagno) continue;
     /* video e immagini possono essere riscritti col nome di prima (cucito o ingrandito dopo: pi/cuci-animazione.py)
        e restano un anno nella memoria del browser: l'indirizzo porta la loro data, così nessuno tiene il vecchio */
-    const v = '?v=' + (Date.parse(f.updated_at || f.created_at || '') || 0).toString(36);
+    const v = firmati ? '' : '?v=' + (Date.parse(f.updated_at || f.created_at || '') || 0).toString(36);   /* l'indirizzo firmato cambia già da sé */
     const vEst = parte.startsWith('est-') ? 'est-' : '', pp = parte.slice(vEst.length);
     if (pp.startsWith('anim-')) p.animati[vEst + pp.slice(5)] = url + v;
     else if (parte.startsWith('yt-')) p.yt = hexInYt(parte.slice(3));
@@ -106,6 +115,12 @@ async function carica(casa, p, parte, blob, est){
   const cartella = await cartellaDi(casa);
   const tipo = est === 'png' ? 'image/png' : est === 'mp4' ? 'video/mp4' : 'image/jpeg';
   const nome = nomeFile(p, parte, est);
+  if (CASA_PRIVATA){
+    await Accesso.carica(CASA_PRIVATA, nome, blob, tipo);
+    (p.file || (p.file = [])).push(nome);
+    Accesso._firme.delete(CASA_PRIVATA + '/' + nome);
+    return (await Accesso.firma(CASA_PRIVATA, [nome]))[nome];
+  }
   const {error} = await clientDeposito().storage.from(DEPOSITO)
     .upload('finestre/' + cartella + '/' + nome, blob, {upsert:true, contentType:tipo, cacheControl:'31536000'});
   if (error) throw new Error('Caricamento non riuscito: ' + error.message);
@@ -144,12 +159,14 @@ async function rinominaPaesaggio(casa, p, nome, parole, fuoco = p.fuoco){
     const dest = nomeFile(nuovo, m[5], m[6]).replace(/(\.\w+)$/, compagno ? '-originale$1' : '$1');
     nuoviFile.push(dest);
     if (dest === f) continue;
-    const {error} = await dep.move('finestre/' + cartella + '/' + f, 'finestre/' + cartella + '/' + dest);
+    const {error} = CASA_PRIVATA ? await Accesso.deposito().move(CASA_PRIVATA + '/' + f, CASA_PRIVATA + '/' + dest)
+      : await dep.move('finestre/' + cartella + '/' + f, 'finestre/' + cartella + '/' + dest);
     if (error) throw new Error('Non sono riuscito a rinominarlo: ' + error.message);
   }
   /* aggiorna il paesaggio in memoria: nomi dei file e indirizzi */
   Object.assign(p, {nome, parole, fuoco, file: nuoviFile});
-  const url = n => urlPubblico('finestre/' + cartella + '/' + n);
+  const firmati = CASA_PRIVATA ? await Accesso.firma(CASA_PRIVATA, nuoviFile.filter(n => MODELLO_NOME.test(n))) : null;
+  const url = n => firmati ? firmati[n] : urlPubblico('finestre/' + cartella + '/' + n);
   p.immagini = {}; p.animati = {};
   for (const n of nuoviFile){ const m = n.match(MODELLO_NOME); if (!m) continue; const parte = m[5];
     const vEst = parte.startsWith('est-') ? 'est-' : '', pp = parte.slice(vEst.length);
@@ -159,6 +176,7 @@ async function rinominaPaesaggio(casa, p, nome, parole, fuoco = p.fuoco){
 
 async function togliPaesaggio(casa, p){
   const cartella = await cartellaDi(casa);
+  if (CASA_PRIVATA) return Accesso.togli(CASA_PRIVATA, p.file);
   const {error} = await clientDeposito().storage.from(DEPOSITO).remove(p.file.map(f => 'finestre/' + cartella + '/' + f));
   if (error) throw new Error('Non sono riuscito a toglierlo: ' + error.message);
 }

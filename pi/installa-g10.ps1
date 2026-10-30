@@ -23,7 +23,8 @@
 param(
   [string]$Casa = 'bbb55e2f-69f4-4522-9c19-e940637e90c1',
   [int]$TvX = 2600,   # dove sta il centro del TV rispetto al radar, in mm (x: verso destra guardando le finestrelle)
-  [int]$TvY = 1800    #                                                      (y: dal muro delle finestrelle verso la stanza)
+  [int]$TvY = 1800,   #                                                      (y: dal muro delle finestrelle verso la stanza)
+  [switch]$Abbina     # abbina questo computer alla casa privata: mostra un codice da scrivere sul telefono
 )
 $ErrorActionPreference = 'Stop'
 $Cartella = Join-Path $env:USERPROFILE 'finestre'
@@ -46,6 +47,11 @@ Passo 'Prova del radar e della rete (se Windows chiede, rispondi Consenti)'
 $prova = Start-Process py -ArgumentList '-3.12', (Join-Path $Cartella 'pi\sensore.py') -PassThru -WindowStyle Minimized
 Start-Sleep -Seconds 12
 if (-not $prova.HasExited) { Stop-Process -Id $prova.Id -Force }
+
+if ($Abbina) {
+  Passo 'Abbinamento alla casa (scrivi sul telefono il codice che compare qui sotto)'
+  py -3.12 (Join-Path $Cartella 'pi\cuci-animazione.py') --abbina --una --forza 3 --chi g10
+}
 
 Passo 'Avvio automatico'
 $Url = "https://mauriziotarsia-dev.github.io/finestre/finestra/?casa=$Casa&vista=est&tvx=$TvX&tvy=$TvY"

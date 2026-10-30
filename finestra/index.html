@@ -18,6 +18,7 @@
 <canvas id="c"></canvas>
 <script src="../js/supabase.js?v=2.1.0"></script>
 <script src="../js/canale.js?v=2.1.0"></script>
+<script src="../js/accesso.js?v=1"></script>
 <script src="../js/vista.js?v=4.3"></script>
 <script src="../js/inseguitore.js?v=1"></script>
 <script src="../js/uccelli.js?v=3"></script>
@@ -319,7 +320,7 @@ function calibra(d){
 let canale = null;
 if (anteprima){
   addEventListener('message', e => { const d = e.data || {}; if (d.tipo === 'occhio') daTelefono(d.x, d.z); else if (d.tipo === 'scena') applica(d.scena, false); else if (d.tipo === 'fori') calibra(Object.assign({}, d, {salva:false})); else if (d.tipo === 'lampo') scocca(); });
-} else if (casa && window.supabase){
+} else if (window.supabase){
   /* DMaster al comando: finché arriva il suo battito (ogni 10 s, 30 s di tolleranza) scene, lampi e
      prove di prospettiva valgono solo se vengono da lui; il telefono torna a comandare quando tace */
   let dmasterFino = 0;
@@ -328,7 +329,8 @@ if (anteprima){
   const schedaVideo = () => { try { const g = vista.gl, e = g.getExtension('WEBGL_debug_renderer_info'); return e ? g.getParameter(e.UNMASKED_RENDERER_WEBGL) : g.getParameter(g.RENDERER); } catch(e) { return ''; } };
   const chi = () => ({lato: mio, assetto: tv ? null : casaFori, scena, schermo:{w:innerWidth, h:innerHeight, dpr:devicePixelRatio}, comando: comandaDM() ? 'dmaster' : null,
     prestazioni:{fps: Math.round(fpsMisurati), hzSchermo: Math.round(1000 / intervalloSchermo), msDisegno: Math.round(msDisegno * 10) / 10, scala, qualita, disegno:{w:c.width, h:c.height}, schermoVero:{w:Math.round(screen.width * devicePixelRatio), h:Math.round(screen.height * devicePixelRatio)}, gl: schedaVideo(), browser: navigator.userAgent}});
-  canale = apriCanale(casa, {
+  /* lo stesso ascolto per il canale del vecchio link e per quello privato della casa (js/accesso.js) */
+  const gestore = rispondi => ({
     suMessaggio(evento, dati){
       if (evento === 'dmaster'){ dmasterFino = dati.attivo ? Date.now() + 30000 : 0; return; }
       const daDM = dati && dati.da === 'dmaster';
@@ -340,10 +342,49 @@ if (anteprima){
       /* prova delle prestazioni da lontano: spegne per un po' alcune parti del disegno (poi si ricarica e torna tutto) */
       else if (evento === 'prova'){ if (Array.isArray(dati.spegni)) vista.spegni = new Set(dati.spegni); if (dati.scala){ scalaFissa = +dati.scala; scala = scalaFissa; impagina(); } }
       else if (evento === 'occhio') daTelefono(dati.x, dati.z);
-      else if (evento === 'chi') canale.manda('eccomi', chi());
+      else if (evento === 'chi') rispondi('eccomi', chi());
+      else if (evento === 'mostraCodice') mostraCodice();
+      else if (evento === 'abbinato') controllaAbbinamento();
     },
-    suStato(ok){ if (ok) canale.manda('eccomi', chi()); }
+    suStato(ok){ if (ok) rispondi('eccomi', chi()); }
   });
+  if (casa) canale = apriCanale(casa, gestore((e, d) => canale && canale.manda(e, d)));
+
+  /* ── abbinamento alla casa privata ───────────────────────────────────────────
+     Ogni schermo entra con un accesso anonimo (resta in questo browser) e diventa membro della casa quando il
+     proprietario scrive sul telefono il codice che compare qui. Da lì ascolta anche il canale privato. */
+  let privato = null, cartello = null, attesaCodice = null;
+  const nomeSchermo = tv ? 'TV' : casaFori.n === 2 ? 'Finestra ' + mio : 'Finestra';
+  function apriPrivato(m){
+    if (privato || !m) return;
+    privato = Accesso.canale(m.casa, gestore((e, d) => privato && privato.manda(e, d)));
+    scrivi('atm-casa', m.casa);
+  }
+  async function controllaAbbinamento(){
+    const m = await Accesso.miaCasa().catch(() => null);
+    if (m){ apriPrivato(m); if (cartello) mostraCartello('Abbinata alla casa ✓', null, 4000); clearInterval(attesaCodice); attesaCodice = null; }
+    return m;
+  }
+  function mostraCartello(titolo, codice, togliDopo){
+    if (!cartello){ cartello = document.createElement('div'); cartello.style.cssText = 'position:fixed;inset:0;z-index:50;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2vh;background:rgba(5,5,8,.92);color:#e9d9a8;font:500 2.4vh system-ui;text-align:center;padding:4vh'; document.body.appendChild(cartello); }
+    cartello.innerHTML = '<div style="letter-spacing:.2em;text-transform:uppercase;font-size:1.8vh;opacity:.7">' + nomeSchermo + '</div><div>' + titolo + '</div>' +
+      (codice ? '<div style="font:700 9vh ui-monospace,monospace;letter-spacing:.15em;color:#f3e3b0">' + codice.slice(0, 3) + ' ' + codice.slice(3) + '</div><div style="font-size:1.8vh;opacity:.75;max-width:60ch">Sul telefono: Illusionist → Impostazioni → Account e casa → «Abbina uno schermo». Il codice vale 10 minuti.</div>' : '');
+    if (togliDopo) setTimeout(() => { if (cartello){ cartello.remove(); cartello = null; } }, togliDopo);
+  }
+  async function mostraCodice(){
+    if (await controllaAbbinamento()){ mostraCartello('Già abbinata a questa casa ✓', null, 5000); return; }
+    try {
+      const codice = await Accesso.codiceSchermo('schermo', nomeSchermo);
+      mostraCartello('Codice per abbinare questo schermo', codice, 10 * 60e3);
+      clearInterval(attesaCodice); attesaCodice = setInterval(controllaAbbinamento, 3000);
+      setTimeout(() => { clearInterval(attesaCodice); attesaCodice = null; }, 10 * 60e3);
+    } catch(e) { mostraCartello('Codice non disponibile: ' + e.message, null, 15000); }
+  }
+  /* all'avvio: se è già membro ascolta il canale privato; uno schermo nuovo, senza il vecchio link, mostra subito il codice */
+  controllaAbbinamento().then(m => { if (!m && !casa) mostraCodice(); });
+  /* gli indirizzi firmati delle immagini valgono 30 giorni: una volta ogni 20 giorni la pagina si rinfresca da sola */
+  setTimeout(() => location.reload(), 20 * 24 * 3600e3);
+
 }
 
 /* ── il giro ───────────────────────────────────────────────────────────────── */

@@ -11,7 +11,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
 const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 const euro = n => (n < .1 ? n.toFixed(3) : n.toFixed(2)).replace('.', ',') + ' $';
-const VERSIONE = '2.9';
+const VERSIONE = '3.0';
 
 /* ── la casa ──────────────────────────────────────────────────────────────── */
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
@@ -70,7 +70,7 @@ function assettoOPredefinito(){
 }
 
 /* ── canale con le finestre ──────────────────────────────────────────────── */
-const canale = apriCanale(casa, {
+const gestoreCanale = {
   suMessaggio(evento, d){
     if (evento === 'dmaster'){ dmasterFino = d.attivo ? Date.now() + 30000 : 0; aggiornaComando(); return; }
     if (evento !== 'eccomi') return;
@@ -88,7 +88,14 @@ const canale = apriCanale(casa, {
     aggiornaSpia(); impaginaAnteprima(); if (scheda === 'finestre') aggiornaFinestre(); if (scheda === 'impostazioni') disegnaScheda();
   },
   suStato(ok){ aggiornaSpia(); if (ok) canale.manda('chi'); }
-});
+};
+const canale = apriCanale(casa, gestoreCanale);
+/* la casa privata: anche il canale privato «atm:<casa>»; i messaggi partono su tutti e due finché ci sono
+   schermi col vecchio link (js/accesso.js) */
+let canalePrivato = null;
+{ const mandaVecchio = canale.manda.bind(canale);
+  canale.manda = (evento, dati) => { const a = mandaVecchio(evento, dati), b = canalePrivato ? canalePrivato.manda(evento, dati) : false; return a || b; };
+}
 { /* mentre comanda DMaster, verso le finestre parte solo la domanda «chi c'è?» */
   const mandaDavvero = canale.manda.bind(canale);
   canale.manda = (evento, dati) => { if (evento !== 'chi' && comandaDM()){ avvisoInMano(); return false; } return mandaDavvero(evento, dati); };
@@ -122,6 +129,47 @@ function mandaFori(){
   scrivi('finestre-fori', assetto); impaginaAnteprima();
   clearTimeout(invioFori);
   invioFori = setTimeout(() => canale.manda('fori', Object.assign({mostra: mostraBordi}, assettoOPredefinito())), 90);
+}
+
+/* ── account e casa privata (js/accesso.js) ─────────────────────────────────
+   Il telefono entra con l'email (codice di 6 cifre, una volta sola: poi resta); la casa del vecchio link
+   diventa del suo account; schermi, DMaster e il computer che rifinisce si abbinano col codice che mostrano. */
+let account = null, casaPrivata = null, membri = [], accessoStato = 'controllo', emailInAttesa = leggi('atm-email-attesa', '');
+async function avviaAccesso(){
+  try {
+    account = await Accesso.conAccount();
+    if (account){
+      const case_ = await Accesso.mieCase();
+      casaPrivata = case_.find(c => c.chiave_vecchia === casa) || null;
+      if (casaPrivata){
+        const n = (await Accesso.elenco(casaPrivata.id)).length;
+        if (n && !CASA_PRIVATA){ CASA_PRIVATA = casaPrivata.id; libreriaStato = 'da caricare'; if (scheda === 'paesaggi') disegnaPaesaggi(); else caricaLibreria(); }
+        if (!canalePrivato) canalePrivato = Accesso.canale(casaPrivata.id, gestoreCanale);
+        membri = await Accesso.membri(casaPrivata.id).catch(() => []);
+      }
+    }
+    accessoStato = 'ok';
+  } catch(e) { accessoStato = e.message; }
+  if (scheda === 'impostazioni') disegnaImpostazioni();
+}
+/* dal vecchio deposito pubblico al privato: copia quello che manca o che è stato riscritto (si può rifare) */
+async function copiaNelPrivato(L){
+  const cartella = await cartellaDi(casa);
+  const {data: vecchi, error} = await clientDeposito().storage.from(DEPOSITO).list('finestre/' + cartella, {limit:1000});
+  if (error) throw new Error('Vecchio deposito non letto: ' + error.message);
+  const nuovi = Object.fromEntries((await Accesso.elenco(casaPrivata.id)).map(f => [f.name, f]));
+  const daCopiare = (vecchi || []).filter(f => !/^zz-|-incorso\.png$/.test(f.name) && (!nuovi[f.name] || Date.parse(f.updated_at || 0) > Date.parse(nuovi[f.name].updated_at || 0)));
+  let fatti = 0;
+  for (const f of daCopiare){
+    passo('copia', 'ora', `Copio le immagini nel deposito privato: ${fatti + 1} di ${daCopiare.length}…`); L.av = fatti / daCopiare.length * 100;
+    const r = await fetch(urlPubblico('finestre/' + cartella + '/' + f.name) + '?copia=' + Date.now());
+    if (!r.ok) throw new Error('Non riesco a leggere ' + f.name + ' (' + r.status + ')');
+    const blob = await r.blob();
+    await Accesso.carica(casaPrivata.id, f.name, blob, (f.metadata && f.metadata.mimetype) || blob.type || 'application/octet-stream');
+    fatti++;
+  }
+  L.av = null;
+  passo('copia', 'fatto', daCopiare.length ? `Copiati ${fatti} file nel deposito privato` : 'Il deposito privato era già aggiornato');
 }
 
 /* ── problemi di credito o di chiave: un avviso che resta finché non si risolve ── */
@@ -709,7 +757,26 @@ function disegnaImpostazioni(){
       ${cursore('fw' + nm, 'mirino', 'Larghezza', 2, 100, (f.w * 100).toFixed(1), (f.w * 100).toFixed(1) + '%', .1)}
       ${cursore('fh' + nm, 'mirino', 'Altezza', 2, 100, (f.h * 100).toFixed(1), (f.h * 100).toFixed(1) + '%', .1)}</div>`; }).join('');
   const linkPi = new URL('../finestra/?casa=' + casa, location.href).href, linkTel = location.origin + location.pathname + '?casa=' + casa;
-  s.innerHTML = testa('manopole', 'Impostazioni', 'Modelli, chiavi e finestre') + `<div class="problema" hidden></div>
+  const ruoli = {proprietario:'Proprietario', comando:'Comando (DMaster)', schermo:'Schermo', lavoratore:'Rifinitura video'};
+  const sezAccount = `<div class="sezione">${titolo('persona', 'Account e casa', account ? 'privata' : 'col vecchio link')}
+    <div class="pannello">${accessoStato === 'controllo' ? '<p class="nota" style="margin:0">Controllo l\'accesso…</p>'
+      : !account ? (emailInAttesa ? `<p class="nota" style="margin-top:0">Ti ho mandato un codice a <b>${esc(emailInAttesa)}</b> (oggetto «Accesso DMaster: codice …»). Scrivilo qui:</p>
+          <label class="campo"><span>Codice</span><input id="accCodice" inputmode="numeric" autocomplete="one-time-code" maxlength="10" placeholder="123456"></label>
+          <div class="azioni"><button class="btn oro" data-fai="accEntra">${icona('spunta', 18)}Entra</button><button class="btn" data-fai="accAltra">Altra email</button></div>`
+        : `<p class="nota" style="margin-top:0">Entra con la tua email, una volta sola: ti arriva un codice di 6 cifre, niente password. La prima volta l'account si crea da solo.</p>
+          <label class="campo"><span>Email</span><input id="accEmail" type="email" autocomplete="email" inputmode="email" placeholder="nome@esempio.it" value="${esc(leggi('atm-email', ''))}"></label>
+          <button class="btn oro piena" data-fai="accCodiceEmail">${icona('posta', 18)}Mandami il codice</button>`)
+      : `<p class="nota" style="margin-top:0">Entrato come <b>${esc(account.email || '')}</b>.</p>
+        ${!casaPrivata ? `<p class="nota">Questa casa usa ancora il vecchio link: chi ce l'ha comanda le finestre e vede le immagini. Collegala al tuo account: copio le immagini nel deposito privato e da lì le vedono solo gli schermi che abbini tu. Il vecchio link continua a funzionare finché non abbini tutti gli schermi.</p>
+          <button class="btn oro piena" data-fai="accReclama">${icona('chiave', 18)}Collega questa casa al mio account</button>`
+        : `<p class="nota">Casa privata${CASA_PRIVATA ? '' : ' · immagini non ancora copiate'}. Membri:</p>
+          <ul class="membri">${membri.map(m => `<li><span><b>${esc(m.nome || ruoli[m.ruolo] || m.ruolo)}</b><small>${esc(ruoli[m.ruolo] || m.ruolo)}</small></span>${m.ruolo === 'proprietario' ? '' : `<button class="btn piccolo pericolo" data-fai="accTogli" data-v="${esc(m.utente)}">Togli</button>`}</li>`).join('')}</ul>
+          <label class="campo" style="margin-top:10px"><span>Abbina uno schermo · codice che mostra</span><input id="accAbbina" inputmode="numeric" maxlength="7" placeholder="123456"></label>
+          <div class="azioni"><button class="btn oro" data-fai="accAbbina">${icona('catena', 18)}Abbina</button><button class="btn" data-fai="accMostraCodici">${icona('schermo', 18)}Mostra i codici sugli schermi</button><button class="btn" data-fai="accCopia">${icona('ricarica', 18)}${CASA_PRIVATA ? 'Ricopia dal vecchio deposito' : 'Copia le immagini'}</button></div>
+          <p class="nota">Ogni schermo (finestre, TV), DMaster e il computer che rifinisce i video mostrano un codice di 6 cifre: scrivilo qui, una volta per ognuno.</p>`}
+        <div class="azioni"><button class="btn" data-fai="accEsci">Esci</button></div>
+        <div id="lavoroFoglio"></div>`}</div></div>`;
+  s.innerHTML = testa('manopole', 'Impostazioni', 'Modelli, chiavi e finestre') + `<div class="problema" hidden></div>${sezAccount}
     <div class="sezione">${titolo('tavolozza', 'AI per le immagini')}
       <div class="scelte">${MODELLI_IMMAGINE.map(m => `<button class="scelta riga" data-fai="modello" data-v="${m.id}" aria-pressed="${imp.modello === m.id}">${icona(m.fornitore === 'google' ? 'mondo' : 'scintilla', 22)}<span><b>${esc(m.nome)}</b><small>${esc(m.note)}</small></span><span class="prezzo">≈ ${euro(m.costo[imp.qualita] || m.costo.alta)}</span></button>`).join('')}</div>
       <div class="segmenti" style="margin-top:10px">${['alta','media','bassa'].map(v => `<button data-fai="qualita" data-v="${v}" aria-pressed="${imp.qualita === v}">Qualità ${v}</button>`).join('')}</div>
@@ -910,6 +977,54 @@ const AZIONI = {
   nFinestre: v => { assetto = assettoOPredefinito(); assetto.n = +v; mandaFori(); disegnaImpostazioni(); if (scheda === 'finestre') aggiornaFinestre(); },
   bordi: () => { mostraBordi = !mostraBordi; canale.manda('fori', Object.assign({mostra: mostraBordi}, assettoOPredefinito())); disegnaImpostazioni(); },
   copia: v => { navigator.clipboard?.writeText(v).then(() => avviso('Link copiato')).catch(() => avviso(v)); },
+  accCodiceEmail: async () => {
+    const email = ($('#accEmail') || {}).value || '';
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email.trim())){ avviso('Scrivi un\'email valida.', true); return; }
+    try { await Accesso.chiediCodiceEmail(email); scrivi('atm-email', email.trim()); emailInAttesa = email.trim(); scrivi('atm-email-attesa', emailInAttesa); disegnaImpostazioni(); avviso('Codice mandato: guarda la posta'); }
+    catch(e) { avviso(e.message, true); }
+  },
+  accEntra: async () => {
+    const cod = ($('#accCodice') || {}).value || '';
+    try { await Accesso.verificaCodiceEmail(emailInAttesa, cod); emailInAttesa = ''; scrivi('atm-email-attesa', ''); avviso('Sei dentro'); await avviaAccesso(); }
+    catch(e) { avviso(e.message, true); }
+  },
+  accAltra: () => { emailInAttesa = ''; scrivi('atm-email-attesa', ''); disegnaImpostazioni(); },
+  accEsci: async () => { await Accesso.esci(); account = null; casaPrivata = null; CASA_PRIVATA = null; if (canalePrivato){ canalePrivato.chiudi(); canalePrivato = null; } libreriaStato = 'da caricare'; disegnaImpostazioni(); },
+  accReclama: async () => {
+    await conLavoro('reclama', async L => {
+      passo('reclama', 'ora', 'Collego la casa al tuo account…');
+      const id = await Accesso.reclama(casa, 'Casa');
+      casaPrivata = (await Accesso.mieCase()).find(c => c.id === id);
+      passo('reclama', 'fatto', 'La casa è tua');
+      await copiaNelPrivato(L);
+      CASA_PRIVATA = casaPrivata.id; libreriaStato = 'da caricare';
+      if (!canalePrivato) canalePrivato = Accesso.canale(casaPrivata.id, gestoreCanale);
+      membri = await Accesso.membri(casaPrivata.id);
+      await caricaLibreria();
+      if (scena.paesaggio){ const p = libreria.find(x => x.id === scena.paesaggio); if (p){ Object.assign(scena, scenaDi(p)); mandaScena(); } }
+    });
+    disegnaImpostazioni();
+  },
+  accCopia: async () => {
+    await conLavoro('copia', async L => { await copiaNelPrivato(L); CASA_PRIVATA = casaPrivata.id; libreriaStato = 'da caricare'; await caricaLibreria(); });
+    disegnaImpostazioni();
+  },
+  accAbbina: async () => {
+    const cod = (($('#accAbbina') || {}).value || '').replace(/\D/g, '');
+    if (cod.length !== 6){ avviso('Il codice ha 6 cifre.', true); return; }
+    try {
+      const r = await Accesso.abbina(cod, casaPrivata.id);
+      avviso('Abbinato: ' + (r.nome || r.ruolo));
+      canale.manda('abbinato', {});
+      membri = await Accesso.membri(casaPrivata.id); disegnaImpostazioni();
+    } catch(e) { avviso(e.message, true); }
+  },
+  accMostraCodici: () => { if (canale.manda('mostraCodice', {})) avviso('Gli schermi mostrano il loro codice per qualche minuto'); else avviso('Finestre non collegate', true); },
+  accTogli: async (v, b) => {
+    if (b.dataset.conferma !== '1'){ b.dataset.conferma = '1'; b.textContent = 'Sicuro?'; return; }
+    try { await Accesso.togliMembro(casaPrivata.id, v); membri = await Accesso.membri(casaPrivata.id); disegnaImpostazioni(); avviso('Tolto dalla casa'); }
+    catch(e) { avviso(e.message, true); }
+  },
   ricaricaFinestre: () => { if (canale.manda('ricarica')){ rimanda = true; avviso('Le finestre si ricaricano'); } else avviso('Non collegato', true); },
 };
 document.addEventListener('click', e => {
@@ -920,5 +1035,5 @@ document.addEventListener('click', e => {
 document.addEventListener('keydown', e => { if ((e.key === 'Enter' || e.key === ' ') && e.target.matches('[role="switch"]')){ e.preventDefault(); e.target.click(); } });
 
 /* via */
-caricaLibreria();
+avviaAccesso().finally(() => { if (libreriaStato === 'da caricare') caricaLibreria(); });
 disegnaScheda();

@@ -22,3 +22,9 @@ Lo stesso indirizzo delle finestre con `&vista=est`: `https://mauriziotarsia-dev
 Tutto lo schermo è la finestra; mostra la vista «est-…» del paesaggio (creata dal telefono: Crea → «Verso est · il TV», o dal dettaglio di un paesaggio → «Crea la vista TV"). Stessa ora, stesso tempo e stesso cielo delle finestrelle.
 Sul G10 tutto si prepara con `pi/installa-g10.ps1` (istruzioni in testa al file): TV in Edge a tutto schermo, radar, rifinitura e ingrandimento AI all'accesso. Per la prospettiva viva anche sul TV, sul mini PC gira `pi/sensore.py` (riceve il radar dal Wi-Fi come il Raspberry); `&tvx=…&tvy=…` = posizione del centro del TV rispetto al radar, in mm (x verso destra guardando le finestrelle, y verso la stanza).
 
+## Account e casa privata (30/10)
+- Telefono: Impostazioni → Account e casa → email → codice di 6 cifre (una volta sola) → «Collega questa casa al mio account» (copia le immagini nel deposito privato `atmosfera/<casa>/`).
+- Schermi (finestre, TV): dal telefono «Mostra i codici sugli schermi», poi scrivi ogni codice in «Abbina». Una pagina aperta senza `?casa=` mostra il codice da sola.
+- Computer che rifinisce i video: `python3 pi/cuci-animazione.py --abbina` (una volta; poi basta lanciarlo senza `--casa`). Sul G10: `installa-g10.ps1 -Abbina`.
+- Finché ci sono schermi col vecchio link, il telefono parla su tutti e due i canali. Regole e funzioni: `supabase/2026-10-30-atmosfera-case-private.sql`; codice: `js/accesso.js`.
+
