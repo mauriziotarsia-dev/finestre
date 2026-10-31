@@ -51,6 +51,17 @@ const Accesso = {
     if (error) throw new Error('Accesso col QR non riuscito: ' + error.message);
     return data.user;
   },
+  /* il codice per entrare da un computer (31/10): 8 caratteri, 5 minuti, una volta. Lo scrivi in DMaster al posto dell'email */
+  async creaCodiceComputer(){
+    const {data, error} = await this.sb.rpc('atm_crea_codice_accesso');
+    if (error) throw new Error(/troppi/i.test(error.message) ? 'Troppi codici di fila: riprova fra qualche minuto.' : error.message);
+    return data;
+  },
+  async statoAccesso(token){
+    const {data, error} = await this.sb.rpc('atm_stato_accesso', {token});
+    if (error) throw new Error(error.message);
+    return data;
+  },
   async esci(ovunque = false){ await this.sb.auth.signOut(ovunque ? {scope:'global'} : undefined); },
 
   /* ── le case ─────────────────────────────────────────────────────────────── */

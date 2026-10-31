@@ -1,0 +1,9 @@
+-- DMaster · entrare dal computer col CODICE che mostra l'app del telefono (31/10/2026, Maurizio: «Qr per computer
+-- non è comodo. Magari il codice come via alternativa alla mail»). Applicato con apply_migration
+-- («atmosfera_accesso_col_codice»); testo completo delle funzioni nel progetto Supabase.
+--   · atm_crea_codice_accesso(): 8 caratteri senza quelli che si confondono (niente 0/O, 1/I/L), 5 minuti, una volta
+--     (31^8 ≈ 850 miliardi di combinazioni); stessa tavola atm_accessi, impronta sha256('codice:'||codice)
+--   · atm_privato.impronta_accesso(token): impronta per il gettone del QR (64 esadecimali) o per il codice
+--   · atm_stato_accesso / atm_consuma_accesso accettano tutti e due
+--   · atm_ip_bloccato / atm_ip_sbaglio (solo chiave di servizio): la funzione accedi-col-qr blocca un indirizzo
+--     dopo 10 tentativi sbagliati in 15 minuti

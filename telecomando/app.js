@@ -11,7 +11,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
 const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 const euro = n => (n < .1 ? n.toFixed(3) : n.toFixed(2)).replace('.', ',') + ' $';
-const VERSIONE = '3.4';
+const VERSIONE = '3.5';
 
 /* ── la casa ──────────────────────────────────────────────────────────────── */
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
@@ -904,7 +904,8 @@ function disegnaImpostazioni(){
           ${vecchio && sonoProprietario() ? `<div class="azioni"><button class="btn" data-fai="accMostraCodici">${icona('schermo', 18)}Mostra il QR sugli schermi accesi</button><button class="btn" data-fai="accCopia">${icona('ricarica', 18)}Ricopia le immagini</button></div>
           <div class="vecchio-link"><b>${icona('avviso', 16)}Vecchio link ancora aperto</b><span>Chi ha il vecchio link comanda le finestre e vede le immagini. Quando tutti gli schermi (e DMaster) sono nella stanza, chiudilo.</span>
             <button class="btn piccolo pericolo" data-fai="accChiudiVecchio">Chiudi il vecchio link</button></div>` : '<p class="nota">Stanza privata: la vedono solo i membri qui sopra.</p>'}`}
-      ${account ? `<div class="azioni"><button class="btn piccolo" data-fai="accEsci">Esci da questo telefono</button><button class="btn piccolo" data-fai="accEsciOvunque">Esci da tutti i dispositivi</button></div>`
+      ${account ? `<button class="btn piena" style="margin-top:12px" data-fai="accCodiceComputer">${icona('chiave', 18)}Entra da un computer</button>
+        <div class="azioni"><button class="btn piccolo" data-fai="accEsci">Esci da questo telefono</button><button class="btn piccolo" data-fai="accEsciOvunque">Esci da tutti i dispositivi</button></div>`
         : casaPrivata ? `<p class="nota">Telefono collegato da DMaster.</p><div class="azioni"><button class="btn piccolo" data-fai="accEsci">Scollega questo telefono</button></div>` : ''}
       <div id="lavoroFoglio"></div></div></div>`;
   s.innerHTML = testa('manopole', 'Impostazioni', 'Modelli, chiavi e finestre') + `<div class="problema" hidden></div>${sezAccount}
@@ -1167,6 +1168,25 @@ const AZIONI = {
     disegnaImpostazioni();
   },
   accEsci: async () => { await Accesso.esci(); location.reload(); },
+  /* un codice da scrivere in DMaster sul computer, al posto dell'email (31/10) */
+  accCodiceComputer: async () => {
+    let c;
+    try { c = await Accesso.creaCodiceComputer(); } catch(e) { avviso(e.message, true); return; }
+    const leggibile = c.slice(0, 4) + ' ' + c.slice(4);
+    apriFoglio(`<div class="benvenuto" style="text-align:center">${icona('chiave', 30)}<h3>Entra da un computer</h3>
+      <p class="nota">In DMaster sul computer: «Entra» → «Hai l'app sul telefono? Scrivi il codice», e scrivi:</p>
+      <div class="codice-grande" style="font-family:ui-monospace,Menlo,monospace;font-size:min(34px,8vw);letter-spacing:.12em;margin:14px 0;white-space:nowrap;color:var(--oro-chiaro,#f0cb5b)">${esc(leggibile)}</div>
+      <p class="nota" id="statoCodice">Vale 5 minuti, una volta sola. Non dirlo a chi non deve entrare nel tuo account.</p>
+      <button class="btn piena" data-fai="chiudiFoglio">Chiudi</button></div>`);
+    foglioAperto = 'codice-computer';
+    const giro = setInterval(async () => {
+      if (foglioAperto !== 'codice-computer'){ clearInterval(giro); return; }
+      const st = await Accesso.statoAccesso(c).catch(() => 'attesa');
+      const el = $('#statoCodice'); if (!el) { clearInterval(giro); return; }
+      if (st === 'usato'){ clearInterval(giro); el.innerHTML = '<b>Fatto: il computer è entrato.</b>'; navigator.vibrate && navigator.vibrate(40); }
+      else if (st === 'scaduto'){ clearInterval(giro); el.textContent = 'Il codice è scaduto: chiudi e chiedine un altro.'; }
+    }, 2500);
+  },
   accReclama: async () => {
     await conLavoro('reclama', async L => {
       passo('reclama', 'ora', 'Collego la stanza al tuo account…');
