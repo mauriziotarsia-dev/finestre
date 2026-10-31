@@ -11,7 +11,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
 const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 const euro = n => (n < .1 ? n.toFixed(3) : n.toFixed(2)).replace('.', ',') + ' $';
-const VERSIONE = '3.3';
+const VERSIONE = '3.4';
 
 /* ── la casa ──────────────────────────────────────────────────────────────── */
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
@@ -29,6 +29,9 @@ if (codiceArrivato) sessionStorage.setItem('atm-codice-arrivato', codiceArrivato
 /* aperto dal QR «Collega il telefono» di DMaster: il telefono entra nella stanza senza email */
 let invitoArrivato = Accesso.invitoDa(location.href) || sessionStorage.getItem('atm-invito-arrivato') || null;
 if (invitoArrivato) sessionStorage.setItem('atm-invito-arrivato', invitoArrivato);
+/* aperto dal QR «Entra dal telefono» di DMaster: il telefono entra nello STESSO account, senza email */
+let accessoArrivato = Accesso.accessoDa(location.href) || sessionStorage.getItem('atm-accesso-arrivato') || null;
+if (accessoArrivato) sessionStorage.setItem('atm-accesso-arrivato', accessoArrivato);
 const nomeTelefono = () => /iPhone/.test(navigator.userAgent) ? 'iPhone' : /iPad/.test(navigator.userAgent) ? 'iPad' : /Android/.test(navigator.userAgent) ? 'Telefono Android' : 'Telefono';
 if (casa) scrivi('finestre-casa', casa);
 /* il codice della casa resta nell'indirizzo (così «Aggiungi alla schermata Home» se lo porta dietro); quello dello schermo no */
@@ -143,6 +146,10 @@ let account = null, casaPrivata = null, membri = [], accessoStato = 'controllo',
 const sonoProprietario = () => !!account && (!casaPrivata || casaPrivata.mioRuolo !== 'comando');
 async function avviaAccesso(){
   try {
+    if (accessoArrivato){
+      const t = accessoArrivato; accessoArrivato = null; sessionStorage.removeItem('atm-accesso-arrivato');
+      try { const u = await Accesso.entraColQR(t); avviso('Sei entrato come ' + ((u.user_metadata && u.user_metadata.nome) || u.email)); } catch(e) { avviso(e.message, true); }
+    }
     account = await Accesso.conAccount();
     if (q.get('code')) history.replaceState(null, '', location.pathname + (casa ? '?casa=' + casa : '') + location.hash);
     if (account){
@@ -188,7 +195,7 @@ function apriBenvenuto(){
     ? `<h3>Controlla la posta</h3><p class="nota">Email mandata a <b>${esc(emailInAttesa)}</b>. Premi «Entra» nell'email, oppure scrivi qui il codice che c'è dentro.</p>
        <label class="campo"><span>Codice</span><input id="accCodice" inputmode="numeric" autocomplete="one-time-code" maxlength="10" placeholder="123456"></label>
        <button class="btn oro piena" data-fai="accEntra">${icona('spunta', 18)}Entra</button><button class="btn piena" style="margin-top:8px" data-fai="accAltra">Usa un'altra email</button>`
-    : `<h3>Benvenuto in DMaster Atmosphere</h3><p class="nota">Hai già fatto l'accesso in DMaster? Lì, nella lanterna Atmosfera, premi «Collega il telefono» e inquadra il QR che compare: questo telefono entra nella tua stanza, senza email.</p>
+    : `<h3>Benvenuto in DMaster Atmosphere</h3><p class="nota">Hai già fatto l'accesso in DMaster? Lì, in Impostazioni → Account, premi «Entra dal telefono» e inquadra il QR che compare: questo telefono entra nel tuo account, senza email.</p>
        <button class="btn oro piena" data-fai="inquadraInvito">${icona('qr', 18)}Inquadra il QR di DMaster</button>
        <details class="altra-via"><summary>Non hai DMaster qui? Entra con l'email</summary>
          <p class="nota">Ti arriva un'email: aprila su questo telefono e premi «Entra», oppure scrivi qui il codice che c'è dentro. È lo stesso account di DMaster.</p>
@@ -214,7 +221,7 @@ async function apriAggiungi(perInvito = false){
   if (!casaPrivata && !perInvito){ apriBenvenuto(); return; }
   apriFoglio(`<div class="benvenuto"><h3>${perInvito ? 'Inquadra il QR di DMaster' : 'Aggiungi schermo'}</h3>
     <div class="mirino"><video id="qrVideo" playsinline muted></video><i></i><span id="qrStato">Accendo la fotocamera…</span></div>
-    ${perInvito ? '<p class="nota">In DMaster: lanterna Atmosfera → «Collega il telefono».</p>' : `<label class="campo" style="margin-top:12px"><span>Oppure scrivi le 6 cifre</span><input id="qrCodice" inputmode="numeric" maxlength="7" placeholder="302 680"></label>
+    ${perInvito ? '<p class="nota">In DMaster: Impostazioni → Account → «Entra dal telefono».</p>' : `<label class="campo" style="margin-top:12px"><span>Oppure scrivi le 6 cifre</span><input id="qrCodice" inputmode="numeric" maxlength="7" placeholder="302 680"></label>
     <button class="btn oro piena" data-fai="codiceScritto">${icona('freccia', 18)}Continua</button>`}</div>`);
   foglioAperto = 'aggiungi';
   try {
@@ -230,6 +237,8 @@ async function apriAggiungi(perInvito = false){
         const k = Math.min(1, 640 / v.videoWidth); c.width = Math.round(v.videoWidth * k); c.height = Math.round(v.videoHeight * k);
         x.drawImage(v, 0, 0, c.width, c.height);
         const r = jsQR(x.getImageData(0, 0, c.width, c.height).data, c.width, c.height, {inversionAttempts:'dontInvert'});
+        const acc = r && Accesso.accessoDa(r.data);
+        if (acc){ fermaCamera(); navigator.vibrate && navigator.vibrate(40); entraColQROra(acc); return; }
         const inv = r && Accesso.invitoDa(r.data), cod = r && !inv && Accesso.codiceDa(r.data);
         if (inv){ fermaCamera(); navigator.vibrate && navigator.vibrate(40); usaInvitoOra(inv); return; }
         if (cod){ fermaCamera(); navigator.vibrate && navigator.vibrate(40); confermaAggiunta(cod); return; }
@@ -241,6 +250,18 @@ async function apriAggiungi(perInvito = false){
     fermaCamera();
     const st = $('#qrStato'); if (st) st.textContent = 'Fotocamera non disponibile: scrivi le 6 cifre qui sotto.';
   }
+}
+/* il QR «Entra dal telefono» di DMaster: questo telefono entra nel tuo account (lo stesso dell'email) */
+async function entraColQROra(token){
+  try {
+    const u = await Accesso.entraColQR(token);
+    await avviaAccesso();
+    apriFoglio(`<div class="benvenuto" style="text-align:center">${icona('spunta', 34)}<h3>Sei dentro${u.user_metadata && u.user_metadata.nome ? ', ' + esc(u.user_metadata.nome) : ''}</h3>
+      <p class="nota">Questo telefono è entrato nel tuo account, come con l'email: comandi le finestre, crei i paesaggi, aggiungi gli schermi. Se lo perdi: in DMaster, Impostazioni → Account → «Esci da tutti i dispositivi».</p>
+      <button class="btn oro piena" data-fai="aggiungiSchermo">${icona('qr', 18)}Aggiungi uno schermo</button>
+      <button class="btn piena" style="margin-top:8px" data-fai="benvenutoFine">Fatto</button></div>`);
+    foglioAperto = 'fatto';
+  } catch(e) { avviso(e.message, true); apriBenvenuto(); }
 }
 /* il QR di DMaster: questo telefono entra nella stanza come «comando», senza email */
 async function usaInvitoOra(token){

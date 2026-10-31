@@ -26,5 +26,6 @@ Sul G10 tutto si prepara con `pi/installa-g10.ps1` (istruzioni in testa al file)
 - Telefono: Impostazioni → Account e casa → email → codice di 6 cifre (una volta sola) → «Collega questa casa al mio account» (copia le immagini nel deposito privato `atmosfera/<casa>/`).
 - Schermi (finestre, TV): dal telefono «Mostra i codici sugli schermi», poi scrivi ogni codice in «Abbina». Una pagina aperta senza `?casa=` mostra il codice da sola.
 - Computer che rifinisce i video: `python3 pi/cuci-animazione.py --abbina` (una volta; poi basta lanciarlo senza `--casa`). Sul G10: `installa-g10.ps1 -Abbina`.
+- Telefono senza email (31/10): in DMaster, Impostazioni → Account → «Entra dal telefono» mostra un QR (3 minuti, una volta); il telefono entra nello stesso account. Server: `supabase/2026-10-31-accesso-col-qr.sql` e la funzione `supabase/functions/accedi-col-qr`. Il QR «Il telefono di un altro» (`?invito=`) dà solo il comando delle finestre, senza account.
 - Finché ci sono schermi col vecchio link, il telefono parla su tutti e due i canali. Regole e funzioni: `supabase/2026-10-30-atmosfera-case-private.sql`; codice: `js/accesso.js`.
 

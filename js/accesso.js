@@ -37,6 +37,20 @@ const Accesso = {
     if (error) throw new Error(/expired|invalid/i.test(error.message) ? 'Codice sbagliato o scaduto.' : error.message);
     return data.user;
   },
+  /* il QR «Entra dal telefono» di DMaster (31/10): lo stesso account, senza email. Il gettone vale 3 minuti, una
+     volta; la funzione «accedi-col-qr» lo consuma e risponde con un accesso usa-e-getta per quell'account */
+  accessoDa(testo){ const m = String(testo || '').match(/[?&]accesso=([0-9a-f]{64})/); return m ? m[1] : null; },
+  async entraColQR(token){
+    const r = await fetch(SUPABASE_URL + '/functions/v1/accedi-col-qr', {method:'POST',
+      headers:{'Content-Type':'application/json', apikey: SUPABASE_CHIAVE_PUBBLICA, Authorization:'Bearer ' + SUPABASE_CHIAVE_PUBBLICA},
+      body: JSON.stringify({token})});
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok || !d.token_hash) throw new Error(d.errore ? d.errore[0].toUpperCase() + d.errore.slice(1) + '.' : 'Non riesco a entrare col QR (' + r.status + ').');
+    let {data, error} = await this.sb.auth.verifyOtp({token_hash: d.token_hash, type:'magiclink'});
+    if (error) ({data, error} = await this.sb.auth.verifyOtp({token_hash: d.token_hash, type:'email'}));
+    if (error) throw new Error('Accesso col QR non riuscito: ' + error.message);
+    return data.user;
+  },
   async esci(ovunque = false){ await this.sb.auth.signOut(ovunque ? {scope:'global'} : undefined); },
 
   /* ── le case ─────────────────────────────────────────────────────────────── */
