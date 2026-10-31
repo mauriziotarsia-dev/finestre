@@ -70,6 +70,12 @@ const Accesso = {
     if (error) throw new Error('Case non lette: ' + error.message);
     return data || [];
   },
+  /* la cartella dei paesaggi di una stanza: comune a tutte le stanze dello stesso proprietario (31/10, «Comuni») */
+  libreria(c){ return c ? (c.libreria || c.id) : null; },
+  async rinominaStanza(id, nome){
+    const {error} = await this.sb.from('atm_case').update({nome: String(nome).trim().slice(0, 40)}).eq('id', id);
+    if (error) throw new Error(error.message);
+  },
   async reclama(chiaveVecchia, nome = 'Casa'){
     const {data, error} = await this.sb.rpc('atm_reclama', {chiave: chiaveVecchia, nome});
     if (error) throw new Error(error.message);

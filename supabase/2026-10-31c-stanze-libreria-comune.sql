@@ -1,0 +1,11 @@
+-- DMaster Atmosphere · più stanze per account, coi paesaggi in comune (31/10/2026, Maurizio: «se io fossi un master con
+-- due stanze?» → paesaggi «Comuni»). Applicato con apply_migration («atmosfera_libreria_comune»,
+-- «atmosfera_abbina_nome_ambiguo»); testo completo nel progetto Supabase.
+--   · atm_case.libreria: la cartella dei paesaggi nel deposito «atmosfera». È l'id della PRIMA stanza del proprietario
+--     (così le immagini già caricate restano dove sono) e ogni stanza nuova la eredita (trigger atm_case_libreria)
+--   · atm_case_ferme: id, proprietario, libreria, chiave_vecchia e data di creazione non si cambiano più dopo (altrimenti
+--     un proprietario potrebbe puntare la sua stanza sulla libreria di un altro)
+--   · regole del deposito: legge chi è membro di QUALUNQUE stanza con quella libreria (atm_privato.legge_libreria);
+--     scrive proprietario, telecomandi e computer della rifinitura (atm_privato.scrive_libreria)
+--   · gli schermi restano di una stanza sola; i canali restano per stanza («atm:<stanza>»)
+--   · correzione: atm_abbina falliva sempre («casa» ambiguo fra parametro e colonna nell'on conflict)

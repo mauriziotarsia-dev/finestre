@@ -428,7 +428,7 @@ def abbina(chi):
         _salva_accesso()
     codice = json.loads(_chiedi('POST', '/rest/v1/rpc/atm_chiedi_codice', json.dumps({'ruolo': 'lavoratore', 'nome': 'Rifinitura · ' + chi}).encode()))
     print('\n   Codice per aggiungere questo computer alla stanza:   ' + codice[:3] + ' ' + codice[3:] +
-          '\n   Nell'app Illusionist sul telefono: «Aggiungi schermo» → scrivi le 6 cifre. Vale 10 minuti.\n', flush=True)
+          "\n   Nell'app delle finestre sul telefono: «Aggiungi schermo» → scrivi le 6 cifre (o in DMaster: Impostazioni → Account). Vale 10 minuti.\n", flush=True)
     for _ in range(200):
         time.sleep(3)
         righe = json.loads(_chiedi('GET', f"/rest/v1/atm_membri?select=casa&utente=eq.{ACCESSO['utente']}"))
@@ -449,6 +449,20 @@ def _chiedi(metodo, percorso, corpo=None, tipo='application/json', extra=None):
     h.update(extra or {})
     r = urllib.request.Request(URL + percorso, data=corpo, method=metodo, headers=h)
     with urllib.request.urlopen(r, timeout=300) as x: return x.read()
+
+
+_LIBRERIA = None
+def _libreria():
+    """La cartella dei paesaggi: quella comune a tutte le stanze del proprietario (31/10, «paesaggi comuni»)."""
+    global _LIBRERIA
+    if _LIBRERIA: return _LIBRERIA
+    try:
+        righe = json.loads(_chiedi('GET', '/rest/v1/atm_case?select=libreria&id=eq.' + ACCESSO['casa']))
+        _LIBRERIA = (righe[0].get('libreria') if righe else None) or ACCESSO['casa']
+    except Exception as e:
+        print('libreria non letta, uso la stanza:', e, file=sys.stderr, flush=True)
+        return ACCESSO['casa']
+    return _LIBRERIA
 
 
 def cartella_di(casa):
@@ -502,7 +516,7 @@ def giro_casa(casa, larghezza=None, veloce=False, forza=1, chi='pc'):
       · il lavoro si prende con un segno «…_anim-giorno-incorso.png» che solo uno riesce a creare e che chi
         lavora rinfresca ogni 30 secondi: se non si rinfresca da 3 minuti, chi lavorava si è spento e si riprende.
     (Maurizio, 30/10: «il fallback non può essere dopo così tanti minuti»: niente più attese fisse.)"""
-    cart = ACCESSO['casa'] if ACCESSO and ACCESSO.get('casa') else 'finestre/' + cartella_di(casa)
+    cart = _libreria() if ACCESSO and ACCESSO.get('casa') else 'finestre/' + cartella_di(casa)
     io = f'zz-cucitore-{forza}-' + (re.sub(r'[^a-z0-9-]+', '-', chi.lower()).strip('-') or 'pc') + '.png'
     try: _rinfresca(cart, io)
     except Exception as e: print('presenza non segnata:', e, file=sys.stderr, flush=True)

@@ -129,8 +129,10 @@ input[type=range]::-moz-range-thumb{width:20px;height:20px;border-radius:50%;bac
 /* campi */
 .campo{display:block;margin:10px 0}
 .campo > span{display:block;margin-bottom:6px;font:500 11.5px var(--display);letter-spacing:.12em;text-transform:uppercase;color:var(--tenue)}
-.campo input,.campo textarea,.cerca input{width:100%;background:var(--incasso);border:1px solid var(--bordo);border-radius:10px;padding:12px 13px;color:var(--testo);outline:none;transition:border-color .18s}
+.campo input,.campo textarea,.campo select,.cerca input{width:100%;background:var(--incasso);border:1px solid var(--bordo);border-radius:10px;padding:12px 13px;color:var(--testo);outline:none;transition:border-color .18s}
 .campo input:focus,.campo textarea:focus,.cerca input:focus{border-color:var(--filo-forte)}
+.campo select{font:inherit;font-size:15px;-webkit-appearance:none;appearance:none}
+.stanze{margin-bottom:14px;padding-bottom:12px;border-bottom:1px solid var(--bordo)}
 .campo textarea{min-height:92px;resize:vertical;line-height:1.4}
 .chiave{position:relative} .chiave input{padding-right:48px;font-family:ui-monospace,Menlo,monospace;font-size:14px}
 .chiave button{position:absolute;right:4px;top:4px;width:40px;height:40px;border:0;background:none;color:var(--tenue);cursor:pointer;display:grid;place-items:center}
@@ -269,12 +271,12 @@ code.link{display:block;padding:10px;border-radius:8px;background:var(--incasso)
 <script src="../js/supabase.js?v=2.1.0"></script>
 <script src="../js/canale.js?v=2.2.0"></script>
 <script src="../js/icone.js?v=2.4.0"></script>
-<script src="../js/accesso.js?v=7"></script>
+<script src="../js/accesso.js?v=8"></script>
 <script src="../js/libreria.js?v=2.8.0"></script>
 <script src="../js/ai.js?v=2.7"></script>
 <script src="../js/fermo.js?v=1"></script>
 <script src="../js/foto-online.js?v=2.1.0"></script>
 <script src="../js/profondita.js?v=2.1.0"></script>
-<script src="app.js?v=3.5"></script>
+<script src="app.js?v=3.6"></script>
 </body>
 </html>
