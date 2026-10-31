@@ -12,10 +12,17 @@
   .video iframe{position:absolute;border:0;pointer-events:none}
   .bordo{position:absolute;border:2px dashed #d4af37;pointer-events:none;z-index:3;box-sizing:border-box}
   .bordo span{position:absolute;top:6px;left:8px;font:600 14px system-ui;color:#d4af37}
+  /* 31/10 · la TV della Serata: quello che il DM manda in onda copre il paesaggio, e quando lo toglie il paesaggio torna */
+  #telo{position:fixed;inset:0;z-index:6;pointer-events:none}
+  #telo .strato{position:absolute;inset:0;background:#000;opacity:0;transition:opacity .9s ease}
+  #telo .strato.su{opacity:1}
+  #telo .fondo{position:absolute;inset:-6%;background-size:cover;background-position:center;filter:blur(40px) brightness(.45);transform:scale(1.05)}
+  #telo img,#telo video{position:absolute;inset:0;width:100%;height:100%;object-fit:contain}
 </style>
 </head>
 <body>
 <canvas id="c"></canvas>
+<div id="telo"></div>
 <script src="../js/supabase.js?v=2.1.0"></script>
 <script src="../js/canale.js?v=2.2.0"></script>
 <script src="../js/accesso.js?v=8"></script>
@@ -216,16 +223,68 @@ function applica(nuova, salva = true){
       const f = fonteDi(scena);
       try { if (f) await vista.mostra(f, 0); else vista.togli(); } catch(e) { console.warn(e); }
       impagina();
-      setTimeout(() => { scuroVerso = scena.acceso ? 0 : 1; inCambio = false; }, scena.yt ? 1800 : 150);
+      setTimeout(() => { scuroVerso = scuroDi(); inCambio = false; }, scena.yt ? 1800 : 150);
     }, 950);
   } else {
     /* stesso paesaggio: se cambia l'ora la luce sfuma in pochi secondi */
     const f = fonteDi(scena);
     if (f && vista.urlInVista && vista.urlInVista !== chiaveFonte(f)) vista.mostra(f, 3.5).catch(console.warn);
     else if (f && vista.fonti[0].ok) vista.fonti[0].fuoco = f.fuoco;
-    scuroVerso = scena.acceso ? 0 : 1;
+    scuroVerso = scuroDi();
     impagina();
   }
+}
+
+/* ── 31/10 · LA TV DELLA SERATA ─────────────────────────────────────────────────
+   Durante la Serata DMaster manda sul canale della stanza l'evento «tv»: {id, immagine | video, loop, muto,
+   intermezzo} oppure {spento:true}. Solo il TV (?vista=est) lo mostra, sopra il paesaggio, con una dissolvenza;
+   «spento» lo toglie e torna il paesaggio. Durante un intermezzo (un video che si guarda una volta) le
+   finestrelle si abbassano un po'. A fine intermezzo il TV dice «tvFine», e DMaster spegne la 📺. */
+let intermezzoQui = false, coperto = false, proiezione = {id:null, chiave:null};
+const scuroDi = () => scena.acceso ? (intermezzoQui ? .55 : 0) : 1;
+const telo = document.getElementById('telo');
+function suTv(d, rispondi){
+  d = d || {};
+  intermezzoQui = !d.spento && !!d.intermezzo;
+  if (!inCambio) scuroVerso = scuroDi();
+  if (!tv) return;
+  if (d.spento || (!d.immagine && !d.video)) return togliProiezione();
+  mettiProiezione(d, rispondi);
+}
+function togliProiezione(){
+  proiezione = {id:null, chiave:null}; coperto = false;
+  for (const v of telo.querySelectorAll('.strato')){ v.classList.remove('su'); const m = v.querySelector('video'); setTimeout(() => { if (m) { m.pause(); m.removeAttribute('src'); m.load(); } v.remove(); }, 1000); }
+}
+async function mettiProiezione(d, rispondi){
+  const chiave = d.video || d.immagine;
+  if (proiezione.id === d.id && proiezione.chiave === chiave) return;
+  proiezione = {id:d.id, chiave};
+  const strato = document.createElement('div'); strato.className = 'strato';
+  try {
+    if (d.video){
+      const v = document.createElement('video');
+      Object.assign(v, {playsInline:true, loop:!!d.loop, muted:d.muto !== false, preload:'auto', src:d.video});
+      v.addEventListener('ended', () => { if (!d.loop && proiezione.id === d.id){ rispondi && rispondi('tvFine', {id:d.id}); togliProiezione(); } });
+      strato.appendChild(v);
+      await new Promise((ok, no) => { v.addEventListener('canplay', ok, {once:true}); v.addEventListener('error', () => no(new Error('il video non si apre')), {once:true}); });
+      /* con l'audio Chrome vuole un gesto, se non è avviato con --autoplay-policy=no-user-gesture-required: allora parte muto */
+      await v.play().catch(() => { v.muted = true; return v.play(); });
+    } else {
+      const img = new Image(); img.decoding = 'async'; img.src = d.immagine;
+      await img.decode();
+      const f = document.createElement('div'); f.className = 'fondo'; f.style.backgroundImage = 'url("' + d.immagine.replace(/"/g, '%22') + '")';
+      strato.appendChild(f); strato.appendChild(img);
+    }
+  } catch(e){
+    console.warn('[tv]', e);
+    if (proiezione.id === d.id){ proiezione = {id:null, chiave:null}; rispondi && rispondi('tvGuaio', {id:d.id, motivo:String(e && e.message || e)}); }
+    return;
+  }
+  if (proiezione.id !== d.id) return;     /* nel frattempo è arrivato altro */
+  const vecchi = [...telo.querySelectorAll('.strato')];
+  telo.appendChild(strato);
+  requestAnimationFrame(() => requestAnimationFrame(() => strato.classList.add('su')));
+  setTimeout(() => { if (proiezione.id === d.id){ coperto = true; for (const v of vecchi){ const m = v.querySelector('video'); if (m) m.pause(); v.remove(); } } }, 1000);
 }
 
 /* ── tempo atmosferico, lampi, luce ────────────────────────────────────────── */
@@ -320,7 +379,7 @@ function calibra(d){
 }
 let canale = null;
 if (anteprima){
-  addEventListener('message', e => { const d = e.data || {}; if (d.tipo === 'occhio') daTelefono(d.x, d.z); else if (d.tipo === 'scena') applica(d.scena, false); else if (d.tipo === 'fori') calibra(Object.assign({}, d, {salva:false})); else if (d.tipo === 'lampo') scocca(); });
+  addEventListener('message', e => { const d = e.data || {}; if (d.tipo === 'occhio') daTelefono(d.x, d.z); else if (d.tipo === 'scena') applica(d.scena, false); else if (d.tipo === 'fori') calibra(Object.assign({}, d, {salva:false})); else if (d.tipo === 'lampo') scocca(); else if (d.tipo === 'tv') suTv(d.tv, null); });
 } else if (window.supabase){
   /* DMaster al comando: finché arriva il suo battito (ogni 10 s, 30 s di tolleranza) scene, lampi e
      prove di prospettiva valgono solo se vengono da lui; il telefono torna a comandare quando tace */
@@ -328,7 +387,7 @@ if (anteprima){
   const comandaDM = () => Date.now() < dmasterFino;
   /* con le prestazioni: immagini al secondo davvero disegnate, risoluzione del disegno, qualità (per capire da lontano se fatica) */
   const schedaVideo = () => { try { const g = vista.gl, e = g.getExtension('WEBGL_debug_renderer_info'); return e ? g.getParameter(e.UNMASKED_RENDERER_WEBGL) : g.getParameter(g.RENDERER); } catch(e) { return ''; } };
-  const chi = () => ({lato: mio, assetto: tv ? null : casaFori, scena, schermo:{w:innerWidth, h:innerHeight, dpr:devicePixelRatio}, comando: comandaDM() ? 'dmaster' : null,
+  const chi = () => ({lato: mio, tv: tv ? {id: proiezione.id} : undefined, assetto: tv ? null : casaFori, scena, schermo:{w:innerWidth, h:innerHeight, dpr:devicePixelRatio}, comando: comandaDM() ? 'dmaster' : null,
     prestazioni:{fps: Math.round(fpsMisurati), hzSchermo: Math.round(1000 / intervalloSchermo), msDisegno: Math.round(msDisegno * 10) / 10, scala, qualita, disegno:{w:c.width, h:c.height}, schermoVero:{w:Math.round(screen.width * devicePixelRatio), h:Math.round(screen.height * devicePixelRatio)}, gl: schedaVideo(), browser: navigator.userAgent}});
   /* lo stesso ascolto per il canale del vecchio link e per quello privato della casa (js/accesso.js) */
   const gestore = rispondi => ({
@@ -338,6 +397,7 @@ if (anteprima){
       if (comandaDM() && !daDM && (evento === 'scena' || evento === 'lampo' || evento === 'occhio')) return;
       if (evento === 'scena'){ const s = Object.assign({}, dati); delete s.da; applica(s); }
       else if (evento === 'lampo') scocca();
+      else if (evento === 'tv'){ if (daDM) suTv(dati, rispondi); }
       else if (evento === 'fori') calibra(dati);
       else if (evento === 'ricarica') location.reload();
       /* prova delle prestazioni da lontano: spegne per un po' alcune parti del disegno (poi si ricarica e torna tutto) */
@@ -479,7 +539,8 @@ function giro(ora){
   if (misuraVisibile && ora - misura.t0 > 500){ misura.t0 = ora; mostraMisura(); }
   margine += ((viva || Math.abs(occhio.x) > .01 ? 1.2 : 1.04) - margine) * (1 - Math.exp(-dt * .8));
   const t0d = performance.now();
-  vista.disegna(geomGL, {
+  /* sotto un'immagine della Serata il paesaggio non si vede: non si disegna (il G10 respira) */
+  if (!coperto) vista.disegna(geomGL, {
     t: (ora / 1000) % 3588, trasparente: !!scena.yt, movimento: scena.movimento !== false, prospettiva: scena.prospettiva !== false,
     coperto: met.coperto, nebbia: met.nebbia, pioggia: met.pioggia, neve: met.neve, tempesta: met.tempesta, vento: met.vento,
     lampo: intensitaLampo(ora), lampoX, uccelli, stormi: stormi.dati(), notte, ombre, meteora, cieloX, notteFinta, luce, buio: scuro, qualita, colNebbia: nebCol, occhio, margine
