@@ -1,9 +1,7 @@
 /* ═══════════════════════════════════════════════════════════════════════════
    DMaster Atmosphere — l'app sul telefono (powered by DMaster Stage).
-   Due parti: Bard (musiche e suoni della stanza, in arrivo) e Illusionist (le finestre).
-   Illusionist:
-   Quattro schede: Finestre (anteprima dal vivo e comandi) · Paesaggi (libreria, foto dal web,
-   YouTube) · Crea (paesaggi dipinti dall'AI, con le luci del giorno e l'animazione) · Impostazioni.
+   Cinque schede: Finestre (anteprima, ora e tempo) · Bard (musiche e suoni della stanza; in serata la console
+   del master) · Paesaggi (libreria, + Aggiungi) · Crea (paesaggi dipinti dall'AI) · Impostazioni (gruppi apribili).
    Parla con le finestre sul canale della casa (js/canale.js); la libreria sta nel deposito (js/libreria.js).
    ═══════════════════════════════════════════════════════════════════════════ */
 const $ = s => document.querySelector(s);
@@ -11,7 +9,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
 const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 const euro = n => (n < .1 ? n.toFixed(3) : n.toFixed(2)).replace('.', ',') + ' $';
-const VERSIONE = '4.6';
+const VERSIONE = '4.7';
 
 /* ── la casa ──────────────────────────────────────────────────────────────── */
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
@@ -129,7 +127,7 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden && ca
 window.addEventListener('online', () => setTimeout(() => { if (canale.pronto){ canale.manda('chi'); if (typeof chiediConsole === 'function') chiediConsole(); } }, 2000));
 function aggiornaSpia(){
   const viva = canale.pronto && Date.now() - collegate < 45000;
-  document.querySelectorAll('.spia').forEach(s => { s.classList.toggle('viva', viva); s.querySelector('span').textContent = !canale.pronto ? 'collegamento…' : viva ? 'in onda' : 'non raggiungibili'; });
+  document.querySelectorAll('.spia').forEach(s => { s.classList.toggle('viva', viva); s.querySelector('span').textContent = !canale.pronto ? 'collego…' : viva ? 'in onda' : 'non rispondono'; });
 }
 
 let invio = null;
@@ -452,7 +450,7 @@ function aggiornaFinestre(){
 }
 
 /* ═══════════ PAESAGGI: libreria, foto dal web, YouTube ══════════════════ */
-let libreria = [], libreriaStato = 'da caricare', vistaPaesaggi = 'miei', filtroTesto = '', filtroTipo = 'tutti', risultatiWeb = [], cercaWebTesto = '', cercaWebStato = '';
+let libreria = [], libreriaStato = 'da caricare', vistaPaesaggi = 'miei', filtroTesto = '', risultatiWeb = [], cercaWebTesto = '', cercaWebStato = '';
 /* la profondità si calcola da sola, in sottofondo, per ogni paesaggio che non ce l'ha:
    uno alla volta, solo quando non c'è un altro lavoro in corso, una prova sola per sessione */
 const provatiProfondita = new Set();
@@ -868,7 +866,7 @@ function disegnaCrea(){
   const desc = $('#creaDesc') ? $('#creaDesc').value : '', nome = $('#creaNome') ? $('#creaNome').value : '', descEst = $('#creaEst') ? $('#creaEst').value : '';
   const manca = !imp.chiavi[m.fornitore];
   const incluso = [nLuci ? 'giorno, ' + ['alba','tramonto','notte'].filter(o => imp.luci[o]).join(', ') : 'solo giorno', imp.tv !== false ? 'vista TV' : '', imp.cielo !== false ? 'cielo che scorre' : '', imp.anima ? 'animazione' : ''].filter(Boolean).join(' · ');
-  s.innerHTML = testa('scintilla', 'Crea', 'Un paesaggio nuovo, dipinto dall\'AI') + `<div class="problema" hidden></div>
+  s.innerHTML = testa('scintilla', 'Crea', 'Un paesaggio dipinto dall\'AI') + `<div class="problema" hidden></div>
     ${manca ? `<div class="problema fisso">${icona('chiave', 20)}<div><b>Manca la chiave ${m.fornitore === 'google' ? 'Google' : 'OpenAI'}</b><span>Mettila nelle Impostazioni → AI e chiavi.</span><div class="azioni" style="margin-top:8px"><button class="btn piccolo" data-fai="vaiImp">${icona('manopole', 16)}Impostazioni</button></div></div></div>` : ''}
     <div class="sezione">${titolo('occhio', 'Che cosa si vede')}
       <label class="campo"><textarea id="creaDesc" placeholder="Descrivi il paesaggio fuori dalla finestra, anche in poche parole. Oppure tocca un'idea qui sotto.">${esc(desc)}</textarea></label>
@@ -1091,7 +1089,7 @@ function disegnaBard(){
     <div class="sezione">${titolo('pioggia', 'Tempo')}
       <div class="pannello" style="padding:2px 14px">${interruttore('bardTempo', 'pioggia', 'Suoni del tempo', nTempo ? 'Seguono le finestre: pioggia, vento, neve, tuoni coi lampi' : 'Seguono le finestre. Le registrazioni non sono ancora nella stanza (si copiano da DMaster): per ora un suono più semplice', t.acceso)}
         ${cursore('volTempo', 'altoparlante', 'Volume', 0, 100, Math.round(t.volume * 100), Math.round(t.volume * 100) + '%')}</div></div>
-    <div class="sezione">${titolo('onda', 'Sottofondo', sott.length ? 'tocca per accendere o spegnere' : '')}
+    ${pronto ? `<div class="sezione">${titolo('onda', 'Sottofondo', sott.length ? 'tocca per accendere o spegnere' : '')}
       ${sott.length ? `<div class="suoni">${sott.map(x => `<button class="suono" data-fai="bardSott" data-v="${esc(x.id)}" aria-pressed="${!!(bardStato.sottofondo && bardStato.sottofondo.id === x.id)}">${esc(x.titolo)}</button>`).join('')}</div>
         <div class="pannello" style="margin-top:10px">${cursore('volSott', 'altoparlante', 'Volume', 0, 100, Math.round(bardStato.volSottofondo * 100), Math.round(bardStato.volSottofondo * 100) + '%')}</div>`
         : pronto ? '<p class="nota" style="margin-top:0">Ancora nessun sottofondo: «+ Aggiungi un suono» qui sotto.</p>' : ''}</div>
@@ -1106,7 +1104,7 @@ function disegnaBard(){
     <div class="sezione">${titolo('fulmine', 'Effetti', eff.length ? 'tocca per suonare' : '')}
       ${eff.length ? `<div class="scelte c3">${eff.map(x => `<button class="scelta" data-fai="bardEffetto" data-v="${esc(x.id)}">${icona('fulmine', 20)}<span>${esc(x.titolo)}</span></button>`).join('')}</div>
         <div class="pannello" style="margin-top:10px">${cursore('volEff', 'altoparlante', 'Volume', 0, 100, Math.round(bardStato.volEffetti * 100), Math.round(bardStato.volEffetti * 100) + '%')}</div>`
-        : pronto ? '<p class="nota" style="margin-top:0">Ancora nessun effetto: «+ Aggiungi un suono» qui sotto.</p>' : ''}</div>
+        : '<p class="nota" style="margin-top:0">Ancora nessun effetto: «+ Aggiungi un suono» qui sotto.</p>'}</div>` : ''}
     ${CASA_PRIVATA ? `<button class="btn oro piena" style="margin-top:18px" data-fai="bardAggiungi">${icona('piu', 18)}Aggiungi un suono</button>
     ${gruppo('bard-gestisci', 'manopole', 'Gestisci i suoni', bardLib.length + ' nella stanza', `
       ${(bardStato.atmosfere || []).length ? `<ul class="membri">${bardStato.atmosfere.map(a => `<li><span><b>${esc(a.nome)}</b><small>atmosfera${a.finestre ? ' · con le finestre' : ''}</small></span><button class="btn piccolo pericolo" data-fai="atmTogli" data-v="${esc(a.id)}">Togli</button></li>`).join('')}</ul>` : ''}
@@ -1340,7 +1338,6 @@ const AZIONI = {
     const cura = nemicoModo === 'ridai'; comando({azione: cura ? 'cura' : 'danno', id: foglioAperto && foglioAperto.nemico, valore: n}); chiudiFoglio(); nemicoModo = 'togli'; avviso((cura ? '+' : '−') + n + ' PF'); },
   conModo: v => { nemicoModo = v; const id = foglioAperto && foglioAperto.nemico; if (id) apriNemico(id); },
   conATerra: v => { comando({azione: 'aTerra', id: foglioAperto && foglioAperto.nemico, giu: v === '1'}); chiudiFoglio(); },
-  bardUscita: () => {},
   atmApplica: v => { const a = (bardStato.atmosfere || []).find(x => x.id === v); if (a) applicaAtmosfera(a); },
   atmNuova: () => apriSalvaAtmosfera(),
   atmFin: (v, b) => b.setAttribute('aria-checked', String(b.getAttribute('aria-checked') !== 'true')),
