@@ -258,6 +258,34 @@ nav.barra button[aria-current="page"]::before{content:'';position:absolute;top:-
 .errore-box{margin-top:10px;padding:10px 12px;border-radius:9px;border:1px solid rgba(224,138,138,.35);background:rgba(224,138,138,.06);color:var(--no);font-size:14px}
 .credito{font-size:12px;color:var(--spento);margin-top:6px}
 code.link{display:block;padding:10px;border-radius:8px;background:var(--incasso);border:1px solid var(--bordo);font-size:12px;word-break:break-all;color:var(--tenue)}
+/* 4.0 · più semplice: gruppi apribili, vento a scelte, ricerca con «Aggiungi», miniatura del TV */
+details.gruppo{margin-top:12px;border:1px solid var(--bordo);border-radius:12px;background:linear-gradient(180deg,rgba(255,255,255,.015),rgba(0,0,0,0)),var(--pannello)}
+details.gruppo > summary{list-style:none;display:flex;align-items:center;gap:10px;min-height:54px;padding:12px 14px;cursor:pointer;font:500 12.5px var(--display);letter-spacing:.16em;text-transform:uppercase;color:var(--oro-luce)}
+details.gruppo > summary::-webkit-details-marker{display:none}
+details.gruppo > summary .ic{color:var(--oro)}
+details.gruppo > summary small{font:italic 500 15px var(--libro);letter-spacing:0;text-transform:none;color:var(--tenue);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:55%}
+details.gruppo > summary::after{content:'';flex:none;width:8px;height:8px;border-right:1.5px solid var(--tenue);border-bottom:1.5px solid var(--tenue);transform:rotate(45deg);margin:-4px 2px 0 6px;transition:transform .2s}
+details.gruppo > summary > span{flex:1;min-width:0}
+details.gruppo[open] > summary::after{transform:rotate(-135deg);margin-top:4px}
+details.gruppo .dentro-gruppo{padding:2px 14px 14px;border-top:1px solid var(--bordo)}
+details.gruppo .pannello{background:var(--incasso)}
+details.gruppo .campo > span{margin-top:6px}
+.blocco{margin:12px 0}
+.blocco > span{display:block;margin-bottom:6px;font:500 11.5px var(--display);letter-spacing:.12em;text-transform:uppercase;color:var(--tenue)}
+.gruppo .scelte.c4 .scelta{font-size:9.5px;letter-spacing:.03em;padding:8px 2px}
+.riga-vento{display:grid;grid-template-columns:22px minmax(0,1fr);align-items:center;gap:6px 9px;margin:10px 0 2px}
+.riga-vento .segmenti{grid-column:1/-1}
+.riga-vento .ic{color:var(--oro)}
+.riga-vento > span{font:500 10.5px/1.2 var(--display);letter-spacing:.05em;text-transform:uppercase;color:var(--tenue)}
+.riga-vento .segmenti button{min-height:38px;font-size:10.5px;letter-spacing:.08em}
+.riga-cerca{display:flex;gap:8px;align-items:stretch}
+.riga-cerca .cerca{flex:1;min-width:0}
+.riga-cerca .btn{flex:none}
+.foglio-titolo{font:500 16px var(--display);letter-spacing:.12em;text-transform:uppercase;margin:4px 0 12px}
+.tv-mini{display:block;position:relative;width:100%;padding:0;margin-top:4px;border:1px solid var(--bordo);border-radius:7px;overflow:hidden;background:#000;cursor:pointer}
+.tv-mini img{display:block;width:100%;aspect-ratio:16/9;object-fit:cover}
+.tv-mini span{position:absolute;left:4px;bottom:4px;display:flex;gap:4px;align-items:center;padding:2px 6px;border-radius:99px;background:rgba(6,8,12,.8);font:500 9px var(--display);letter-spacing:.1em;color:var(--crema)}
+.tv-mini[aria-pressed="true"]{border-color:var(--oro)}
 @media (prefers-reduced-motion: reduce){ *{animation:none!important;transition:none!important} }
 </style>
 </head>
@@ -277,6 +305,6 @@ code.link{display:block;padding:10px;border-radius:8px;background:var(--incasso)
 <script src="../js/fermo.js?v=1"></script>
 <script src="../js/foto-online.js?v=2.1.0"></script>
 <script src="../js/profondita.js?v=2.1.0"></script>
-<script src="app.js?v=3.6"></script>
+<script src="app.js?v=4.0"></script>
 </body>
 </html>

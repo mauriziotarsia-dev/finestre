@@ -2,7 +2,7 @@
 
 Finestre virtuali per la stanza medievale: schermi in cantina dietro i trafori, comandati dal telefono.
 
-- `telecomando/` — l'app sul telefono (Finestre · Paesaggi · Crea · Impostazioni), nello stile di DMaster Stage.
+- `telecomando/` — l'app sul telefono (Finestre · Paesaggi · Crea · Impostazioni), nello stile di DMaster Stage. Dalla 4.0: Finestre = solo ora e tempo; Paesaggi = libreria con «+ Aggiungi» (AI, foto dal web, YouTube) e, nel dettaglio, «Completa con l'AI» al posto di Luci/Cielo/Profondità/Vista TV; Impostazioni in cinque gruppi apribili.
 - `finestra/` — la pagina che il Raspberry mostra a schermo intero (`?casa=CODICE`).
 - `js/vista.js` — il motore grafico (WebGL): profondità, nuvole e alberi in movimento, nebbia, pioggia, neve, lampi.
 - `js/canale.js` — telefono ↔ finestre su Supabase Realtime (canale privato della casa).
@@ -19,7 +19,7 @@ Le foto da Wikimedia e Pexels restano dei loro autori, con le loro licenze (most
 
 ## Il TV (vista verso est)
 Lo stesso indirizzo delle finestre con `&vista=est`: `https://mauriziotarsia-dev.github.io/finestre/finestra/?casa=CODICE&vista=est`.
-Tutto lo schermo è la finestra; mostra la vista «est-…» del paesaggio (creata dal telefono: Crea → «Verso est · il TV», o dal dettaglio di un paesaggio → «Crea la vista TV"). Stessa ora, stesso tempo e stesso cielo delle finestrelle.
+Tutto lo schermo è la finestra; mostra la vista «est-…» del paesaggio (creata dal telefono: Crea → «Più opzioni» → «Vista per il TV», o dal dettaglio di un paesaggio → «Completa con l'AI»). Stessa ora, stesso tempo e stesso cielo delle finestrelle.
 Sul G10 tutto si prepara con `pi/installa-g10.ps1` (istruzioni in testa al file): TV in Edge a tutto schermo, radar, rifinitura e ingrandimento AI all'accesso. Per la prospettiva viva anche sul TV, sul mini PC gira `pi/sensore.py` (riceve il radar dal Wi-Fi come il Raspberry); `&tvx=…&tvy=…` = posizione del centro del TV rispetto al radar, in mm (x verso destra guardando le finestrelle, y verso la stanza).
 
 ## Account e casa privata (30/10)

@@ -11,16 +11,13 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
 const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 const euro = n => (n < .1 ? n.toFixed(3) : n.toFixed(2)).replace('.', ',') + ' $';
-const VERSIONE = '3.6';
+const VERSIONE = '4.0';
 
 /* ── la casa ──────────────────────────────────────────────────────────────── */
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
 const q = new URLSearchParams(location.search);
 /* la testata del marchio: DMaster Atmosphere, con le sue due parti; Bard arriva dopo */
-const MARCHIO = `<div class="marchio"><div class="marchio-nome"><span>DMaster</span> Atmosphere</div>
-  <div class="marchio-firma">powered by DMaster Stage</div>
-  <div class="marchio-parti"><span class="parte spenta" title="Musiche e suoni della stanza: in arrivo">Bard <em>presto</em></span><span class="parte attiva">Illusionist</span></div></div>
-<div class="in-mano-avviso" id="inMano" hidden><b>In mano a DMaster</b> La Serata comanda finestre e atmosfera: qui le guardi soltanto. Quando chiudi DMaster tornano a questo telefono da sole.</div>`;
+const MARCHIO = `<div class="in-mano-avviso" id="inMano" hidden><b>In mano a DMaster</b> La Serata comanda finestre e atmosfera: qui le guardi soltanto. Quando chiudi DMaster tornano a questo telefono da sole.</div>`;
 /* il vecchio link (?casa=…): resta finché il proprietario non lo chiude; una casa nuova non ce l'ha, si entra con l'email */
 let casa = (String(q.get('casa') || '').match(UUID) || String(leggi('finestre-casa', '') || '').match(UUID) || [null])[0];
 /* aperto dal QR di uno schermo («…/telecomando/?abbina=123456»): dopo l'accesso chiede di aggiungerlo */
@@ -319,7 +316,7 @@ function segnala(e){
 }
 function risolto(chi){ if (problema && (!chi || (problema.chi || '').startsWith(chi))){ problema = null; scrivi('finestre-problema', null); mostraProblema(); } }
 function mostraProblema(){
-  document.querySelectorAll('.problema').forEach(el => {
+  document.querySelectorAll('.problema:not(.fisso)').forEach(el => {
     el.hidden = !problema;
     if (!problema) return;
     const link = (problema.chi || '').startsWith('OpenAI') ? 'https://platform.openai.com/settings/organization/billing/overview' : 'https://aistudio.google.com/usage';
@@ -347,6 +344,9 @@ const titolo = (ic, testo, piccolo = '') => `<h2 class="titolo">${icona(ic, 16)}
 const scelta = (fai, v, ic, testo, acceso) => `<button class="scelta" data-fai="${fai}" data-v="${esc(v)}" aria-pressed="${!!acceso}">${icona(ic, 22)}<span>${esc(testo)}</span></button>`;
 const cursore = (id, ic, testo, min, max, val, uscita, passo = 1) => `<div class="cursore">${icona(ic, 18)}<label for="${id}">${esc(testo)}</label><input type="range" id="${id}" min="${min}" max="${max}" step="${passo}" value="${val}"><output id="${id}-o">${esc(uscita)}</output></div>`;
 const interruttore = (fai, ic, testo, sotto, acceso) => `<div class="interruttore" role="switch" tabindex="0" data-fai="${fai}" aria-checked="${!!acceso}">${icona(ic, 20)}<span><b>${esc(testo)}</b>${sotto ? '<small>' + esc(sotto) + '</small>' : ''}</span><i class="levetta"></i></div>`;
+const aperti = new Set(leggi('atm-gruppi-aperti', ['stanza']));
+document.addEventListener('toggle', e => { const d = e.target; if (!d.matches || !d.matches('details[data-ricorda]')) return; if (d.open) aperti.add(d.dataset.ricorda); else aperti.delete(d.dataset.ricorda); scrivi('atm-gruppi-aperti', [...aperti]); }, true);
+const gruppo = (id, ic, testo, piccolo, corpo) => `<details class="gruppo" data-ricorda="${id}"${aperti.has(id) ? ' open' : ''}><summary>${icona(ic, 18)}<span>${esc(testo)}</span>${piccolo ? '<small>' + esc(piccolo) + '</small>' : ''}</summary><div class="dentro-gruppo">${corpo}</div></details>`;
 function riempi(r){ const p = (r.value - r.min) / (r.max - r.min) * 100; r.style.setProperty('--p', p + '%'); }
 function legaCursore(id, fn){ const r = document.getElementById(id); if (!r) return; riempi(r); r.oninput = () => { riempi(r); fn(+r.value, document.getElementById(id + '-o')); }; return r; }
 
@@ -372,7 +372,7 @@ function disegnaScheda(){
 /* ═══════════ FINESTRE: anteprima dal vivo e comandi ═════════════════════ */
 const ORE = [['vera','orologio','Come fuori'], ['alba','alba','Alba'], ['giorno','sole','Giorno'], ['tramonto','tramonto','Tramonto'], ['notte','luna','Notte']];
 const METEO = [['sereno','sole','Sereno'], ['nuvoloso','nuvola','Nuvoloso'], ['nebbia','nebbia','Nebbia'], ['pioggia','pioggia','Pioggia'], ['temporale','fulmine','Temporale'], ['neve','fiocco','Neve']];
-const FLUIDITA = [[60,'Massima','60 al secondo'], [50,'Bilanciata','50, schermo a 50 Hz'], [30,'Silenziosa','30, metà lavoro'], [45,'45','prova']];
+const FLUIDITA = [[60,'Massima'], [50,'A 50 Hz'], [30,'Silenziosa']];
 const NOME_ORA = {vera:'come fuori', alba:'alba', giorno:'giorno', tramonto:'tramonto', notte:'notte'};
 let anteprimaPronta = false, anteprimaFrame = null;
 function postaAnteprima(m){ if (anteprimaFrame && anteprimaPronta) anteprimaFrame.contentWindow.postMessage(m, '*'); }
@@ -390,46 +390,31 @@ function impaginaAnteprima(){
   box.style.aspectRatio = String(fa.aspetto);
   postaAnteprima({tipo:'fori', fori:fa.fori, modo:fa.modo});
 }
+const VENTI = [[null,'Auto'], [.1,'Calmo'], [.4,'Brezza'], [.8,'Forte']];
+const ventoVicino = v => v == null ? null : VENTI.slice(1).reduce((m, x) => Math.abs(x[0] - v) < Math.abs(m[0] - v) ? x : m)[0];
 function disegnaFinestre(){
   const s = $('#s-finestre');
   if (!s.dataset.fatto){
     s.dataset.fatto = 1;
-    s.innerHTML = testa('bifora', 'Illusionist', 'Le finestre della stanza medievale') + `
+    s.innerHTML = testa('bifora', 'Finestre', 'Quello che si vede adesso') + `
       <div class="vivo">
         <div class="anteprima" id="anteprima"><iframe id="anteprimaFrame" title="Anteprima delle finestre" src="../finestra/?anteprima=1"></iframe>
           <div class="etich"><b id="nomeInOnda">—</b><small id="sottoInOnda"></small></div></div>
         <div class="rapide">
           <button class="btn" data-fai="accendi" id="btnAccendi">${icona('accensione', 20)}<span>Accese</span></button>
+          <button class="btn" data-fai="vaiPaesaggi">${icona('quadro', 20)}<span>Paesaggio</span><small>cambia</small></button>
           <button class="btn" data-fai="lampo">${icona('fulmine', 20)}<span>Lampo</span></button>
-          <button class="btn" data-fai="vaiPaesaggi">${icona('quadro', 20)}<span>Paesaggi</span><small>cambia</small></button>
-          <button class="btn" data-fai="vaiCrea">${icona('scintilla', 20)}<span>Crea</span><small>con l'AI</small></button>
         </div>
       </div>
       <div class="sezione">${titolo('orologio', 'Ora')}<div class="scelte c5" id="sceltaOra">${ORE.map(([v, ic, t]) => scelta('ora', v, ic, t)).join('')}</div></div>
       <div class="sezione">${titolo('nuvola', 'Tempo')}<div class="scelte c3" id="sceltaMeteo">${METEO.map(([v, ic, t]) => scelta('meteo', v, ic, t)).join('')}</div>
         <div class="pannello" style="margin-top:10px">
-          ${cursore('intensita', 'goccia', 'Intensità', 0, 100, Math.round(scena.intensita * 100), Math.round(scena.intensita * 100) + '%')}
-          ${cursore('vento', 'vento', 'Vento', 0, 100, scena.vento == null ? 30 : Math.round(scena.vento * 100), scena.vento == null ? 'auto' : Math.round(scena.vento * 100) + '%')}
-          <div class="pillole" style="margin-top:2px"><button class="pillola" data-fai="ventoAuto" id="ventoAuto">${icona('vento', 16)}Vento secondo il tempo</button></div>
-        </div></div>
-      <div class="sezione">${titolo('porta', 'Vista')}
-        <p class="nota" id="notaModo" style="margin-top:0"></p>
-        <div class="pannello" style="margin-top:10px;padding:2px 14px">
-          ${interruttore('movimento', 'nuvola', 'Movimento', 'Nuvole che scorrono e alberi al vento, anche sulle immagini ferme', scena.movimento)}
-          ${interruttore('prospettiva', 'occhio', 'Prospettiva', 'Le due finestre vedono il paesaggio da punti appena diversi', scena.prospettiva)}
-          ${interruttore('prospettivaViva', 'persona', 'Prospettiva viva', 'Per un ospite: le finestre seguono chi si muove nella stanza (serve il sensore). Con più persone resta ferma.', scena.prospettivaViva)}
-        </div></div>
-      <div class="sezione">${titolo('film', 'Fluidità', 'immagini al secondo')}
-        <div class="scelte c4" id="sceltaFps">${FLUIDITA.map(([v, t, sotto]) => `<button class="scelta" data-fai="fps" data-v="${v}" aria-pressed="false"><b style="font:600 18px var(--display)">${v}</b><span>${esc(t)}</span></button>`).join('')}</div>
-        <p class="nota">Meno immagini al secondo = meno lavoro per il computer, ventola più tranquilla. 50 è regolare solo se lo schermo è impostato a 50 Hz; 45 su uno schermo a 60 Hz dà piccoli scatti sulla pioggia. Uno schermo può avere la sua con <b>&amp;fps=</b> nel suo indirizzo.</p></div>
-      <div class="sezione">${titolo('luce', 'Luce dello schermo', 'bassa, più bassa di notte')}
-        <div class="pannello">${cursore('luceGiorno', 'sole', 'Di giorno', 5, 100, scena.luceGiorno, scena.luceGiorno + '%')}${cursore('luceNotte', 'luna', 'Di notte', 2, 100, scena.luceNotte, scena.luceNotte + '%')}</div></div>`;
+          <div id="rigaIntensita">${cursore('intensita', 'goccia', 'Intensità', 0, 100, Math.round(scena.intensita * 100), Math.round(scena.intensita * 100) + '%')}</div>
+          <div class="riga-vento">${icona('vento', 18)}<span>Vento</span><div class="segmenti">${VENTI.map(([v, t]) => `<button data-fai="vento" data-v="${v == null ? '' : v}">${t}</button>`).join('')}</div></div>
+        </div></div>`;
     anteprimaFrame = $('#anteprimaFrame');
     anteprimaFrame.onload = () => { anteprimaPronta = true; impaginaAnteprima(); postaAnteprima({tipo:'scena', scena}); };
     legaCursore('intensita', (v, o) => { o.textContent = v + '%'; cambia({intensita: v / 100}, false); });
-    legaCursore('vento', (v, o) => { o.textContent = v + '%'; cambia({vento: v / 100}, false); });
-    legaCursore('luceGiorno', (v, o) => { o.textContent = v + '%'; cambia({luceGiorno: v}, false); });
-    legaCursore('luceNotte', (v, o) => { o.textContent = v + '%'; cambia({luceNotte: v}, false); });
     impaginaAnteprima();
   }
   aggiornaFinestre();
@@ -438,20 +423,14 @@ function aggiornaFinestre(){
   const s = $('#s-finestre'); if (!s.dataset.fatto) return;
   s.querySelectorAll('[data-fai="ora"]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.v === scena.ora)));
   s.querySelectorAll('[data-fai="meteo"]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.v === scena.meteo)));
-  s.querySelectorAll('[data-fai="fps"]').forEach(b => b.setAttribute('aria-pressed', String(+b.dataset.v === (scena.fps || 60))));
-  const a = assettoOPredefinito();
-  $('#notaModo').textContent = a.n < 2 ? 'Una finestra. Quando arriverà il secondo schermo, la seconda finestra si aggiunge nelle Impostazioni.'
-    : 'Due finestre, una per schermo: lo stesso paesaggio, ognuna con la sua prospettiva, come due finestre vere sulla stessa parete.';
+  const vv = ventoVicino(scena.vento);
+  s.querySelectorAll('[data-fai="vento"]').forEach(b => b.setAttribute('aria-pressed', String((b.dataset.v === '' ? null : +b.dataset.v) === vv)));
+  $('#rigaIntensita').hidden = scena.meteo === 'sereno';
   $('#btnAccendi').innerHTML = icona('accensione', 20) + '<span>' + (scena.acceso ? 'Accese' : 'Spente') + '</span><small>' + (scena.acceso ? 'spegni' : 'accendi') + '</small>';
   $('#btnAccendi').classList.toggle('oro', !!scena.acceso);
-  $('#ventoAuto').setAttribute('aria-pressed', String(scena.vento == null));
-  $('#vento-o').textContent = scena.vento == null ? 'auto' : Math.round(scena.vento * 100) + '%';
-  s.querySelector('[data-fai="movimento"]').setAttribute('aria-checked', String(scena.movimento !== false));
-  s.querySelector('[data-fai="prospettiva"]').setAttribute('aria-checked', String(scena.prospettiva !== false));
-  s.querySelector('[data-fai="prospettivaViva"]').setAttribute('aria-checked', String(!!scena.prospettivaViva));
   const p = libreria.find(x => x.id === scena.paesaggio);
   $('#nomeInOnda').textContent = p ? p.nome : scena.yt ? 'Video di YouTube' : scena.immagini ? 'Paesaggio' : 'Nessun paesaggio';
-  $('#sottoInOnda').textContent = [p ? TIPI[p.tipo] : '', NOME_ORA[scena.ora], (METEO.find(m => m[0] === scena.meteo) || [,,''])[2].toLowerCase()].filter(Boolean).join(' · ');
+  $('#sottoInOnda').textContent = [NOME_ORA[scena.ora], (METEO.find(m => m[0] === scena.meteo) || [,,''])[2].toLowerCase()].filter(Boolean).join(' · ');
 }
 
 /* ═══════════ PAESAGGI: libreria, foto dal web, YouTube ══════════════════ */
@@ -481,7 +460,7 @@ async function profonditaInSottofondo(){
 }
 
 async function caricaLibreria(){
-  if (!casa && !CASA_PRIVATA){ libreriaStato = 'Entra con la tua email (Impostazioni → Account e stanza) per vedere i paesaggi della tua stanza.'; if (scheda === 'paesaggi') disegnaPaesaggi(); return; }
+  if (!casa && !CASA_PRIVATA){ libreriaStato = 'Collega il telefono alla tua stanza (Impostazioni → Stanza e schermi) per vedere i tuoi paesaggi.'; if (scheda === 'paesaggi') disegnaPaesaggi(); return; }
   libreriaStato = 'carico';
   try { libreria = await leggiLibreria(casa); libreriaStato = 'ok'; setTimeout(profonditaInSottofondo, 1500); }
   catch(e) { libreriaStato = e.message; }
@@ -499,35 +478,30 @@ const cartaPaesaggio = p => {
 function disegnaPaesaggi(){
   if (libreriaStato === 'da caricare') caricaLibreria();
   const s = $('#s-paesaggi');
-  const filtri = [['tutti','Tutti'], ['dipinti','Dipinti'], ['foto','Foto'], ['video','Video'], ['animati','Animati']];
+  const indietro = `<button class="btn piccolo" data-fai="vistaP" data-v="miei" style="margin-bottom:12px">${icona('indietro', 16)}I miei paesaggi</button>`;
   let corpo = '';
   if (vistaPaesaggi === 'miei'){
-    const elenco = filtraLibreria(libreria, filtroTesto, filtroTipo === 'tutti' ? null : filtroTipo);
-    corpo = `<div class="cerca">${icona('lente', 18)}<input id="cercaMiei" type="search" placeholder="Cerca: castello, nebbia, mare…" value="${esc(filtroTesto)}" autocomplete="off"></div>
-      <div class="pillole">${filtri.map(([v, t]) => `<button class="pillola" data-fai="filtro" data-v="${v}" aria-pressed="${filtroTipo === v}">${t}</button>`).join('')}</div>
+    const elenco = filtraLibreria(libreria, filtroTesto, null);
+    corpo = `<div class="riga-cerca"><div class="cerca">${icona('lente', 18)}<input id="cercaMiei" type="search" placeholder="Cerca…" value="${esc(filtroTesto)}" autocomplete="off"></div>
+        <button class="btn oro" data-fai="aggiungiPaesaggio">${icona('piu', 18)}Aggiungi</button></div>
       <div class="griglia" style="margin-top:14px">${libreriaStato === 'carico' && !libreria.length ? '<p class="vuoto">Carico la libreria…</p>'
         : libreriaStato !== 'ok' && libreriaStato !== 'carico' ? `<p class="vuoto">${esc(libreriaStato)}</p>`
-        : elenco.length ? elenco.map(cartaPaesaggio).join('') : `<p class="vuoto">${libreria.length ? 'Nessun paesaggio con queste parole.' : 'La libreria è vuota: crea un paesaggio con l\'AI o aggiungi una foto dal web.'}</p>`}</div>`;
+        : elenco.length ? elenco.map(cartaPaesaggio).join('') : `<p class="vuoto">${libreria.length ? 'Nessun paesaggio con queste parole.' : 'Ancora nessun paesaggio: tocca «Aggiungi».'}</p>`}</div>`;
   } else if (vistaPaesaggi === 'web'){
-    corpo = `<form id="formWeb" class="cerca">${icona('lente', 18)}<input id="cercaWeb" type="search" placeholder="Cerca foto vere: castello medievale, colline toscane…" value="${esc(cercaWebTesto)}" autocomplete="off"></form>
-      <p class="nota">Foto libere da Wikimedia Commons${imp.chiavi.pexels ? ' e Pexels' : ' (con una chiave Pexels gratuita, nelle Impostazioni, ne trovi di più belle e verticali)'}. Le verticali vengono prima.</p>
+    corpo = indietro + `<form id="formWeb" class="cerca">${icona('lente', 18)}<input id="cercaWeb" type="search" placeholder="Cerca foto vere: castello medievale, colline toscane…" value="${esc(cercaWebTesto)}" autocomplete="off"></form>
+      <p class="nota">Foto libere da Wikimedia Commons${imp.chiavi.pexels ? ' e Pexels' : ''}. Le verticali vengono prima.</p>
       <div class="griglia" style="margin-top:12px">${cercaWebStato === 'cerco' ? '<p class="vuoto">Cerco…</p>' : cercaWebStato && cercaWebStato !== 'ok' ? `<p class="vuoto">${esc(cercaWebStato)}</p>`
         : risultatiWeb.map((f, i) => `<button class="carta" data-fai="apriWeb" data-v="${i}"><img loading="lazy" alt="" src="${esc(f.miniatura)}"><span class="su"><b>${esc(f.titolo.slice(0, 40))}</b><small>${esc(f.fonte)}${f.verticale ? '' : ' · orizzontale'}</small></span></button>`).join('')}</div>`;
   } else {
-    corpo = `<div class="pannello">
+    corpo = indietro + `<div class="pannello">
       <label class="campo"><span>Link di YouTube</span><input id="ytLink" inputmode="url" placeholder="https://www.youtube.com/watch?v=…" autocomplete="off"></label>
       <label class="campo"><span>Nome</span><input id="ytNome" maxlength="40" placeholder="Es. Foresta sotto la pioggia"></label>
-      <label class="campo"><span>Parole chiave</span><input id="ytParole" placeholder="foresta, pioggia, notte"></label>
       <button class="btn oro piena" data-fai="salvaYT">${icona('piu', 18)}Aggiungi alla libreria</button>
-      <p class="nota">Il video gira muto e in loop, ritagliato sui fori; il tempo (pioggia, lampi, nebbia) ci va sopra. Cerca su YouTube «window view 4K» o «vertical landscape» per i più adatti.</p></div>`;
+      <p class="nota">Il video gira muto e in loop; pioggia, lampi e nebbia ci vanno sopra. Su YouTube cerca «window view 4K».</p></div>`;
   }
-  s.innerHTML = testa('quadro', 'Paesaggi', 'La libreria della stanza') + `
-    <div class="segmenti" style="margin-bottom:14px">
-      <button data-fai="vistaP" data-v="miei" aria-pressed="${vistaPaesaggi === 'miei'}">${icona('quadro', 16)}I miei</button>
-      <button data-fai="vistaP" data-v="web" aria-pressed="${vistaPaesaggi === 'web'}">${icona('mondo', 16)}Dal web</button>
-      <button data-fai="vistaP" data-v="yt" aria-pressed="${vistaPaesaggi === 'yt'}">${icona('scena', 16)}YouTube</button></div>` + corpo;
+  s.innerHTML = testa('quadro', 'Paesaggi', vistaPaesaggi === 'web' ? 'Una foto vera dal web' : vistaPaesaggi === 'yt' ? 'Un video di YouTube' : 'Tocca per mostrarlo') + corpo;
   const cm = $('#cercaMiei');
-  if (cm){ cm.oninput = () => { filtroTesto = cm.value; const g = s.querySelector('.griglia'); const el = filtraLibreria(libreria, filtroTesto, filtroTipo === 'tutti' ? null : filtroTipo);
+  if (cm){ cm.oninput = () => { filtroTesto = cm.value; const g = s.querySelector('.griglia'); const el = filtraLibreria(libreria, filtroTesto, null);
     g.innerHTML = el.length ? el.map(cartaPaesaggio).join('') : '<p class="vuoto">Nessun paesaggio con queste parole.</p>'; }; }
   const fw = $('#formWeb');
   if (fw) fw.onsubmit = async e => { e.preventDefault(); cercaWebTesto = $('#cercaWeb').value.trim(); if (!cercaWebTesto) return; $('#cercaWeb').blur();
@@ -537,45 +511,66 @@ function disegnaPaesaggi(){
     disegnaPaesaggi(); };
   aggiornaSpia();
 }
+function apriAggiungiPaesaggio(){
+  const riga = (fai, ic, t, sotto) => `<button class="scelta riga" data-fai="${fai}">${icona(ic, 22)}<span><b>${t}</b><small>${sotto}</small></span></button>`;
+  apriFoglio(`<h3 class="foglio-titolo">Aggiungi un paesaggio</h3><div class="scelte">
+    ${riga('vaiCrea', 'scintilla', 'Dipinto dall\'AI', 'Lo descrivi, lo dipinge con le luci del giorno e la vista per il TV')}
+    ${riga('aggiungiWebVai', 'mondo', 'Foto vera dal web', 'Da Wikimedia Commons' + (imp.chiavi.pexels ? ' e Pexels' : ''))}
+    ${riga('aggiungiYTVai', 'scena', 'Video di YouTube', 'Un video in loop, muto')}</div>`);
+  foglioAperto = 'aggiungi-paesaggio';
+}
+
+/* che cosa manca a un paesaggio per essere completo come uno appena creato */
+function cosaManca(p){
+  if (p.yt || !p.immagini.giorno) return [];
+  const m = ['alba','tramonto','notte'].filter(o => !p.immagini[o]);
+  if (!p.immagini['est-giorno']) m.push('tv');
+  if (!['giorno','alba','tramonto','notte'].some(o => p.immagini['cielo-' + o])) m.push('cielo');
+  return m;
+}
+function costoCompleta(manca){
+  const m = Ai.modello(imp.modello), c = m.costo[imp.qualita] || m.costo.alta, nLuci = manca.filter(o => NOME_ORA[o]).length;
+  return c * 1.15 * nLuci + (manca.includes('tv') ? c * 1.3 * (1 + 3 * 1.15) : 0) + (manca.includes('cielo') ? c * 4 : 0);
+}
+const NOME_MANCA = {alba:'alba', tramonto:'tramonto', notte:'notte', tv:'vista per il TV', cielo:'cielo che scorre'};
 
 /* il dettaglio di un paesaggio */
 function apriPaesaggio(p){
   foglioAperto = p.id;
   const ora = ['giorno','alba','tramonto','notte'];
-  const mancano = p.yt ? [] : ['alba','tramonto','notte'].filter(o => !p.immagini[o]);
+  const manca = cosaManca(p);
   const fx = p.fuoco ? p.fuoco.x : .5;
   const img = p.yt ? `https://i.ytimg.com/vi/${encodeURIComponent(p.yt)}/hqdefault.jpg` : p.immagini.giorno;
+  const elencoManca = manca.map(o => NOME_MANCA[o]);
   apriFoglio(`
     <div class="dettaglio">
       <div class="grande"><img id="dettImg" alt="" src="${esc(img)}" style="object-position:${Math.round(fx * 100)}% 50%"></div>
       <div class="info">
         <h3>${esc(p.nome)}</h3>
-        <p class="nota" style="margin:0">${esc(TIPI[p.tipo] || '')}${Object.keys(p.animati).length ? ' · animato' : ''}${p.immagini.profondita ? ' · con profondità' : ''}</p>
-        <div class="pillole">${(p.parole || []).map(w => `<span class="pillola" style="cursor:default">${icona('etichetta', 14)}${esc(w)}</span>`).join('') || '<span class="nota">nessuna parola chiave</span>'}</div>
+        <p class="nota" style="margin:0">${esc(TIPI[p.tipo] || '')}${Object.keys(p.animati).length ? ' · animato' : ''}</p>
         ${p.yt ? '' : `<div class="luci">${ora.map(o => p.immagini[o] ? `<button data-fai="vediLuce" data-v="${o}" aria-pressed="${o === 'giorno'}"><img alt="" src="${esc(p.immagini[o])}" style="object-position:${Math.round(fx * 100)}% 50%"><span>${NOME_ORA[o].toUpperCase()}</span></button>` : `<span class="manca" title="manca">${icona(o === 'notte' ? 'luna' : o === 'giorno' ? 'sole' : o, 16)}</span>`).join('')}</div>`}
+        ${p.immagini['est-giorno'] ? `<button class="tv-mini" data-fai="vediLuce" data-v="est-giorno"><img alt="" src="${esc(p.immagini['est-giorno'])}"><span>${icona('tv', 13)}TV</span></button>` : ''}
       </div>
     </div>
-    ${p.yt ? '' : `<div class="pannello vista-tv" style="margin-top:12px;padding:10px 14px">${titolo('tv', 'Verso est · il TV')}
-      ${p.immagini['est-giorno'] ? `<img alt="" src="${esc(p.immagini['est-giorno'])}" style="width:100%;aspect-ratio:16/9;object-fit:cover;border-radius:8px;display:block">` : '<p class="nota" style="margin:0 0 8px">Questo paesaggio non ha ancora la vista per il TV: il TV mostra la stessa delle finestrelle, allargata.</p>'}
-      <label class="campo" style="margin-top:10px"><span>Che cosa si vede verso est</span><input id="tvDesc" placeholder="Vuoto: lo sceglie l'AI"></label>
-      <button class="btn piena" data-fai="vistaTv" data-v="${p.id}">${icona('tv', 18)}${p.immagini['est-giorno'] ? 'Rifai la vista TV' : 'Crea la vista TV'}</button></div>`}
     <button class="btn oro piena" style="margin-top:14px" data-fai="mostra" data-v="${p.id}">${icona('play', 18)}Mostra alle finestre</button>
-    ${p.yt ? '' : `<div class="pannello" style="margin-top:12px;padding:6px 14px">${cursore('inquadra', 'mirino', 'Inquadratura', 0, 100, Math.round(fx * 100), fx === .5 ? 'centro' : Math.round(fx * 100) + '%')}
-      <p class="nota" style="margin:0 0 6px">Se l'immagine è più larga del foro, scegli quale parte si vede. Le finestre la seguono dal vivo.</p></div>`}
-    <div class="azioni">
-      ${p.yt || !MODELLI_VIDEO.length ? '' : `<button class="btn" data-fai="anima" data-v="${p.id}">${icona('anima', 18)}Anima</button>`}
-      ${p.yt ? '' : `<button class="btn" data-fai="cieli" data-v="${p.id}">${icona('nuvola', 18)}${['giorno','alba','tramonto','notte'].some(o => p.immagini['cielo-' + o]) ? 'Rifai il cielo' : 'Cielo che scorre'}</button>`}
-      ${mancano.length ? `<button class="btn" data-fai="luci" data-v="${p.id}">${icona('alba', 18)}Luci (${mancano.length})</button>` : ''}
-      ${p.yt ? '' : `<button class="btn" data-fai="riadatta" data-v="${p.id}">${icona('mirino', 18)}Riadatta</button>`}
-      ${p.yt ? '' : `<button class="btn" data-fai="profondita" data-v="${p.id}">${icona('livelli', 18)}${p.immagini.profondita ? 'Rifai profondità' : 'Profondità'}</button>`}
-      <button class="btn" data-fai="modifica" data-v="${p.id}">${icona('matita', 18)}Modifica</button>
-      <button class="btn pericolo" data-fai="elimina" data-v="${p.id}">${icona('cestino', 18)}Elimina</button>
-    </div>
+    ${manca.length ? `<button class="btn piena" style="margin-top:8px" data-fai="completa" data-v="${p.id}">${icona('scintilla', 18)}Completa con l'AI · ≈ ${euro(costoCompleta(manca))}</button>
+      <p class="nota" style="margin-top:6px">Manca: ${esc(elencoManca.join(', '))}.</p>` : ''}
+    <details class="gruppo" style="margin-top:12px"><summary>${icona('manopole', 18)}<span>Altro</span></summary><div class="dentro-gruppo">
+      ${p.yt ? '' : `${cursore('inquadra', 'mirino', 'Inquadratura', 0, 100, Math.round(fx * 100), fx === .5 ? 'centro' : Math.round(fx * 100) + '%')}
+        <p class="nota" style="margin:0 0 10px">Quale parte dell'immagine si vede nel foro, se è più larga.</p>
+        <label class="campo"><span>Che cosa si vede verso il TV</span><input id="tvDesc" placeholder="Vuoto: lo sceglie l'AI"></label>`}
+      <div class="azioni">
+        ${p.yt || !p.immagini['est-giorno'] ? '' : `<button class="btn" data-fai="vistaTv" data-v="${p.id}">${icona('tv', 18)}Rigenera vista TV</button>`}
+        ${p.yt || manca.includes('cielo') ? '' : `<button class="btn" data-fai="cieli" data-v="${p.id}">${icona('nuvola', 18)}Rigenera il cielo</button>`}
+        ${p.yt || !MODELLI_VIDEO.length ? '' : `<button class="btn" data-fai="anima" data-v="${p.id}">${icona('anima', 18)}Anima</button>`}
+        <button class="btn" data-fai="modifica" data-v="${p.id}">${icona('matita', 18)}Rinomina</button>
+        <button class="btn pericolo" data-fai="elimina" data-v="${p.id}">${icona('cestino', 18)}Elimina</button>
+      </div></div></details>
     <div id="lavoroFoglio"></div>`, el => {
       let tFuoco = null;
       legaCursore('inquadra', (v, o) => {
         o.textContent = v === 50 ? 'centro' : v + '%';
-        el.querySelectorAll('img').forEach(i => i.style.objectPosition = v + '% 50%');
+        el.querySelectorAll('.grande img, .luci img').forEach(i => i.style.objectPosition = v + '% 50%');
         p.fuoco = {x: v / 100};
         if (scena.paesaggio === p.id) cambia({fuoco: p.fuoco}, false);
         clearTimeout(tFuoco); tFuoco = setTimeout(() => rinominaPaesaggio(casa, p, p.nome, p.parole, p.fuoco).then(() => { if (scheda === 'paesaggi') disegnaPaesaggi(); }).catch(e => avviso(e.message, true)), 1600);
@@ -678,7 +673,6 @@ ${LUCI_EST.giorno}`;
    Per questo il cielo è un'immagine panoramica a parte, che si ripete senza cuciture e la finestra fa scorrere
    all'infinito dietro torri e colline (anche da una trifora all'altra). Niente sole né luna: scorrerebbero. */
 const promptCielo = `Paint ONLY the sky of this image, as one very wide panoramic strip of sky. Same painting style, same light, same colors and the same kind of clouds as the sky in the image. No ground, no hills, no mountains, no buildings, no trees, no horizon line, no sun, no moon, no stars, no birds, no text, no frame, no border. Clouds spread across the whole width, varied in size and shape, with open sky between them. The bottom of the strip is the pale, hazy sky just above the horizon, the same color as the image right above the hills; the top is the deeper color of the top of the image's sky. Even lighting across the whole width, so the strip can repeat side by side.`;
-const promptRiadatta = `Recompose this exact landscape into a very tall and narrow vertical frame (2 wide by 5 high, like a slit window): same place, same style, same light. The main subject (for example the castle or the village) must be fully visible and centered in the width, never cut by the edges. Extend the sky above and the foreground below naturally. No window frame, no text, no borders.`;
 const promptAnima = (el, sec) => `[# Sources <FIRST_FRAME>@Image1 <LAST_FRAME>@Image1] A single continuous, unbroken shot of about ${sec} seconds, no scene cuts, of exactly this landscape. Locked-off static camera on a tripod: the camera does not move at all (no pan, no tilt, no zoom, no dolly, no shake). Gentle, natural, real-time motion only: ${el.map(e => (ELEMENTI.find(x => x[0] === e) || [])[3]).filter(Boolean).join('; ')}. Buildings, towers, rocks, mountains, fields and the ground stay perfectly still and identical in every frame, with no shimmering. Everything that moves keeps the same slow speed and direction for the whole clip. No birds, no mist or fog appearing, growing or fading, no new clouds popping in, no light change. Same framing, light and colors as the image for the whole clip. No people, no animals, no text, no dialogue, no music. Use this image as the first frame and the last frame.`;
 
 /* un lavoro lungo alla volta (creare, animare, aggiungere luci): i passi si vedono dove serve */
@@ -854,30 +848,26 @@ function disegnaCrea(){
   const unaVista = (m.costo[imp.qualita] || m.costo.alta) * (1 + nLuci * 1.15);
   const costo = unaVista * (imp.cielo !== false ? 2 : 1) + (imp.tv !== false ? unaVista * 1.3 : 0) + (imp.anima ? mv.euroSecondo * imp.video.secondi : 0);
   const desc = $('#creaDesc') ? $('#creaDesc').value : '', nome = $('#creaNome') ? $('#creaNome').value : '', descEst = $('#creaEst') ? $('#creaEst').value : '';
+  const manca = !imp.chiavi[m.fornitore];
+  const incluso = [nLuci ? 'giorno, ' + ['alba','tramonto','notte'].filter(o => imp.luci[o]).join(', ') : 'solo giorno', imp.tv !== false ? 'vista TV' : '', imp.cielo !== false ? 'cielo che scorre' : '', imp.anima ? 'animazione' : ''].filter(Boolean).join(' · ');
   s.innerHTML = testa('scintilla', 'Crea', 'Un paesaggio nuovo, dipinto dall\'AI') + `<div class="problema" hidden></div>
-    <div class="pannello" style="display:flex;align-items:center;gap:12px">${icona('tavolozza', 22)}<div style="flex:1;min-width:0"><b style="font:500 12.5px var(--display);letter-spacing:.1em;text-transform:uppercase">${esc(m.nome)}</b><div class="nota" style="margin:0">qualità ${esc(imp.qualita)}${imp.chiavi[m.fornitore] ? '' : ' · manca la chiave'}</div></div><button class="btn piccolo" data-fai="vaiImp">Cambia</button></div>
-    <div class="sezione">${titolo('tavolozza', 'Stile', 'quelli di DMaster')}
-      <div class="stili">${STILI.map(st => `<button class="stile" data-fai="stile" data-v="${st.id}" aria-pressed="${imp.stile === st.id}"><div class="tela" style="background:${st.tela}"></div><b>${st.nome}</b><small>${st.nota}</small></button>`).join('')}</div></div>
+    ${manca ? `<div class="problema fisso">${icona('chiave', 20)}<div><b>Manca la chiave ${m.fornitore === 'google' ? 'Google' : 'OpenAI'}</b><span>Mettila nelle Impostazioni → AI e chiavi.</span><div class="azioni" style="margin-top:8px"><button class="btn piccolo" data-fai="vaiImp">${icona('manopole', 16)}Impostazioni</button></div></div></div>` : ''}
     <div class="sezione">${titolo('occhio', 'Che cosa si vede')}
-      <label class="campo"><span>Nome</span><input id="creaNome" maxlength="40" placeholder="Es. Valle col castello" value="${esc(nome)}"></label>
-      <label class="campo"><span>Descrizione</span><textarea id="creaDesc" placeholder="Descrivi il paesaggio fuori dalla finestra, anche in poche parole.">${esc(desc)}</textarea></label>
+      <label class="campo"><textarea id="creaDesc" placeholder="Descrivi il paesaggio fuori dalla finestra, anche in poche parole. Oppure tocca un'idea qui sotto.">${esc(desc)}</textarea></label>
       <div class="pillole">${IDEE.map(([n], i) => `<button class="pillola" data-fai="idea" data-v="${i}">${esc(n)}</button>`).join('')}</div></div>
-    <div class="sezione">${titolo('tv', 'Verso est · il TV', 'un altro soggetto, stessa terra')}
-      <div class="pannello" style="padding:2px 14px">${interruttore('tvToggle', 'tv', 'Vista per il TV', 'Larga 16:9, portata al 4K dal mini PC · stessa ora, stesso tempo, stesso cielo delle finestrelle', imp.tv !== false)}</div>
-      ${imp.tv !== false ? `<label class="campo" style="margin-top:12px"><span>Che cosa si vede verso est</span><textarea id="creaEst" placeholder="Il secondo soggetto, al centro del TV (es. un villaggio sul fiume). Vuoto: lo sceglie l'AI.">${esc(descEst)}</textarea></label>
-      <p class="nota">Il sole sta dove starebbe davvero: all'alba sorge nel TV, al tramonto non si vede in nessuna delle due viste, la luna solo nelle finestrelle.</p>` : ''}</div>
-    <div class="sezione">${titolo('alba', 'Le luci del giorno')}
-      <div class="scelte c4">${['giorno','alba','tramonto','notte'].map(o => `<button class="scelta" data-fai="luce" data-v="${o}" aria-pressed="${o === 'giorno' || !!imp.luci[o]}" ${o === 'giorno' ? 'disabled style="opacity:1"' : ''}>${icona(o === 'giorno' ? 'sole' : o === 'notte' ? 'luna' : o, 22)}<span>${NOME_ORA[o]}</span></button>`).join('')}</div>
-      <p class="nota">Alba, tramonto e notte sono lo stesso paesaggio con un'altra luce: quando cambia l'ora, le finestre sfumano dall'una all'altra senza cambiare vista.</p></div>
-    <div class="sezione">${titolo('nuvola', 'Cielo che scorre')}
-      <div class="pannello" style="padding:2px 14px">${interruttore('cieloToggle', 'nuvola', 'Cielo panoramico', 'Le nuvole scorrono senza fine dietro il paesaggio, mai un salto · un\'immagine in più per luce', imp.cielo !== false)}</div></div>
-    ${MODELLI_VIDEO.length ? `<div class="sezione">${titolo('anima', 'Movimento vero')}
-      <div class="pannello" style="padding:2px 14px">${interruttore('animaToggle', 'anima', 'Animalo con ' + mv.nome, `${imp.video.secondi} secondi in loop · ≈ ${euro(mv.euroSecondo * imp.video.secondi)}`, imp.anima)}
-        ${imp.anima ? `<div class="pillole" style="margin:0 0 12px">${ELEMENTI.map(([v, ic, t]) => `<button class="pillola" data-fai="elemento" data-v="${v}" aria-pressed="${imp.elementi.includes(v)}">${icona(ic, 15)}${t}</button>`).join('')}</div>` : ''}</div></div>`
-      : `<div class="sezione">${titolo('nuvola', 'Movimento')}<p class="nota" style="margin-top:0">Le finestre muovono da sé nuvole e alberi su ogni paesaggio. I video brevi in loop fatti dall'AI arrivano appena è pronto il nuovo modello di Google.</p></div>`}
+    <div class="sezione">${titolo('tavolozza', 'Stile')}
+      <div class="stili">${STILI.map(st => `<button class="stile" data-fai="stile" data-v="${st.id}" aria-pressed="${imp.stile === st.id}"><div class="tela" style="background:${st.tela}"></div><b>${st.nome}</b><small>${st.nota}</small></button>`).join('')}</div></div>
+    ${gruppo('crea-opzioni', 'manopole', 'Più opzioni', incluso, `
+      <label class="campo"><span>Nome</span><input id="creaNome" maxlength="40" placeholder="Vuoto: lo prendo dalla descrizione" value="${esc(nome)}"></label>
+      ${interruttore('tvToggle', 'tv', 'Vista per il TV', 'Verso est: un altro soggetto della stessa terra, stessa ora e stesso tempo', imp.tv !== false)}
+      ${imp.tv !== false ? `<label class="campo"><span>Che cosa si vede verso il TV</span><input id="creaEst" placeholder="Vuoto: lo sceglie l'AI" value="${esc(descEst)}"></label>` : ''}
+      <div class="blocco"><span>Luci del giorno</span><div class="scelte c4">${['giorno','alba','tramonto','notte'].map(o => `<button class="scelta" data-fai="luce" data-v="${o}" aria-pressed="${o === 'giorno' || !!imp.luci[o]}" ${o === 'giorno' ? 'disabled style="opacity:1"' : ''}>${icona(o === 'giorno' ? 'sole' : o === 'notte' ? 'luna' : o, 22)}<span>${NOME_ORA[o]}</span></button>`).join('')}</div></div>
+      ${interruttore('cieloToggle', 'nuvola', 'Cielo che scorre', 'Le nuvole passano senza fine dietro il paesaggio', imp.cielo !== false)}
+      ${MODELLI_VIDEO.length ? interruttore('animaToggle', 'anima', 'Animalo con ' + mv.nome, `${imp.video.secondi} secondi in loop · ≈ ${euro(mv.euroSecondo * imp.video.secondi)}`, imp.anima)
+        + (imp.anima ? `<div class="pillole" style="margin:0 0 12px">${ELEMENTI.map(([v, ic, t]) => `<button class="pillola" data-fai="elemento" data-v="${v}" aria-pressed="${imp.elementi.includes(v)}">${icona(ic, 15)}${t}</button>`).join('')}</div>` : '') : ''}`)}
     <div class="sezione">
-      <button class="btn oro piena" data-fai="crea" ${lavoro && !lavoro.finito ? 'disabled' : ''}>${icona('scintilla', 18)}Crea · ≈ ${euro(costo)}</button>
-      <p class="nota">Ci vogliono 1-3 minuti${imp.anima ? ' più qualche minuto per l\'animazione' : ''}: tieni il telefono acceso su questa pagina.</p>
+      <button class="btn oro piena" data-fai="crea" ${lavoro && !lavoro.finito || manca ? 'disabled' : ''}>${icona('scintilla', 18)}Crea · ≈ ${euro(costo)}</button>
+      <p class="nota">1-3 minuti${imp.anima ? ', più qualche minuto per l\'animazione' : ''}: tieni il telefono acceso su questa pagina.</p>
       <div id="lavoroCrea"></div></div>`;
   disegnaLavoro(); aggiornaSpia(); mostraProblema();
 }
@@ -897,8 +887,7 @@ function disegnaImpostazioni(){
       ${cursore('fh' + nm, 'mirino', 'Altezza', 2, 100, (f.h * 100).toFixed(1), (f.h * 100).toFixed(1) + '%', .1)}</div>`; }).join('');
   const linkPi = new URL('../finestra/' + (casa ? '?casa=' + casa : ''), location.href).href, linkTel = location.origin + location.pathname + (casa ? '?casa=' + casa : '');
   const ruoli = {proprietario:'Proprietario', comando:'Telefono o tablet', schermo:'Schermo', lavoratore:'Rifinitura dei video'};
-  const sezAccount = `<div class="sezione">${titolo('persona', 'Account e stanza', account ? (account.email || '') : 'non sei entrato')}
-    <div class="pannello">${accessoStato === 'controllo' ? '<p class="nota" style="margin:0">Controllo l\'accesso…</p>'
+  const corpoAccount = `${accessoStato === 'controllo' ? '<p class="nota" style="margin:0">Controllo l\'accesso…</p>'
       : !account && !casaPrivata ? `<p class="nota" style="margin-top:0">Collega questo telefono alla tua stanza: inquadra il QR che DMaster mostra in «Collega il telefono» (o entra con la tua email).</p>
           <button class="btn oro piena" data-fai="apriBenvenuto">${icona('qr', 18)}Collega il telefono</button>`
       : account && !casaPrivata ? `<p class="nota" style="margin-top:0">Questa stanza usa ancora il vecchio link.</p><button class="btn oro piena" data-fai="apriBenvenuto">${icona('chiave', 18)}Collega la stanza al mio account</button>`
@@ -913,26 +902,31 @@ function disegnaImpostazioni(){
       ${account ? `<button class="btn piena" style="margin-top:12px" data-fai="accCodiceComputer">${icona('chiave', 18)}Entra da un computer</button>
         <div class="azioni"><button class="btn piccolo" data-fai="accEsci">Esci da questo telefono</button><button class="btn piccolo" data-fai="accEsciOvunque">Esci da tutti i dispositivi</button></div>`
         : casaPrivata ? `<p class="nota">Telefono collegato da DMaster.</p><div class="azioni"><button class="btn piccolo" data-fai="accEsci">Scollega questo telefono</button></div>` : ''}
-      <div id="lavoroFoglio"></div></div></div>`;
-  s.innerHTML = testa('manopole', 'Impostazioni', 'Modelli, chiavi e finestre') + `<div class="problema" hidden></div>${sezAccount}
-    <div class="sezione">${titolo('tavolozza', 'AI per le immagini')}
-      <div class="scelte">${MODELLI_IMMAGINE.map(m => `<button class="scelta riga" data-fai="modello" data-v="${m.id}" aria-pressed="${imp.modello === m.id}">${icona(m.fornitore === 'google' ? 'mondo' : 'scintilla', 22)}<span><b>${esc(m.nome)}</b><small>${esc(m.note)}</small></span><span class="prezzo">≈ ${euro(m.costo[imp.qualita] || m.costo.alta)}</span></button>`).join('')}</div>
-      <div class="segmenti" style="margin-top:10px">${['alta','media','bassa'].map(v => `<button data-fai="qualita" data-v="${v}" aria-pressed="${imp.qualita === v}">Qualità ${v}</button>`).join('')}</div>
-      <p class="nota">Prezzi indicativi per un'immagine; le luci del giorno costano un po' di più (c'è anche l'immagine in ingresso).</p></div>
-    <div class="sezione">${titolo('anima', 'AI per le animazioni')}
-      ${MODELLI_VIDEO.length ? `<div class="scelte">${MODELLI_VIDEO.map(m => `<button class="scelta riga" data-fai="modelloVideo" data-v="${m.id}" aria-pressed="${imp.video.modello === m.id}">${icona('anima', 22)}<span><b>${esc(m.nome)}</b><small>${esc(m.note)}</small></span><span class="prezzo">${euro(m.euroSecondo)}/s</span></button>`).join('')}</div>
-      <div class="segmenti" style="margin-top:10px">${[4, 6, 8, 10].map(v => `<button data-fai="secondi" data-v="${v}" aria-pressed="${imp.video.secondi === v}">${v} secondi</button>`).join('')}</div>`
-      : `<p class="nota" style="margin-top:0">OpenAI ha spento l'API di Sora (24 settembre 2026) e Google le Veo «preview» (22 ottobre). Il successore è Gemini Omni Flash di Google: lo collego appena verificato. Userà la chiave Google qui sotto.</p>`}</div>
-    <div class="sezione">${titolo('chiave', 'Chiavi', 'restano su questo telefono')}
-      <div class="pannello">
-        ${campoChiave('kOpenai', 'OpenAI', 'sk-…', imp.chiavi.openai, 'La stessa di DMaster. Per GPT Image.')}
-        ${campoChiave('kGoogle', 'Google (Gemini)', 'AIza…', imp.chiavi.google, 'Per Nano Banana e per le animazioni (Gemini Omni). Si crea gratis su <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com</a>.')}
-        ${campoChiave('kPexels', 'Pexels (facoltativa)', 'chiave Pexels', imp.chiavi.pexels, 'Foto vere gratuite e verticali. Si chiede su <a href="https://www.pexels.com/api/" target="_blank" rel="noopener">pexels.com/api</a>.')}
-      </div></div>
-    <div class="sezione">${titolo('porta', 'Le finestre')}
+      <div id="lavoroFoglio"></div>`;
+  const chi = account ? (account.email || '') : casaPrivata ? 'telefono collegato' : 'non collegato';
+  const conChiave = !!imp.chiavi[Ai.modello(imp.modello).fornitore];
+  s.innerHTML = testa('manopole', 'Impostazioni', 'Si sistemano una volta') + `<div class="problema" hidden></div>
+    ${gruppo('stanza', 'persona', 'Stanza e schermi', chi, corpoAccount)}
+    ${gruppo('ai', 'scintilla', 'AI e chiavi', conChiave ? Ai.modello(imp.modello).nome : 'manca la chiave', `
+      <div class="blocco"><span>Per le immagini</span><div class="scelte">${MODELLI_IMMAGINE.map(m => `<button class="scelta riga" data-fai="modello" data-v="${m.id}" aria-pressed="${imp.modello === m.id}">${icona(m.fornitore === 'google' ? 'mondo' : 'scintilla', 22)}<span><b>${esc(m.nome)}</b><small>${esc(m.note)}</small></span><span class="prezzo">≈ ${euro(m.costo[imp.qualita] || m.costo.alta)}</span></button>`).join('')}</div></div>
+      <div class="segmenti">${['alta','media','bassa'].map(v => `<button data-fai="qualita" data-v="${v}" aria-pressed="${imp.qualita === v}">Qualità ${v}</button>`).join('')}</div>
+      ${MODELLI_VIDEO.length ? `<div class="blocco" style="margin-top:14px"><span>Per le animazioni</span><div class="scelte">${MODELLI_VIDEO.map(m => `<button class="scelta riga" data-fai="modelloVideo" data-v="${m.id}" aria-pressed="${imp.video.modello === m.id}">${icona('anima', 22)}<span><b>${esc(m.nome)}</b><small>${esc(m.note)}</small></span><span class="prezzo">${euro(m.euroSecondo)}/s</span></button>`).join('')}</div></div>
+        <div class="segmenti">${[4, 6, 8, 10].map(v => `<button data-fai="secondi" data-v="${v}" aria-pressed="${imp.video.secondi === v}">${v} s</button>`).join('')}</div>` : ''}
+      <div style="margin-top:14px">
+        ${campoChiave('kOpenai', 'Chiave OpenAI', 'sk-…', imp.chiavi.openai, 'La stessa di DMaster.')}
+        ${campoChiave('kGoogle', 'Chiave Google (Gemini)', 'AIza…', imp.chiavi.google, 'Per Nano Banana e le animazioni. Gratis su <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com</a>.')}
+        ${campoChiave('kPexels', 'Chiave Pexels (facoltativa)', 'chiave Pexels', imp.chiavi.pexels, 'Più foto vere e verticali. Gratis su <a href="https://www.pexels.com/api/" target="_blank" rel="noopener">pexels.com/api</a>.')}
+        <p class="nota" style="margin-top:0">Le chiavi restano su questo telefono.</p></div>`)}
+    ${gruppo('aspetto', 'nuvola', 'Come si muovono', '', `
+      ${interruttore('movimento', 'nuvola', 'Movimento', 'Nuvole che scorrono e alberi al vento, anche sulle immagini ferme', scena.movimento !== false)}
+      ${interruttore('prospettiva', 'occhio', 'Prospettiva', 'Le due finestre vedono il paesaggio da punti appena diversi', scena.prospettiva !== false)}
+      ${interruttore('prospettivaViva', 'persona', 'Prospettiva viva', 'Le finestre seguono chi si muove nella stanza (serve il sensore)', !!scena.prospettivaViva)}
+      <div class="blocco"><span>Luce dello schermo</span>${cursore('luceGiorno', 'sole', 'Di giorno', 5, 100, scena.luceGiorno, scena.luceGiorno + '%')}${cursore('luceNotte', 'luna', 'Di notte', 2, 100, scena.luceNotte, scena.luceNotte + '%')}</div>
+      <div class="blocco"><span>Fluidità · immagini al secondo</span><div class="scelte c3">${FLUIDITA.map(([v, t]) => `<button class="scelta" data-fai="fps" data-v="${v}" aria-pressed="${v === (scena.fps || 60)}"><b style="font:600 18px var(--display)">${v}</b><span>${esc(t)}</span></button>`).join('')}</div>
+        <p class="nota">Meno immagini = ventola più tranquilla. 50 solo se lo schermo è a 50 Hz.</p></div>`)}
+    ${gruppo('allinea', 'mirino', 'Allineamento', a.n === 2 ? 'due finestre' : 'una finestra', `
       <div class="segmenti">${[1, 2].map(n => `<button data-fai="nFinestre" data-v="${n}" aria-pressed="${a.n === n}">${icona(n === 1 ? 'monofora' : 'bifora', 18)}${n === 1 ? 'Una finestra' : 'Due finestre'}</button>`).join('')}</div>
-      <p class="nota">Ogni finestra ha il suo schermo. Qui allinei il foro di ciascuna sul suo schermo, in percento.</p>
-      <div class="pannello" style="margin-top:10px;padding:2px 14px">${interruttore('bordi', 'mirino', 'Mostra i bordi sulle finestre', 'Una cornice tratteggiata per allineare ogni foro al traforo', mostraBordi)}</div>
+      ${interruttore('bordi', 'mirino', 'Mostra i bordi sulle finestre', 'Una cornice tratteggiata per allineare ogni foro al traforo', mostraBordi)}
       ${fori}
       <div class="pannello" style="margin-top:10px">
         ${cursore('zoom', 'lente', 'Ingrandisci', 100, 200, Math.round(scena.zoom * 100), Math.round(scena.zoom * 100) + '%')}
@@ -940,19 +934,19 @@ function disegnaImpostazioni(){
       <div class="pannello" style="margin-top:10px"><div class="titolo" style="margin-bottom:4px">${icona('persona', 15)}Prova la prospettiva viva</div>
         ${cursore('provaX', 'destra', 'Dove sei', -100, 100, 0, 'centro')}
         ${cursore('provaZ', 'mirino', 'Quanto vicino', -100, 100, 0, '0')}
-        <p class="nota" style="margin:0 0 6px">Fai finta di muoverti nella stanza: le finestre (e l'anteprima) reagiscono come col sensore. Dopo qualche secondo tornano ferme.</p></div>
-      <p class="nota">Con lo schermo girato in verticale il foro è alto e stretto. ${a.n === 2 && !schermi.destra ? 'La finestra destra non ha ancora risposto: si collega quando c\'è il secondo schermo.' : ''}</p></div>
-    <div class="sezione">${titolo('catena', 'Collegamento')}
-      <div class="pannello">
-        <p class="nota" style="margin-top:0">Indirizzo da aprire sul Raspberry:</p><code class="link">${esc(linkPi)}</code>
-        <div class="azioni"><button class="btn" data-fai="copia" data-v="${esc(linkTel)}">${icona('copie', 18)}Link per un altro telefono</button><button class="btn" data-fai="ricaricaFinestre">${icona('ricarica', 18)}Ricarica finestre</button></div>
-      </div>
-      <p class="nota">DMaster Atmosphere ${VERSIONE} · Illusionist · powered by DMaster Stage. Le immagini stanno nel deposito di DMaster.</p></div>`;
+        <p class="nota" style="margin:0 0 6px">Fai finta di muoverti nella stanza: le finestre reagiscono come col sensore.</p></div>
+      ${a.n === 2 && !schermi.destra ? '<p class="nota">La finestra destra non ha ancora risposto: si collega quando c\'è il secondo schermo.</p>' : ''}`)}
+    ${gruppo('collega', 'catena', 'Collegamento', '', `
+      <p class="nota" style="margin-top:0">Indirizzo da aprire sul Raspberry:</p><code class="link">${esc(linkPi)}</code>
+      <div class="azioni">${casa ? `<button class="btn" data-fai="copia" data-v="${esc(linkTel)}">${icona('copie', 18)}Link per un altro telefono</button>` : ''}<button class="btn" data-fai="ricaricaFinestre">${icona('ricarica', 18)}Ricarica finestre</button></div>`)}
+    <p class="nota" style="text-align:center;margin-top:18px">DMaster Atmosphere ${VERSIONE} · powered by DMaster Stage</p>`;
   for (const [id, k] of [['kOpenai','openai'], ['kGoogle','google'], ['kPexels','pexels']]){ const el = document.getElementById(id); el.oninput = () => { imp.chiavi[k] = el.value.trim(); salvaImp(); if (problema && problema.tipo === 'chiave') risolto(); }; }
   nomi.forEach(nm => {
     const lega = (id, chiave) => legaCursore(id + nm, (v, o) => { o.textContent = v.toFixed(1) + '%'; assetto = assettoOPredefinito(); assetto.finestre[nm][chiave] = v / 100; mandaFori(); });
     lega('fx', 'x'); lega('fy', 'y'); lega('fw', 'w'); lega('fh', 'h');
   });
+  legaCursore('luceGiorno', (v, o) => { o.textContent = v + '%'; cambia({luceGiorno: v}, false); });
+  legaCursore('luceNotte', (v, o) => { o.textContent = v + '%'; cambia({luceNotte: v}, false); });
   legaCursore('zoom', (v, o) => { o.textContent = v + '%'; cambia({zoom: v / 100}, false); });
   legaCursore('vx', (v, o) => { o.textContent = v; cambia({vx: v / 100}, false); });
   let tOcchio = null;
@@ -964,28 +958,31 @@ function disegnaImpostazioni(){
 }
 
 /* ═══════════ AZIONI (un solo ascoltatore per tutto) ══════════════════════ */
-const BLOCCATE_DA_DM = new Set(['ora', 'meteo', 'fps', 'accendi', 'lampo', 'ventoAuto', 'movimento', 'prospettiva', 'prospettivaViva', 'mostra', 'vediLuce', 'nFinestre', 'bordi', 'ricaricaFinestre', 'riadatta']);
+const BLOCCATE_DA_DM = new Set(['ora', 'meteo', 'fps', 'accendi', 'lampo', 'vento', 'movimento', 'prospettiva', 'prospettivaViva', 'mostra', 'nFinestre', 'bordi', 'ricaricaFinestre']);
 const AZIONI = {
   chiudiProblema: () => risolto(),
   chiudiFoglio: () => chiudiFoglio(),
   ora: v => cambia({ora:v}),
   meteo: v => cambia({meteo:v}),
-  fps: v => cambia({fps:+v}),
+  fps: (v, b) => { cambia({fps:+v}); b.parentNode.querySelectorAll('button').forEach(x => x.setAttribute('aria-pressed', String(x === b))); },
   accendi: () => cambia({acceso: !scena.acceso}),
   lampo: () => { if (canale.manda('lampo')) avviso('Lampo!'); postaAnteprima({tipo:'lampo'}); },
-  vaiPaesaggi: () => vai('paesaggi'), vaiCrea: () => vai('crea'), vaiImp: () => vai('impostazioni'),
-  ventoAuto: () => cambia({vento: scena.vento == null ? .3 : null}),
-  movimento: () => cambia({movimento: scena.movimento === false}),
-  prospettiva: () => cambia({prospettiva: scena.prospettiva === false}),
-  prospettivaViva: () => cambia({prospettivaViva: !scena.prospettivaViva}),
+  vaiPaesaggi: () => vai('paesaggi'), vaiCrea: () => { chiudiFoglio(); vai('crea'); }, vaiImp: () => vai('impostazioni'),
+  aggiungiPaesaggio: () => apriAggiungiPaesaggio(),
+  aggiungiWebVai: () => { chiudiFoglio(); vistaPaesaggi = 'web'; disegnaPaesaggi(); setTimeout(() => { const i = $('#cercaWeb'); i && i.focus(); }, 50); },
+  aggiungiYTVai: () => { chiudiFoglio(); vistaPaesaggi = 'yt'; disegnaPaesaggi(); },
+  vento: v => cambia({vento: v === '' ? null : +v}),
+  movimento: (v, b) => { cambia({movimento: scena.movimento === false}); b.setAttribute('aria-checked', String(scena.movimento !== false)); },
+  prospettiva: (v, b) => { cambia({prospettiva: scena.prospettiva === false}); b.setAttribute('aria-checked', String(scena.prospettiva !== false)); },
+  prospettivaViva: (v, b) => { cambia({prospettivaViva: !scena.prospettivaViva}); b.setAttribute('aria-checked', String(!!scena.prospettivaViva)); },
   vistaP: v => { vistaPaesaggi = v; disegnaPaesaggi(); },
-  filtro: v => { filtroTipo = v; disegnaPaesaggi(); },
   apri: v => { const p = libreria.find(x => x.id === v); if (p) apriPaesaggio(p); },
   apriWeb: v => apriWeb(risultatiWeb[+v]),
   mostra: v => { const p = libreria.find(x => x.id === v); if (p){ mostraPaesaggio(p); chiudiFoglio(); } },
-  vediLuce: (v, b) => { const p = libreria.find(x => x.id === foglioAperto); if (!p) return; $('#dettImg').src = p.immagini[v];
-    b.parentNode.querySelectorAll('button').forEach(x => x.setAttribute('aria-pressed', String(x === b)));
-    if (scena.paesaggio === p.id) cambia({ora: v}); },
+  vediLuce: (v, b) => { const p = libreria.find(x => x.id === foglioAperto); if (!p) return; const tv = v.startsWith('est-');
+    $('#dettImg').src = p.immagini[v]; $('#dettImg').style.objectFit = tv ? 'contain' : 'cover';
+    document.querySelectorAll('#foglioDentro [data-fai="vediLuce"]').forEach(x => x.setAttribute('aria-pressed', String(x === b)));
+    if (!tv && scena.paesaggio === p.id && !comandaDM()) cambia({ora: v}); },
   modifica: v => {
     const p = libreria.find(x => x.id === v); if (!p) return;
     apriFoglio(`<h3 style="font:500 16px var(--display);letter-spacing:.12em;text-transform:uppercase;margin:4px 0 8px">Modifica</h3>
@@ -1005,14 +1002,19 @@ const AZIONI = {
     try { await togliPaesaggio(casa, p); libreria = libreria.filter(x => x.id !== p.id); chiudiFoglio(); disegnaPaesaggi(); avviso('Eliminato'); }
     catch(e) { avviso(e.message, true); }
   },
-  luci: async v => {
+  completa: async v => {
     const p = libreria.find(x => x.id === v); if (!p) return;
-    const m = Ai.modello(imp.modello); if (!imp.chiavi[m.fornitore]){ avviso('Serve la chiave nelle Impostazioni.', true); return; }
-    await conLavoro('luci', async L => {
+    const m = Ai.modello(imp.modello); if (!imp.chiavi[m.fornitore]){ avviso('Serve la chiave nelle Impostazioni → AI e chiavi.', true); return; }
+    const desc = (($('#tvDesc') || {}).value || '').trim();
+    await conLavoro('completa', async L => {
       L.p = p; L.anteprime.giorno = {url:p.immagini.giorno};
+      const manca = cosaManca(p), luci = ['alba','tramonto','notte'].filter(o => manca.includes(o));
       const foto = await (await fetch(p.immagini.giorno)).blob(), mis = await misuraDi(foto);
-      await faiLuci(p, foto, ['alba','tramonto','notte'].filter(o => !p.immagini[o]), m.fornitore === 'openai' ? mis.openai : null);
-      aggiornaInLibreria(p);
+      /* come quando si crea: con la vista per il TV, all'alba il sole si vede solo nel TV (mai due soli) */
+      if (luci.length){ await faiLuci(p, foto, luci, m.fornitore === 'openai' ? mis.openai : null, {conTv: true}); aggiornaInLibreria(p); }
+      if (!p.immagini.profondita){ await faiProfondita(p, foto); aggiornaInLibreria(p); }
+      if (manca.includes('tv')){ try { await faiVistaEst(p, foto, desc, luci.includes('alba')); aggiornaInLibreria(p); } catch(e) { passo('est-giorno', 'errore', 'TV · vista verso est: ' + e.message); segnala(e); } }
+      if (manca.includes('cielo')){ await faiCieli(p); aggiornaInLibreria(p); }
     });
   },
   cieli: async v => {
@@ -1023,25 +1025,6 @@ const AZIONI = {
       if (!p.immagini.profondita){ const foto = await (await fetch(p.immagini.giorno)).blob(); await faiProfondita(p, foto); }   /* serve a sapere dov'è il cielo */
       await faiCieli(p); aggiornaInLibreria(p);
     });
-  },
-  riadatta: async v => {
-    const p = libreria.find(x => x.id === v); if (!p) return;
-    const m = Ai.modello(imp.modello); if (!imp.chiavi[m.fornitore]){ avviso('Serve la chiave nelle Impostazioni.', true); return; }
-    await conLavoro('riadatta', async L => {
-      const foto = await (await fetch(p.immagini.giorno)).blob();
-      const n = {id: Date.now().toString(36), tipo:p.tipo, nome:(p.nome + ' riadattato').slice(0, 40), parole:p.parole, immagini:{}, animati:{}, file:[], fuoco:null, creato:Date.now()};
-      passo('giorno', 'ora', 'Ricompongo la vista nella forma del foro, col soggetto al centro…');
-      const r = await Ai.modifica({modello:imp.modello, chiavi:imp.chiavi, qualita:imp.qualita, prompt:promptRiadatta, foto, misura:'832x2080',
-        bozza: b64 => { L.anteprime.giorno = {url:'data:image/png;base64,' + b64, bozza:true}; disegnaLavoro(); }});
-      const jpg = await inJpeg(b64aBlob(r.b64, r.mime));
-      n.immagini.giorno = await caricaLuce(casa, n, 'giorno', jpg); L.anteprime.giorno = {url:n.immagini.giorno}; L.p = n;
-      passo('giorno', 'fatto', 'Nuovo paesaggio: «' + n.nome + '»'); aggiornaInLibreria(n);
-      await faiProfondita(n, jpg); aggiornaInLibreria(n);
-    });
-  },
-  profondita: async v => {
-    const p = libreria.find(x => x.id === v); if (!p) return;
-    await conLavoro('profondita', async L => { L.p = p; const foto = await (await fetch(p.immagini.giorno)).blob(); await faiProfondita(p, foto); aggiornaInLibreria(p); });
   },
   anima: v => {
     const p = libreria.find(x => x.id === v); if (!p) return;
@@ -1085,7 +1068,7 @@ const AZIONI = {
     const link = $('#ytLink').value.trim();
     const id = (link.match(/(?:youtu\.be\/|v=|\/embed\/|\/shorts\/|\/live\/)([\w-]{11})/) || link.match(/^([\w-]{11})$/) || [])[1];
     if (!id){ avviso('Link di YouTube non riconosciuto.', true); return; }
-    const nome = $('#ytNome').value.trim() || 'Video', parole = paroleChiave($('#ytParole').value, nome);
+    const nome = $('#ytNome').value.trim() || 'Video', parole = paroleChiave(nome);
     try { const p = await salvaVideoYT(casa, {id, nome, parole}); libreria.unshift(p); vistaPaesaggi = 'miei'; disegnaPaesaggi(); avviso('Aggiunto: ' + nome); }
     catch(e) { avviso(e.message, true); }
   },
