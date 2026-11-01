@@ -11,7 +11,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
 const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 const euro = n => (n < .1 ? n.toFixed(3) : n.toFixed(2)).replace('.', ',') + ' $';
-const VERSIONE = '4.0';
+const VERSIONE = '4.1';
 
 /* ── la casa ──────────────────────────────────────────────────────────────── */
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
@@ -36,7 +36,7 @@ if (casa) scrivi('finestre-casa', casa);
 history.replaceState(null, '', location.pathname + (casa || q.get('code') ? '?' + [casa ? 'casa=' + casa : '', q.get('code') ? 'code=' + encodeURIComponent(q.get('code')) : ''].filter(Boolean).join('&') : '') + location.hash);
 
 /* ── impostazioni ─────────────────────────────────────────────────────────── */
-const IMP_PRED = {modello:'openai:gpt-image-2', qualita:'alta', chiavi:{openai:'', google:'', pexels:''},
+const IMP_PRED = {modello:'openai:gpt-image-2', qualita:'alta', chiavi:{openai:'', google:'', pexels:'', elevenlabs:''},
   video:{modello:'omni-720p', secondi:8}, stile:'painterly', luci:{alba:true, tramonto:true, notte:true}, anima:false, elementi:['alberi','acqua','fumo'], cielo:true, tv:true};
 const imp = Object.assign({}, IMP_PRED, leggi('finestre-impostazioni', {}));
 imp.chiavi = Object.assign({}, IMP_PRED.chiavi, imp.chiavi || {});
@@ -76,12 +76,15 @@ function assettoOPredefinito(){
 /* ── canale con le finestre ──────────────────────────────────────────────── */
 const gestoreCanale = {
   suMessaggio(evento, d){
-    if (evento === 'dmaster'){ dmasterFino = d.attivo ? Date.now() + 30000 : 0; aggiornaComando(); return; }
+    if (evento === 'dmaster'){ dmasterFino = d.attivo ? Date.now() + 30000 : 0; serataFino = d.attivo && d.serata ? Date.now() + 30000 : 0; lettore.imposta({muto: inSerata()}); aggiornaComando(); if (scheda === 'bard') aggiornaBard(); return; }
+    if (evento === 'bard'){ prendiBard(d); return; }
+    if (evento === 'bardOra'){ if (!suonoQui()){ bardOra = d.musica || null; if (scheda === 'bard') aggiornaBard(); } return; }
     if (evento !== 'eccomi') return;
     collegate = Date.now();
+    if (d.bard){ bardTvSuona = !!d.bard.suona; if (d.bard.serata) serataFino = Math.max(serataFino, Date.now() + 25000); prendiBard(d.bard.stato); if (!suonoQui() && d.bard.ora) bardOra = d.bard.ora.musica || bardOra; if (scheda === 'bard') aggiornaBard(); }
     if (d.comando === 'dmaster') dmasterFino = Math.max(dmasterFino, Date.now() + 25000);
     if (comandaDM() && d.scena){   /* comanda DMaster: qui si guarda e basta, la scena è la sua */
-      scena = Object.assign({}, SCENA_PRED, d.scena); delete scena.da; scrivi('finestre-scena', scena); postaAnteprima({tipo:'scena', scena});
+      scena = Object.assign({}, SCENA_PRED, d.scena); delete scena.da; scrivi('finestre-scena', scena); postaAnteprima({tipo:'scena', scena}); lettore.suScena(scena);
       aggiornaComando(); aggiornaSpia(); impaginaAnteprima(); if (scheda === 'finestre') aggiornaFinestre(); return;
     }
     if (d.assetto && (d.assetto.finestre || d.assetto.fori)){ const a = normalizzaFori(d.assetto); if (d.assetto.finestre || !leggi('finestre-fori', null)){ assetto = a; scrivi('finestre-fori', assetto); } }
@@ -102,7 +105,7 @@ const canale = {
 };
 { /* mentre comanda DMaster, verso le finestre parte solo la domanda «chi c'è?» */
   const mandaDavvero = canale.manda.bind(canale);
-  canale.manda = (evento, dati) => { if (evento !== 'chi' && comandaDM()){ avvisoInMano(); return false; } return mandaDavvero(evento, dati); };
+  canale.manda = (evento, dati) => { if (evento !== 'chi' && comandaDM() && !(/^bard/.test(evento) && !inSerata())){ avvisoInMano(); return false; } return mandaDavvero(evento, dati); };
 }
 let ultimoAvvisoInMano = 0;
 function avvisoInMano(){ if (Date.now() - ultimoAvvisoInMano > 2500){ ultimoAvvisoInMano = Date.now(); avviso('Le finestre sono in mano a DMaster', true); } }
@@ -122,6 +125,7 @@ function aggiornaSpia(){
 let invio = null;
 function mandaScena(subito = true){
   scrivi('finestre-scena', scena);
+  lettore.suScena(scena);
   postaAnteprima({tipo:'scena', scena});
   clearTimeout(invio);
   if (subito) canale.manda('scena', scena); else invio = setTimeout(() => canale.manda('scena', scena), 110);
@@ -176,6 +180,7 @@ async function avviaAccesso(){
     accessoStato = 'ok';
   } catch(e) { accessoStato = e.message; }
   if (scheda === 'impostazioni') disegnaImpostazioni();
+  if (CASA_PRIVATA && bardLibStato !== 'ok'){ bardLibStato = 'da caricare'; if (scheda === 'bard') disegnaBard(); else caricaBard(); }
   if (!account && !casaPrivata && (!casa || !leggi('atm-benvenuto-visto', false))) apriBenvenuto();
   else if (account && casa && !casaPrivata && !leggi('atm-benvenuto-visto', false)) apriBenvenuto();
   else if (casaPrivata && codiceArrivato){ const c = codiceArrivato; codiceArrivato = null; sessionStorage.removeItem('atm-codice-arrivato'); confermaAggiunta(c); }
@@ -319,7 +324,7 @@ function mostraProblema(){
   document.querySelectorAll('.problema:not(.fisso)').forEach(el => {
     el.hidden = !problema;
     if (!problema) return;
-    const link = (problema.chi || '').startsWith('OpenAI') ? 'https://platform.openai.com/settings/organization/billing/overview' : 'https://aistudio.google.com/usage';
+    const link = (problema.chi || '').startsWith('OpenAI') ? 'https://platform.openai.com/settings/organization/billing/overview' : (problema.chi || '').startsWith('ElevenLabs') ? 'https://elevenlabs.io/app/subscription' : 'https://aistudio.google.com/usage';
     el.innerHTML = `${icona('avviso', 20)}<div><b>${problema.tipo === 'credito' ? 'Credito esaurito' : 'Chiave da controllare'}</b><span>${esc(problema.testo)}</span>
       <div class="azioni" style="margin-top:8px"><a class="btn piccolo" href="${link}" target="_blank" rel="noopener">${icona('catena', 16)}${problema.tipo === 'credito' ? 'Ricarica' : 'Apri'}</a><button class="btn piccolo" data-fai="chiudiProblema">${icona('chiudi', 16)}Ho risolto</button></div></div>`;
   });
@@ -351,8 +356,8 @@ function riempi(r){ const p = (r.value - r.min) / (r.max - r.min) * 100; r.style
 function legaCursore(id, fn){ const r = document.getElementById(id); if (!r) return; riempi(r); r.oninput = () => { riempi(r); fn(+r.value, document.getElementById(id + '-o')); }; return r; }
 
 /* ═════════════════════════════ SCHEDE ═════════════════════════════════════ */
-const SCHEDE = [['finestre','bifora','Finestre'], ['paesaggi','quadro','Paesaggi'], ['crea','scintilla','Crea'], ['impostazioni','manopole','Impostazioni']];
-let scheda = (location.hash.slice(1) in {finestre:1, paesaggi:1, crea:1, impostazioni:1}) ? location.hash.slice(1) : 'finestre';
+const SCHEDE = [['finestre','bifora','Finestre'], ['bard','liuto','Bard'], ['paesaggi','quadro','Paesaggi'], ['crea','scintilla','Crea'], ['impostazioni','manopole','Impostazioni']];
+let scheda = (location.hash.slice(1) in {finestre:1, bard:1, paesaggi:1, crea:1, impostazioni:1}) ? location.hash.slice(1) : 'finestre';
 $('#barra').innerHTML = SCHEDE.map(([id, ic, nome]) => `<button data-scheda="${id}">${icona(ic, 22)}<span>${nome}</span></button>`).join('');
 $('#barra').onclick = e => { const b = e.target.closest('[data-scheda]'); if (b) vai(b.dataset.scheda); };
 const app = $('#app');
@@ -365,7 +370,7 @@ function vai(id){
 function disegnaScheda(){
   document.querySelectorAll('.scheda').forEach(s => s.classList.toggle('attiva', s.id === 's-' + scheda));
   document.querySelectorAll('#barra button').forEach(b => b.setAttribute('aria-current', b.dataset.scheda === scheda ? 'page' : 'false'));
-  ({finestre: disegnaFinestre, paesaggi: disegnaPaesaggi, crea: disegnaCrea, impostazioni: disegnaImpostazioni})[scheda]();
+  ({finestre: disegnaFinestre, bard: disegnaBard, paesaggi: disegnaPaesaggi, crea: disegnaCrea, impostazioni: disegnaImpostazioni})[scheda]();
   aggiornaSpia();
 }
 
@@ -872,6 +877,192 @@ function disegnaCrea(){
   disegnaLavoro(); aggiornaSpia(); mostraProblema();
 }
 
+/* ═══════════ BARD: musiche e suoni della stanza (1/11) ═══════════════════
+   Il telefono comanda, suona il TV (G10) o, se scelto nelle Impostazioni, questo telefono.
+   La libreria sta nella stanza (file «bard-…», js/bard.js): ce la copia DMaster, o la fa l'AI da qui.
+   Durante una Serata di DMaster i suoni li fa il portatile del master e qui si guarda soltanto. */
+const ID_TELEFONO = leggi('atm-tel-id', '') || (() => { const id = 'tel-' + Math.random().toString(36).slice(2, 10); scrivi('atm-tel-id', id); return id; })();
+let bardStato = Object.assign({}, BARD_PRED, leggi('bard-stato', {}));
+let bardLib = [], bardLibStato = 'da caricare', bardOra = null, serataFino = 0, bardTvSuona = null, bardNuovoTipo = 'effetto', bardMinuti = 2;
+const inSerata = () => Date.now() < serataFino;
+const suonoQui = () => bardStato.dove === ID_TELEFONO;
+const lettore = new LettoreBard({tuoniDaSoli: true, quandoCambia: d => { if (d.musica && suonoQui()){ bardOra = d.musica; if (scheda === 'bard') aggiornaBard(); } }});
+lettore.applica(bardStato); lettore.suScena(scena); lettore.imposta({qui: suonoQui()});
+document.addEventListener('pointerdown', () => { if (suonoQui()) lettore.sblocca(); }, {passive: true});
+setInterval(() => { lettore.imposta({muto: inSerata()}); if (scheda === 'bard') aggiornaBard(); }, 3000);
+
+const bardDi = tipo => bardLib.filter(x => x.tipo === tipo);
+const voceBard = x => x ? {id: x.id, url: x.url, titolo: x.titolo} : null;
+async function caricaBard(){
+  if (!CASA_PRIVATA){ bardLibStato = 'Collega il telefono alla tua stanza (Impostazioni → Stanza e schermi) per usare Bard.'; if (scheda === 'bard') disegnaBard(); return; }
+  bardLibStato = 'carico'; if (scheda === 'bard') disegnaBard();
+  try {
+    const file = (await Accesso.elenco(CASA_PRIVATA)).filter(f => bardDaNome(f.name));
+    const firme = await Accesso.firma(CASA_PRIVATA, file.map(f => f.name), Object.fromEntries(file.map(f => [f.name, f.updated_at || ''])));
+    bardLib = file.map(f => Object.assign(bardDaNome(f.name), {url: firme[f.name]})).filter(x => x.url).sort((a, b) => a.titolo.localeCompare(b.titolo, 'it'));
+    bardLibStato = 'ok';
+    /* gli indirizzi firmati cambiano: lo stato si rifà con quelli nuovi */
+    const per = new Map(bardLib.map(x => [x.tipo + ':' + x.id, x]));
+    if (bardStato.sottofondo) bardStato.sottofondo = voceBard(per.get('sottofondo:' + bardStato.sottofondo.id));
+    if (bardStato.musica) bardStato.musica.brani = bardDi('musica').map(voceBard);
+    bardStato.registrazioni = Object.fromEntries(bardDi('tempo').map(x => [x.id, x.url]));
+    lettore.applica(bardStato);
+  } catch(e) { bardLibStato = e.message; }
+  if (scheda === 'bard') disegnaBard();
+}
+let invioBard = null;
+function mandaBard(parte, piano = false){
+  if (inSerata()){ avviso('Serata in corso: i suoni li comanda DMaster', true); return false; }
+  Object.assign(bardStato, parte || {});
+  bardStato.registrazioni = Object.fromEntries(bardDi('tempo').map(x => [x.id, x.url]));
+  bardStato.rev = Date.now();
+  scrivi('bard-stato', bardStato);
+  lettore.applica(bardStato); lettore.imposta({qui: suonoQui()});
+  clearTimeout(invioBard);
+  if (piano) invioBard = setTimeout(() => canale.manda('bard', bardStato), 160); else canale.manda('bard', bardStato);
+  return true;
+}
+function prendiBard(st){
+  if (!st || (st.rev || 0) <= (bardStato.rev || 0)) return;
+  bardStato = Object.assign({}, BARD_PRED, st); scrivi('bard-stato', bardStato);
+  lettore.applica(bardStato); lettore.imposta({qui: suonoQui()});
+  if (scheda === 'bard') disegnaBard();
+}
+
+function disegnaBard(){
+  if (bardLibStato === 'da caricare') caricaBard();
+  const s = $('#s-bard');
+  const sott = bardDi('sottofondo'), mus = bardDi('musica'), eff = bardDi('effetto'), nTempo = bardDi('tempo').length;
+  const t = bardStato.tempo || {acceso: true, volume: .6}, m = bardStato.musica || {};
+  const pronto = bardLibStato === 'ok';
+  s.innerHTML = testa('liuto', 'Bard', 'Musiche e suoni della stanza') + `<div class="problema" hidden></div>
+    <div class="in-mano-avviso" id="bardSerata" hidden><b>Serata in corso</b> I suoni della stanza li fa DMaster dal portatile. Quando chiudi la serata Bard torna qui da solo.</div>
+    <div class="dove-suona">${icona('altoparlante', 18)}<span id="bardDove"></span><button class="btn piccolo" data-fai="vaiImpBard">Cambia</button></div>
+    ${!pronto ? `<p class="vuoto">${bardLibStato === 'carico' ? 'Carico i suoni della stanza…' : esc(bardLibStato)}</p>` : ''}
+    <div class="sezione">${titolo('pioggia', 'Tempo')}
+      <div class="pannello" style="padding:2px 14px">${interruttore('bardTempo', 'pioggia', 'Suoni del tempo', nTempo ? 'Seguono le finestre: pioggia, vento, neve, tuoni coi lampi' : 'Seguono le finestre. Le registrazioni non sono ancora nella stanza (si copiano da DMaster): per ora un suono più semplice', t.acceso)}
+        ${cursore('volTempo', 'altoparlante', 'Volume', 0, 100, Math.round(t.volume * 100), Math.round(t.volume * 100) + '%')}</div></div>
+    <div class="sezione">${titolo('onda', 'Sottofondo', sott.length ? 'tocca per accendere o spegnere' : '')}
+      ${sott.length ? `<div class="suoni">${sott.map(x => `<button class="suono" data-fai="bardSott" data-v="${esc(x.id)}" aria-pressed="${!!(bardStato.sottofondo && bardStato.sottofondo.id === x.id)}">${esc(x.titolo)}</button>`).join('')}</div>
+        <div class="pannello" style="margin-top:10px">${cursore('volSott', 'altoparlante', 'Volume', 0, 100, Math.round(bardStato.volSottofondo * 100), Math.round(bardStato.volSottofondo * 100) + '%')}</div>`
+        : pronto ? '<p class="nota" style="margin-top:0">Ancora nessun sottofondo: «+ Aggiungi un suono» qui sotto.</p>' : ''}</div>
+    <div class="sezione">${titolo('nota', 'Musica')}
+      ${mus.length ? `<div class="comandi-musica">
+          <button class="btn ${m.acceso ? 'oro' : ''}" data-fai="bardPlay" id="bardPlay">${icona(m.acceso ? 'pausa' : 'play', 18)}${m.acceso ? 'Ferma' : 'Suona'}</button>
+          <button class="btn" data-fai="bardAvanti">${icona('avanti', 18)}Avanti</button>
+          <button class="pillola" data-fai="bardCaso" aria-pressed="${!!m.casuale}">${icona('caso', 16)}A caso</button></div>
+        <div class="brani">${mus.map((x, i) => `<button class="brano" data-fai="bardBrano" data-v="${i}" data-id="${esc(x.id)}">${icona('nota', 16)}<span>${esc(x.titolo)}</span></button>`).join('')}</div>
+        <div class="pannello" style="margin-top:10px">${cursore('volMusica', 'altoparlante', 'Volume', 0, 100, Math.round(bardStato.volMusica * 100), Math.round(bardStato.volMusica * 100) + '%')}</div>`
+        : pronto ? '<p class="nota" style="margin-top:0">Ancora nessuna musica: «+ Aggiungi un suono» qui sotto.</p>' : ''}</div>
+    <div class="sezione">${titolo('fulmine', 'Effetti', eff.length ? 'tocca per suonare' : '')}
+      ${eff.length ? `<div class="scelte c3">${eff.map(x => `<button class="scelta" data-fai="bardEffetto" data-v="${esc(x.id)}">${icona('fulmine', 20)}<span>${esc(x.titolo)}</span></button>`).join('')}</div>
+        <div class="pannello" style="margin-top:10px">${cursore('volEff', 'altoparlante', 'Volume', 0, 100, Math.round(bardStato.volEffetti * 100), Math.round(bardStato.volEffetti * 100) + '%')}</div>`
+        : pronto ? '<p class="nota" style="margin-top:0">Ancora nessun effetto: «+ Aggiungi un suono» qui sotto.</p>' : ''}</div>
+    ${CASA_PRIVATA ? `<button class="btn oro piena" style="margin-top:18px" data-fai="bardAggiungi">${icona('piu', 18)}Aggiungi un suono</button>
+    ${gruppo('bard-gestisci', 'manopole', 'Gestisci i suoni', bardLib.length + ' nella stanza', `
+      <ul class="membri">${bardLib.map(x => `<li><span><b>${esc(x.titolo)}</b><small>${{tempo: 'tempo', sottofondo: 'sottofondo', musica: 'musica', effetto: 'effetto'}[x.tipo]}</small></span><button class="btn piccolo pericolo" data-fai="bardTogli" data-v="${esc(x.file)}">Togli</button></li>`).join('') || '<li><span class="nota">Nessun suono.</span></li>'}</ul>
+      <p class="nota">I suoni di DMaster arrivano con «Copia i suoni nella stanza» nella pagina Atmosfera di DMaster.</p>
+      <button class="btn piena" data-fai="bardRicarica">${icona('ricarica', 18)}Rileggi la libreria</button>`)}` : ''}`;
+  const lega = (id, fn) => legaCursore(id, (v, o) => { o.textContent = v + '%'; fn(v / 100); });
+  lega('volTempo', v => mandaBard({tempo: Object.assign({}, bardStato.tempo, {volume: v})}, true));
+  lega('volSott', v => mandaBard({volSottofondo: v}, true));
+  lega('volMusica', v => mandaBard({volMusica: v}, true));
+  lega('volEff', v => mandaBard({volEffetti: v}, true));
+  aggiornaBard(); aggiornaSpia(); mostraProblema();
+}
+function aggiornaBard(){
+  const s = $('#s-bard'); if (!s || !s.innerHTML) return;
+  const dm = inSerata(), f = $('#bardSerata'); if (f) f.hidden = !dm;
+  s.classList.toggle('in-serata', dm);
+  const d = $('#bardDove');
+  if (d) d.innerHTML = suonoQui() ? 'Suona da <b>questo telefono</b>' + (lettore.ctx && lettore.ctx.state !== 'running' ? ' · tocca lo schermo per sbloccare l\'audio' : '')
+    : 'Suona dal <b>TV della stanza</b>' + (bardTvSuona === false ? ' · il TV non risponde' : '');
+  const m = bardStato.musica || {}, ora = bardOra && m.acceso ? bardOra.id : null;
+  s.querySelectorAll('.brano').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.id === ora)));
+}
+
+/* ── generare con l'AI (ElevenLabs, con la chiave messa nelle Impostazioni) ── */
+function erroreAI(chi, status, testo){
+  const e = new Error(`${chi}: ${status === 401 ? 'chiave non valida' : status === 402 || /quota|credit/i.test(testo) ? 'crediti finiti' : testo.slice(0, 160) || 'errore ' + status}`);
+  e.tipo = status === 401 ? 'chiave' : status === 402 || /quota|credit/i.test(testo) ? 'credito' : ''; e.chi = chi; return e;
+}
+async function inInglese(testo, tipo){
+  if (!imp.chiavi.openai) return testo;
+  try {
+    const r = await fetch('https://api.openai.com/v1/chat/completions', {method: 'POST', headers: {'Authorization': 'Bearer ' + imp.chiavi.openai, 'Content-Type': 'application/json'},
+      body: JSON.stringify({model: 'gpt-4o-mini', max_tokens: 120, messages: [
+        {role: 'system', content: `Rewrite the user's Italian description as one concise English prompt for an AI ${tipo === 'musica' ? 'instrumental music generator (genre, instruments, mood, tempo; medieval fantasy tabletop game)' : tipo === 'sottofondo' ? 'ambience sound generator (a seamless background loop, no music, no speech)' : 'sound effect generator (one short effect, no music, no speech)'}. Reply with the prompt only.`},
+        {role: 'user', content: testo}]})});
+    if (!r.ok) return testo;
+    const j = await r.json(); return (j.choices && j.choices[0] && j.choices[0].message.content || testo).trim();
+  } catch(e) { return testo; }
+}
+async function generaSuono(tipo, prompt){
+  const chiave = imp.chiavi.elevenlabs, h = {'xi-api-key': chiave, 'Content-Type': 'application/json', 'Accept': 'audio/mpeg'};
+  const r = tipo === 'musica'
+    ? await fetch('https://api.elevenlabs.io/v1/music/stream', {method: 'POST', headers: h, body: JSON.stringify({prompt, duration_ms: bardMinuti * 60000, force_instrumental: true})})
+    : await fetch('https://api.elevenlabs.io/v1/sound-generation?output_format=mp3_44100_128', {method: 'POST', headers: h,
+        body: JSON.stringify(Object.assign({text: prompt, prompt_influence: .5, model_id: 'eleven_text_to_sound_v2'}, tipo === 'sottofondo' ? {loop: true, duration_seconds: 22} : {}))});
+  if (!r.ok) throw erroreAI('ElevenLabs', r.status, await r.text().catch(() => ''));
+  const b = await r.blob(); if (b.size < 800) throw new Error('ElevenLabs: risposta vuota, riprova.');
+  return b;
+}
+function apriBardAggiungi(){
+  const desc = $('#bardDesc') ? $('#bardDesc').value : '', nome = $('#bardNome') ? $('#bardNome').value : '';
+  const esempi = {effetto: 'es. una porta di legno pesante che cigola e si chiude', sottofondo: 'es. taverna affollata, voci lontane, boccali, fuoco nel camino', musica: 'es. liuto e flauto, allegra, festa di paese'};
+  apriFoglio(`<h3 class="foglio-titolo">Aggiungi un suono</h3>
+    <div class="segmenti">${[['effetto', 'Effetto'], ['sottofondo', 'Sottofondo'], ['musica', 'Musica']].map(([v, t]) => `<button data-fai="bardTipo" data-v="${v}" aria-pressed="${bardNuovoTipo === v}">${t}</button>`).join('')}</div>
+    <label class="campo"><span>Che cosa si sente</span><textarea id="bardDesc" placeholder="${esempi[bardNuovoTipo]}">${esc(desc)}</textarea></label>
+    <label class="campo"><span>Nome</span><input id="bardNome" maxlength="40" placeholder="Vuoto: lo prendo dalla descrizione" value="${esc(nome)}"></label>
+    ${bardNuovoTipo === 'musica' ? `<div class="segmenti" style="margin-bottom:10px">${[1, 2, 3].map(v => `<button data-fai="bardMinuti" data-v="${v}" aria-pressed="${bardMinuti === v}">${v} minut${v === 1 ? 'o' : 'i'}</button>`).join('')}</div>` : ''}
+    ${imp.chiavi.elevenlabs ? `<button class="btn oro piena" data-fai="bardGenera">${icona('scintilla', 18)}Genera con l'AI</button>`
+      : `<div class="problema fisso">${icona('chiave', 20)}<div><b>Manca la chiave ElevenLabs</b><span>Mettila in Impostazioni → AI e chiavi.</span></div></div>`}
+    <button class="btn piena" style="margin-top:8px" data-fai="bardFileScegli">${icona('importa', 18)}Carica un file audio</button>
+    <input type="file" id="bardFile" accept="audio/*" hidden>
+    <p class="nota">${bardNuovoTipo === 'sottofondo' ? '22 secondi che si ripetono senza giunte.' : bardNuovoTipo === 'musica' ? 'Solo strumentale.' : 'La durata la sceglie l\'AI.'} Usa i crediti del tuo ElevenLabs. Il suono va nella stanza: lo sentono tutti i telefoni e DMaster.</p>
+    <div id="lavoroFoglio"></div>`, el => {
+      const inp = el.querySelector('#bardFile');
+      inp.onchange = () => { const f = inp.files && inp.files[0]; inp.value = ''; if (f) caricaFileBard(f); };
+    });
+  foglioAperto = 'bard-aggiungi';
+}
+async function salvaNellaStanza(tipo, titolo, blob, est){
+  const nome = bardNomeFile(tipo, Date.now().toString(36), titolo, est);
+  await Accesso.carica(CASA_PRIVATA, nome, blob, BARD_MIME[est] || blob.type || 'audio/mpeg');
+  await caricaBard();
+  return bardLib.find(x => x.file === nome);
+}
+async function caricaFileBard(f){
+  const est = (f.name.match(/\.([a-z0-9]+)$/i) || [, 'mp3'])[1].toLowerCase();
+  if (!BARD_MIME[est]){ avviso('Formato non adatto: mp3, m4a, ogg, wav o flac.', true); return; }
+  if (f.size > 50e6){ avviso('Il file è più grande di 50 MB.', true); return; }
+  const titolo = ($('#bardNome') || {}).value || f.name.replace(/\.[^.]+$/, '');
+  await conLavoro('bard', async L => {
+    passo('carico', 'ora', 'Lo metto nella stanza…');
+    const x = await salvaNellaStanza(bardNuovoTipo, titolo, f, est);
+    passo('carico', 'fatto', '«' + (x ? x.titolo : titolo) + '» è nella stanza');
+  });
+}
+async function generaBard(){
+  const desc = ($('#bardDesc') || {}).value.trim();
+  if (!desc){ avviso('Scrivi che cosa si sente.', true); return; }
+  const tipo = bardNuovoTipo, titolo = ($('#bardNome') || {}).value.trim() || desc.split(/[,.]/)[0].slice(0, 40);
+  await conLavoro('bard', async L => {
+    passo('prompt', 'ora', 'Lo scrivo per il generatore…');
+    const prompt = await inInglese(desc, tipo);
+    passo('prompt', 'fatto', 'Richiesta: «' + prompt.slice(0, 90) + (prompt.length > 90 ? '…' : '') + '»');
+    passo('genera', 'ora', tipo === 'musica' ? `La musica (${bardMinuti} min): ci vuole un po'…` : 'Lo genero…');
+    const blob = await generaSuono(tipo, prompt);
+    risolto('ElevenLabs');
+    passo('genera', 'fatto', 'Generato');
+    passo('carico', 'ora', 'Lo metto nella stanza…');
+    const x = await salvaNellaStanza(tipo, titolo, blob, 'mp3');
+    passo('carico', 'fatto', '«' + (x ? x.titolo : titolo) + '» è nella stanza');
+    if (x && tipo === 'effetto' && suonoQui()) lettore.effetto(x);
+    else if (x && tipo === 'effetto') canale.manda('bardEffetto', {id: x.id, url: x.url});
+  });
+}
+
 /* ═══════════ IMPOSTAZIONI ════════════════════════════════════════════════ */
 function campoChiave(id, nome, segnaposto, valore, nota){
   return `<label class="campo"><span>${esc(nome)}</span><div class="chiave"><input id="${id}" type="password" autocomplete="off" spellcheck="false" placeholder="${esc(segnaposto)}" value="${esc(valore)}"><button type="button" data-fai="vediChiave" data-v="${id}" aria-label="Mostra">${icona('occhio', 18)}</button></div></label>${nota ? '<p class="nota" style="margin-top:-4px">' + nota + '</p>' : ''}`;
@@ -915,8 +1106,12 @@ function disegnaImpostazioni(){
       <div style="margin-top:14px">
         ${campoChiave('kOpenai', 'Chiave OpenAI', 'sk-…', imp.chiavi.openai, 'La stessa di DMaster.')}
         ${campoChiave('kGoogle', 'Chiave Google (Gemini)', 'AIza…', imp.chiavi.google, 'Per Nano Banana e le animazioni. Gratis su <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com</a>.')}
+        ${campoChiave('kEleven', 'Chiave ElevenLabs', 'sk_…', imp.chiavi.elevenlabs, 'Per i suoni e le musiche di Bard. La stessa di DMaster.')}
         ${campoChiave('kPexels', 'Chiave Pexels (facoltativa)', 'chiave Pexels', imp.chiavi.pexels, 'Più foto vere e verticali. Gratis su <a href="https://www.pexels.com/api/" target="_blank" rel="noopener">pexels.com/api</a>.')}
         <p class="nota" style="margin-top:0">Le chiavi restano su questo telefono.</p></div>`)}
+    ${gruppo('bard', 'liuto', 'Bard', suonoQui() ? 'suona dal telefono' : 'suona dal TV', `
+      <div class="segmenti">${[['stanza', 'tv', 'Il TV'], [ID_TELEFONO, 'telefono', 'Questo telefono']].map(([v, ic, t]) => `<button data-fai="bardDove" data-v="${v}" aria-pressed="${bardStato.dove === v}">${icona(ic, 18)}${t}</button>`).join('')}</div>
+      <p class="nota">${suonoQui() ? 'Suona da qui: dall\'altoparlante o da una cassa collegata al telefono. Tieni l\'app aperta e lo schermo acceso, se no il telefono smette di suonare.' : 'Suona il G10 del TV: dalle casse del TV o da una cassa Bluetooth abbinata al G10. Puoi bloccare il telefono.'} Durante una serata i suoni li fa DMaster dal portatile.</p>`)}
     ${gruppo('aspetto', 'nuvola', 'Come si muovono', '', `
       ${interruttore('movimento', 'nuvola', 'Movimento', 'Nuvole che scorrono e alberi al vento, anche sulle immagini ferme', scena.movimento !== false)}
       ${interruttore('prospettiva', 'occhio', 'Prospettiva', 'Le due finestre vedono il paesaggio da punti appena diversi', scena.prospettiva !== false)}
@@ -940,7 +1135,7 @@ function disegnaImpostazioni(){
       <p class="nota" style="margin-top:0">Indirizzo da aprire sul Raspberry:</p><code class="link">${esc(linkPi)}</code>
       <div class="azioni">${casa ? `<button class="btn" data-fai="copia" data-v="${esc(linkTel)}">${icona('copie', 18)}Link per un altro telefono</button>` : ''}<button class="btn" data-fai="ricaricaFinestre">${icona('ricarica', 18)}Ricarica finestre</button></div>`)}
     <p class="nota" style="text-align:center;margin-top:18px">DMaster Atmosphere ${VERSIONE} · powered by DMaster Stage</p>`;
-  for (const [id, k] of [['kOpenai','openai'], ['kGoogle','google'], ['kPexels','pexels']]){ const el = document.getElementById(id); el.oninput = () => { imp.chiavi[k] = el.value.trim(); salvaImp(); if (problema && problema.tipo === 'chiave') risolto(); }; }
+  for (const [id, k] of [['kOpenai','openai'], ['kGoogle','google'], ['kEleven','elevenlabs'], ['kPexels','pexels']]){ const el = document.getElementById(id); el.oninput = () => { imp.chiavi[k] = el.value.trim(); salvaImp(); if (problema && problema.tipo === 'chiave') risolto(); }; }
   nomi.forEach(nm => {
     const lega = (id, chiave) => legaCursore(id + nm, (v, o) => { o.textContent = v.toFixed(1) + '%'; assetto = assettoOPredefinito(); assetto.finestre[nm][chiave] = v / 100; mandaFori(); });
     lega('fx', 'x'); lega('fy', 'y'); lega('fw', 'w'); lega('fh', 'h');
@@ -961,12 +1156,34 @@ function disegnaImpostazioni(){
 const BLOCCATE_DA_DM = new Set(['ora', 'meteo', 'fps', 'accendi', 'lampo', 'vento', 'movimento', 'prospettiva', 'prospettivaViva', 'mostra', 'nFinestre', 'bordi', 'ricaricaFinestre']);
 const AZIONI = {
   chiudiProblema: () => risolto(),
+  bardTempo: () => { const t = Object.assign({acceso: true, volume: .6}, bardStato.tempo); if (mandaBard({tempo: Object.assign(t, {acceso: !t.acceso})})) disegnaBard(); },
+  bardSott: v => { const x = bardDi('sottofondo').find(y => y.id === v); if (mandaBard({sottofondo: bardStato.sottofondo && bardStato.sottofondo.id === v ? null : voceBard(x)})) disegnaBard(); },
+  bardPlay: () => { const m = Object.assign({i: 0, casuale: false}, bardStato.musica || {}); m.acceso = !m.acceso; m.brani = bardDi('musica').map(voceBard); if (mandaBard({musica: m})) disegnaBard(); },
+  bardBrano: v => { const m = Object.assign({casuale: false}, bardStato.musica || {}, {acceso: true, i: +v, brani: bardDi('musica').map(voceBard)}); if (mandaBard({musica: m})){ bardOra = {i: +v, id: m.brani[+v].id}; disegnaBard(); } },
+  bardAvanti: () => { const brani = bardDi('musica').map(voceBard), n = brani.length; if (!n) return; const m = Object.assign({casuale: false}, bardStato.musica || {});
+    const ora = bardOra ? brani.findIndex(b => b.id === bardOra.id) : (m.i || 0);
+    const i = m.casuale && n > 1 ? (ora + 1 + Math.floor(Math.random() * (n - 1))) % n : (ora + 1) % n;
+    if (mandaBard({musica: Object.assign(m, {acceso: true, i, brani})})){ bardOra = {i, id: brani[i].id}; disegnaBard(); } },
+  bardCaso: () => { const m = Object.assign({acceso: false, i: 0}, bardStato.musica || {}); m.casuale = !m.casuale; m.brani = bardDi('musica').map(voceBard); if (mandaBard({musica: m})) disegnaBard(); },
+  bardEffetto: (v, b) => { if (inSerata()){ avviso('Serata in corso: i suoni li comanda DMaster', true); return; } const x = bardDi('effetto').find(y => y.id === v); if (!x) return;
+    if (suonoQui()) lettore.effetto(x); else if (!canale.manda('bardEffetto', {id: x.id, url: x.url})) avviso('Il TV non è collegato', true);
+    b.classList.add('suona'); setTimeout(() => b.classList.remove('suona'), 500); },
+  bardAggiungi: () => apriBardAggiungi(),
+  bardTipo: v => { bardNuovoTipo = v; apriBardAggiungi(); },
+  bardMinuti: v => { bardMinuti = +v; apriBardAggiungi(); },
+  bardGenera: () => generaBard(),
+  bardFileScegli: () => { const i = $('#bardFile'); i && i.click(); },
+  bardTogli: async (v, b) => { if (b.dataset.conferma !== '1'){ b.dataset.conferma = '1'; b.textContent = 'Sicuro?'; return; }
+    try { await Accesso.togli(CASA_PRIVATA, [v]); await caricaBard(); avviso('Tolto dalla stanza'); } catch(e) { avviso(e.message, true); } },
+  bardRicarica: () => caricaBard(),
+  bardDove: v => { mandaBard({dove: v}); if (v === ID_TELEFONO) lettore.sblocca(); disegnaImpostazioni(); },
+  vaiImpBard: () => { aperti.add('bard'); scrivi('atm-gruppi-aperti', [...aperti]); vai('impostazioni'); },
   chiudiFoglio: () => chiudiFoglio(),
   ora: v => cambia({ora:v}),
   meteo: v => cambia({meteo:v}),
   fps: (v, b) => { cambia({fps:+v}); b.parentNode.querySelectorAll('button').forEach(x => x.setAttribute('aria-pressed', String(x === b))); },
   accendi: () => cambia({acceso: !scena.acceso}),
-  lampo: () => { if (canale.manda('lampo')) avviso('Lampo!'); postaAnteprima({tipo:'lampo'}); },
+  lampo: () => { if (canale.manda('lampo')) avviso('Lampo!'); postaAnteprima({tipo:'lampo'}); if (suonoQui()) lettore.tuono(); },
   vaiPaesaggi: () => vai('paesaggi'), vaiCrea: () => { chiudiFoglio(); vai('crea'); }, vaiImp: () => vai('impostazioni'),
   aggiungiPaesaggio: () => apriAggiungiPaesaggio(),
   aggiungiWebVai: () => { chiudiFoglio(); vistaPaesaggi = 'web'; disegnaPaesaggi(); setTimeout(() => { const i = $('#cercaWeb'); i && i.focus(); }, 50); },

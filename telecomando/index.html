@@ -286,6 +286,20 @@ details.gruppo .campo > span{margin-top:6px}
 .tv-mini img{display:block;width:100%;aspect-ratio:16/9;object-fit:cover}
 .tv-mini span{position:absolute;left:4px;bottom:4px;display:flex;gap:4px;align-items:center;padding:2px 6px;border-radius:99px;background:rgba(6,8,12,.8);font:500 9px var(--display);letter-spacing:.1em;color:var(--crema)}
 .tv-mini[aria-pressed="true"]{border-color:var(--oro)}
+/* 4.1 · Bard */
+.dove-suona{display:flex;align-items:center;gap:10px;margin:0 0 6px;padding:10px 12px;border:1px solid var(--bordo);border-radius:10px;background:var(--incasso);font-size:14px;color:var(--crema)}
+.dove-suona .ic{color:var(--oro)} .dove-suona span{flex:1;min-width:0} .dove-suona b{color:var(--oro-luce);font-weight:500}
+.suoni{display:flex;flex-wrap:wrap;gap:8px}
+.suono{min-height:44px;padding:8px 14px;border-radius:999px;border:1px solid var(--bordo-forte);background:rgba(0,0,0,.25);color:var(--crema);font-size:14.5px;cursor:pointer}
+.suono[aria-pressed="true"]{border-color:var(--oro);color:var(--oro-luce);background:rgba(212,175,55,.12);box-shadow:0 0 0 1px rgba(212,175,55,.2)}
+.comandi-musica{display:flex;gap:8px;align-items:center;margin-bottom:10px}
+.comandi-musica .btn{flex:1}
+.brani{display:flex;flex-direction:column;border:1px solid var(--bordo);border-radius:10px;overflow:hidden}
+.brano{display:flex;align-items:center;gap:10px;min-height:46px;padding:8px 12px;border:0;border-bottom:1px solid var(--bordo);background:var(--incasso);color:var(--crema);font-size:14.5px;text-align:left;cursor:pointer}
+.brano:last-child{border-bottom:0} .brano .ic{color:var(--spento)}
+.brano[aria-pressed="true"]{color:var(--oro-luce);background:rgba(212,175,55,.08)} .brano[aria-pressed="true"] .ic{color:var(--live)}
+.scelta.suona{border-color:var(--live);color:var(--live)}
+#s-bard.in-serata .sezione,#s-bard.in-serata > .btn{opacity:.5}
 @media (prefers-reduced-motion: reduce){ *{animation:none!important;transition:none!important} }
 </style>
 </head>
@@ -305,6 +319,7 @@ details.gruppo .campo > span{margin-top:6px}
 <script src="../js/fermo.js?v=1"></script>
 <script src="../js/foto-online.js?v=2.1.0"></script>
 <script src="../js/profondita.js?v=2.1.0"></script>
-<script src="app.js?v=4.0"></script>
+<script src="../js/bard.js?v=1"></script>
+<script src="app.js?v=4.1"></script>
 </body>
 </html>

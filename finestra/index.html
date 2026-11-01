@@ -30,6 +30,7 @@
 <script src="../js/vista.js?v=4.3"></script>
 <script src="../js/inseguitore.js?v=1"></script>
 <script src="../js/uccelli.js?v=3"></script>
+<script src="../js/bard.js?v=1"></script>
 <script>
 /* ═══════════════════════════════════════════════════════════════════════════
    La pagina che il Raspberry mostra dietro il traforo.
@@ -212,6 +213,7 @@ let paesaggioInVista = null, inCambio = false, attesa = null, scuroVerso = 1, sc
 function applica(nuova, salva = true){
   scena = Object.assign({}, PREDEFINITA, nuova);
   if (salva) scrivi('finestre-scena', scena);
+  if (bard) bard.suScena(scena);
   if (paesaggioDi(scena) !== paesaggioInVista){
     /* paesaggio nuovo: si spegne, cambia, si riaccende */
     inCambio = true; scuroVerso = 1; clearTimeout(attesa);
@@ -302,7 +304,20 @@ const stormi = new Stormi();
 let notte = 0, ombre = 0, meteora = null, prossimaMeteora = 0;
 let fpsMisurati = 60, uccelli = 0, cieloX = Math.random(), notteFinta = 0, luce = .7, lampo = null, prossimoLampo = 0, lampoX = .5;
 
-function scocca(){ lampo = {t:performance.now(), forza:.75 + Math.random() * .5}; lampoX = .15 + Math.random() * .7; }
+function scocca(){ lampo = {t:performance.now(), forza:.75 + Math.random() * .5}; lampoX = .15 + Math.random() * .7; if (bard) bard.tuono(); }
+
+/* ── Bard (1/11): le musiche e i suoni della stanza escono dal TV (il G10, con le casse del TV o una cassa
+   abbinata), se nel telefono «Bard suona» è sulla stanza. Durante una Serata di DMaster tace: i suoni li fa
+   il portatile del master. ?bard=1 fa suonare anche un'altra pagina, ?bard=0 zittisce il TV. */
+const suonaQui = !anteprima && (q.get('bard') === '1' || (tv && q.get('bard') !== '0'));
+let serataFino = 0;
+const bard = suonaQui && typeof LettoreBard !== 'undefined' ? new LettoreBard({quandoCambia: d => { bardOra = Object.assign(bardOra || {}, d); if (window.annunciaBard) window.annunciaBard(); }}) : null;
+let bardOra = null;
+if (bard){
+  bard.applica(leggi('bard-stato', null));
+  bard.imposta({qui: bard.stato.dove === 'stanza'});
+  setInterval(() => bard.imposta({muto: Date.now() < serataFino}), 2000);
+}
 function intensitaLampo(ora){
   if (!lampo) return 0;
   const dt = ora - lampo.t; if (dt > 1400){ lampo = null; return 0; }
@@ -387,12 +402,14 @@ if (anteprima){
   const comandaDM = () => Date.now() < dmasterFino;
   /* con le prestazioni: immagini al secondo davvero disegnate, risoluzione del disegno, qualità (per capire da lontano se fatica) */
   const schedaVideo = () => { try { const g = vista.gl, e = g.getExtension('WEBGL_debug_renderer_info'); return e ? g.getParameter(e.UNMASKED_RENDERER_WEBGL) : g.getParameter(g.RENDERER); } catch(e) { return ''; } };
-  const chi = () => ({lato: mio, tv: tv ? {id: proiezione.id} : undefined, assetto: tv ? null : casaFori, scena, schermo:{w:innerWidth, h:innerHeight, dpr:devicePixelRatio}, comando: comandaDM() ? 'dmaster' : null,
+  const chi = () => ({lato: mio, tv: tv ? {id: proiezione.id} : undefined, assetto: tv ? null : casaFori, scena, schermo:{w:innerWidth, h:innerHeight, dpr:devicePixelRatio}, comando: comandaDM() ? 'dmaster' : null, bard: bard ? {rev: bard.stato.rev || 0, stato: bard.stato, ora: bardOra, suona: bard.attivo, serata: Date.now() < serataFino} : undefined,
     prestazioni:{fps: Math.round(fpsMisurati), hzSchermo: Math.round(1000 / intervalloSchermo), msDisegno: Math.round(msDisegno * 10) / 10, scala, qualita, disegno:{w:c.width, h:c.height}, schermoVero:{w:Math.round(screen.width * devicePixelRatio), h:Math.round(screen.height * devicePixelRatio)}, gl: schedaVideo(), browser: navigator.userAgent}});
   /* lo stesso ascolto per il canale del vecchio link e per quello privato della casa (js/accesso.js) */
   const gestore = rispondi => ({
     suMessaggio(evento, dati){
-      if (evento === 'dmaster'){ dmasterFino = dati.attivo ? Date.now() + 30000 : 0; return; }
+      if (evento === 'dmaster'){ dmasterFino = dati.attivo ? Date.now() + 30000 : 0; serataFino = dati.attivo && dati.serata ? Date.now() + 30000 : 0; if (bard) bard.imposta({muto: Date.now() < serataFino}); return; }
+      if (evento === 'bard'){ if (bard && (dati.rev || 0) >= (bard.stato.rev || 0)){ scrivi('bard-stato', dati); bard.applica(dati); bard.imposta({qui: dati.dove === 'stanza'}); } return; }
+      if (evento === 'bardEffetto'){ if (bard) bard.effetto(dati); return; }
       const daDM = dati && dati.da === 'dmaster';
       if (comandaDM() && !daDM && (evento === 'scena' || evento === 'lampo' || evento === 'occhio')) return;
       if (evento === 'scena'){ const s = Object.assign({}, dati); delete s.da; applica(s); }
@@ -410,6 +427,8 @@ if (anteprima){
     suStato(ok){ if (ok) rispondi('eccomi', chi()); }
   });
   let vecchioChiuso = false;
+  /* il brano che parte adesso: lo dice ai telefoni (e a DMaster) */
+  window.annunciaBard = () => { const d = {musica: bardOra && bardOra.musica || null}; if (privato) privato.manda('bardOra', d); if (canale) canale.manda('bardOra', d); };
   if (casa){
     const g = gestore((e, d) => canale && canale.manda(e, d));
     /* a vecchio link chiuso, quello che arriva di lì non conta più */
