@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="it" translate="no">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DMaster Atmosphere · Stanza simulata</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500&family=Cormorant+Garamond:ital,wght@1,500&family=Inter:wght@400;500&display=swap">
+<style>
+/* La stanza simulata (1/11): sul computer, prima del montaggio, il TV (parete est) e le due finestrelle (parete nord)
+   sono le pagine vere, in riquadri, nella stessa stanza dell'account. Bard suona dal TV, quindi da questo computer. */
+:root{--oro:#d4af37;--oro-luce:#f0cb5b;--crema:#e8dcc0;--tenue:#a69b82;--spento:#6b6555;--bordo:#2a2e38}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:#06080c;color:var(--crema);font:15px/1.45 Inter,system-ui,sans-serif}
+body{display:flex;flex-direction:column}
+header{display:flex;align-items:center;gap:16px;flex-wrap:wrap;padding:12px 20px;border-bottom:1px solid rgba(212,175,55,.25)}
+header h1{margin:0;font:500 16px Cinzel,serif;letter-spacing:.2em;text-transform:uppercase}
+header h1 span{color:var(--oro)}
+header p{margin:0;font:italic 500 17px 'Cormorant Garamond',serif;color:var(--tenue);flex:1;min-width:260px}
+button,a.btn{font:500 12px Cinzel,serif;letter-spacing:.12em;text-transform:uppercase;padding:9px 14px;border-radius:999px;border:1px solid rgba(212,175,55,.55);background:rgba(212,175,55,.1);color:var(--oro-luce);cursor:pointer;text-decoration:none}
+button.spento{border-color:var(--bordo);background:none;color:var(--tenue)}
+main{flex:1;min-height:0;display:flex;gap:28px;padding:20px;align-items:center;justify-content:center;
+  background:repeating-linear-gradient(0deg,#1d1914 0 58px,#14110d 58px 61px),#1d1914}
+.parete{display:flex;flex-direction:column;align-items:center;gap:10px;min-width:0}
+.parete small{font:500 11px Cinzel,serif;letter-spacing:.18em;text-transform:uppercase;color:var(--tenue)}
+.tv{width:min(54vw,(100vh - 200px) * 16 / 9);aspect-ratio:16/9;border:14px solid #3b2a1a;border-radius:6px;box-shadow:0 0 0 2px #2a1d12,0 20px 60px rgba(0,0,0,.6);background:#000;position:relative}
+.nord{display:flex;gap:min(7vw,90px);align-items:flex-end}
+.feritoia{height:min(64vh,46vw);aspect-ratio:2/5;border:9px solid #8a7a62;border-bottom-width:12px;border-radius:999px 999px 4px 4px / 46% 46% 4px 4px;overflow:hidden;background:#000;box-shadow:inset 0 0 18px #000,0 16px 40px rgba(0,0,0,.6);position:relative}
+iframe{position:absolute;inset:0;width:100%;height:100%;border:0;display:block}
+.avviso{padding:10px 20px;font-size:13.5px;color:var(--tenue);border-top:1px solid var(--bordo)}
+.avviso b{color:var(--crema);font-weight:500}
+</style>
+</head>
+<body>
+<header>
+  <h1><span>DMaster</span> · Stanza simulata</h1>
+  <p>Il TV e le due finestrelle come saranno nella stanza, su questo computer. Comandali dall'app sul telefono o da DMaster, come quelli veri.</p>
+  <button id="suono">🔊 Avvia il suono</button>
+  <a class="btn" href="../telecomando/" target="_blank" rel="noopener">Apri l'app</a>
+</header>
+<main>
+  <div class="parete"><div class="tv"><iframe id="tv" title="Il TV" allow="autoplay"></iframe></div><small>Parete est · il TV</small></div>
+  <div class="parete"><div class="nord">
+      <div class="feritoia"><iframe id="sx" title="Finestrella sinistra" allow="autoplay"></iframe></div>
+      <div class="feritoia"><iframe id="dx" title="Finestrella destra" allow="autoplay"></iframe></div>
+    </div><small>Parete nord · le finestrelle</small></div>
+</main>
+<div class="avviso" id="avviso">
+  <b>La prima volta</b>: il TV qui mostra un QR — dall'app sul telefono «Aggiungi schermo» e inquadralo (le due finestrelle entrano insieme).
+  Se su questo computer hai già fatto l'accesso nell'app, non serve. Bard suona da qui finché nell'app «Bard suona» è sul TV; in serata tace, come quello vero.
+  Tre disegni insieme pesano: su un portatile la ventola può farsi sentire.
+</div>
+<script>
+const q = new URLSearchParams(location.search);
+const casa = q.get('casa') ? '&casa=' + encodeURIComponent(q.get('casa')) : '';
+const base = '../finestra/?';
+/* prima il TV (entra nella stanza o mostra il QR), poi le finestrelle: trovano la stessa sessione già pronta */
+document.getElementById('tv').src = base + 'vista=est&sim=tv' + casa;
+setTimeout(() => {
+  document.getElementById('sx').src = base + 'lato=sinistra&sim=finestra' + casa;
+  document.getElementById('dx').src = base + 'lato=destra&sim=finestra' + casa;
+}, 3500);
+const b = document.getElementById('suono');
+b.onclick = () => {
+  for (const id of ['tv', 'sx', 'dx']) { const f = document.getElementById(id); try { f.contentWindow.postMessage({tipo: 'bardSblocca'}, location.origin); } catch(e) {} }
+  b.textContent = '🔊 Suono attivo'; b.classList.add('spento');
+};
+</script>
+</body>
+</html>

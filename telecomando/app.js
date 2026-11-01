@@ -11,7 +11,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
 const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 const euro = n => (n < .1 ? n.toFixed(3) : n.toFixed(2)).replace('.', ',') + ' $';
-const VERSIONE = '4.2';
+const VERSIONE = '4.3';
 
 /* ── la casa ──────────────────────────────────────────────────────────────── */
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
@@ -936,6 +936,36 @@ function prendiBard(st){
   if (scheda === 'bard') disegnaBard();
 }
 
+/* ── le atmosfere pronte (1/11): sottofondo + musica + tempo (+ ora e tempo delle finestre) con un nome, un tocco.
+   Stanno nello stato di Bard (bardStato.atmosfere): le vedono tutti i telefoni, DMaster e il TV. */
+function atmosferaDiAdesso(nome, conFinestre){
+  const m = bardStato.musica || {}, brani = bardDi('musica'), ora = bardOra && brani.find(b => b.id === bardOra.id);
+  return {id: Date.now().toString(36), nome: String(nome).trim().slice(0, 30),
+    sottofondo: bardStato.sottofondo ? bardStato.sottofondo.id : null,
+    musica: m.acceso ? {id: ora ? ora.id : (m.brani && m.brani[m.i || 0] ? m.brani[m.i || 0].id : null), casuale: !!m.casuale} : null,
+    tempo: !!(bardStato.tempo && bardStato.tempo.acceso),
+    finestre: conFinestre ? {meteo: scena.meteo || 'sereno', ora: scena.ora || 'vera'} : null};
+}
+function applicaAtmosfera(a){
+  const brani = bardDi('musica').map(voceBard), sott = a.sottofondo && bardDi('sottofondo').find(x => x.id === a.sottofondo);
+  const i = a.musica ? Math.max(0, brani.findIndex(b => b.id === a.musica.id)) : 0;
+  const ok = mandaBard({sottofondo: voceBard(sott) || null, tempo: Object.assign({volume: .6}, bardStato.tempo, {acceso: !!a.tempo}),
+    musica: a.musica && brani.length ? {acceso: true, casuale: !!a.musica.casuale, i, brani} : Object.assign({}, bardStato.musica || {}, {acceso: false, brani})});
+  if (!ok) return;
+  if (a.finestre){ if (comandaDM()) avviso('Le finestre sono in mano a DMaster: cambio solo i suoni', true); else cambia({meteo: a.finestre.meteo, ora: a.finestre.ora, acceso: true}); }
+  if (a.sottofondo && !sott) avviso('Il sottofondo di «' + a.nome + '» non è più nella stanza', true); else avviso('Atmosfera: ' + a.nome);
+  disegnaBard();
+}
+function apriSalvaAtmosfera(){
+  const fin = `${NOME_ORA[scena.ora] || 'come fuori'} · ${((METEO.find(m => m[0] === scena.meteo) || [,,'sereno'])[2]).toLowerCase()}`;
+  apriFoglio(`<h3 class="foglio-titolo">Salva l'atmosfera di adesso</h3>
+    <p class="nota" style="margin-top:0">Sottofondo, musica e suoni del tempo come sono ora; con un tocco la ritrovi.</p>
+    <label class="campo"><span>Nome</span><input id="atmNome" maxlength="30" placeholder="es. Taverna, Viaggio, Notte di tempesta"></label>
+    <div class="pannello" style="padding:2px 14px">${interruttore('atmFin', 'bifora', 'Anche le finestre', 'Ora e tempo come adesso: ' + fin, false)}</div>
+    <button class="btn oro piena" style="margin-top:12px" data-fai="atmSalva">${icona('spunta', 18)}Salva</button>`);
+  foglioAperto = 'atm-salva';
+}
+
 /* ── la console della serata (riordino-259 di DMaster): in serata Bard diventa la tastiera dei suoni del master.
    DMaster manda lo stato («console»), il telefono manda i comandi («consoleComando»); il suono esce dal portatile. */
 let consoleStato = null, consoleIl = 0, consoleFirma = '', bardCasse = [], bardUscitaTv = '';
@@ -1011,6 +1041,9 @@ function disegnaBard(){
     <div class="in-mano-avviso" id="bardSerata" hidden><b>Serata in corso</b> I suoni della stanza li fa DMaster dal portatile. Quando chiudi la serata Bard torna qui da solo.</div>
     <div class="dove-suona">${icona('altoparlante', 18)}<span id="bardDove"></span><button class="btn piccolo" data-fai="vaiImpBard">Cambia</button></div>
     ${!pronto ? `<p class="vuoto">${bardLibStato === 'carico' ? 'Carico i suoni della stanza…' : esc(bardLibStato)}</p>` : ''}
+    ${pronto ? `<div class="sezione">${titolo('stella', 'Atmosfere', (bardStato.atmosfere || []).length ? 'un tocco per tutto' : '')}
+      <div class="suoni">${(bardStato.atmosfere || []).map(a => `<button class="suono atmosfera" data-fai="atmApplica" data-v="${esc(a.id)}">${a.finestre ? icona('bifora', 14) + ' ' : ''}${esc(a.nome)}</button>`).join('')}
+        <button class="suono" data-fai="atmNuova" style="border-style:dashed;color:var(--tenue)">+ salva quella di adesso</button></div></div>` : ''}
     <div class="sezione">${titolo('pioggia', 'Tempo')}
       <div class="pannello" style="padding:2px 14px">${interruttore('bardTempo', 'pioggia', 'Suoni del tempo', nTempo ? 'Seguono le finestre: pioggia, vento, neve, tuoni coi lampi' : 'Seguono le finestre. Le registrazioni non sono ancora nella stanza (si copiano da DMaster): per ora un suono più semplice', t.acceso)}
         ${cursore('volTempo', 'altoparlante', 'Volume', 0, 100, Math.round(t.volume * 100), Math.round(t.volume * 100) + '%')}</div></div>
@@ -1032,6 +1065,7 @@ function disegnaBard(){
         : pronto ? '<p class="nota" style="margin-top:0">Ancora nessun effetto: «+ Aggiungi un suono» qui sotto.</p>' : ''}</div>
     ${CASA_PRIVATA ? `<button class="btn oro piena" style="margin-top:18px" data-fai="bardAggiungi">${icona('piu', 18)}Aggiungi un suono</button>
     ${gruppo('bard-gestisci', 'manopole', 'Gestisci i suoni', bardLib.length + ' nella stanza', `
+      ${(bardStato.atmosfere || []).length ? `<ul class="membri">${bardStato.atmosfere.map(a => `<li><span><b>${esc(a.nome)}</b><small>atmosfera${a.finestre ? ' · con le finestre' : ''}</small></span><button class="btn piccolo pericolo" data-fai="atmTogli" data-v="${esc(a.id)}">Togli</button></li>`).join('')}</ul>` : ''}
       <ul class="membri">${bardLib.map(x => `<li><span><b>${esc(x.titolo)}</b><small>${{tempo: 'tempo', sottofondo: 'sottofondo', musica: 'musica', effetto: 'effetto'}[x.tipo]}</small></span><button class="btn piccolo pericolo" data-fai="bardTogli" data-v="${esc(x.file)}">Togli</button></li>`).join('') || '<li><span class="nota">Nessun suono.</span></li>'}</ul>
       <p class="nota">I suoni di DMaster arrivano con «Copia i suoni nella stanza» nella pagina Atmosfera di DMaster.</p>
       <button class="btn piena" data-fai="bardRicarica">${icona('ricarica', 18)}Rileggi la libreria</button>`)}` : ''}`;
@@ -1211,6 +1245,8 @@ function disegnaImpostazioni(){
       ${a.n === 2 && !schermi.destra ? '<p class="nota">La finestra destra non ha ancora risposto: si collega quando c\'è il secondo schermo.</p>' : ''}`)}
     ${gruppo('collega', 'catena', 'Collegamento', '', `
       <p class="nota" style="margin-top:0">Indirizzo da aprire sul Raspberry:</p><code class="link">${esc(linkPi)}</code>
+      <a class="btn piena" style="margin-top:10px;text-decoration:none" href="../stanza/" target="_blank" rel="noopener">${icona('schermo', 18)}Stanza simulata (da aprire sul computer)</a>
+      <p class="nota">Il TV e le due finestrelle su un computer, per provare tutto prima del montaggio.</p>
       <div class="azioni">${casa ? `<button class="btn" data-fai="copia" data-v="${esc(linkTel)}">${icona('copie', 18)}Link per un altro telefono</button>` : ''}<button class="btn" data-fai="ricaricaFinestre">${icona('ricarica', 18)}Ricarica finestre</button></div>`)}
     <p class="nota" style="text-align:center;margin-top:18px">DMaster Atmosphere ${VERSIONE} · powered by DMaster Stage</p>`;
   for (const [id, k] of [['kOpenai','openai'], ['kGoogle','google'], ['kEleven','elevenlabs'], ['kPexels','pexels']]){ const el = document.getElementById(id); el.oninput = () => { imp.chiavi[k] = el.value.trim(); salvaImp(); if (problema && problema.tipo === 'chiave') risolto(); }; }
@@ -1255,6 +1291,14 @@ const AZIONI = {
   conOra: v => comando({azione: 'finestre', ora: v}),
   conPaesaggio: v => comando({azione: 'paesaggio', id: v}),
   bardUscita: () => {},
+  atmApplica: v => { const a = (bardStato.atmosfere || []).find(x => x.id === v); if (a) applicaAtmosfera(a); },
+  atmNuova: () => apriSalvaAtmosfera(),
+  atmFin: (v, b) => b.setAttribute('aria-checked', String(b.getAttribute('aria-checked') !== 'true')),
+  atmSalva: () => { const nome = ($('#atmNome') || {}).value || ''; if (!nome.trim()){ avviso('Dagli un nome.', true); return; }
+    const a = atmosferaDiAdesso(nome, ($('[data-fai="atmFin"]') || {getAttribute: () => 'false'}).getAttribute('aria-checked') === 'true');
+    if (mandaBard({atmosfere: [...(bardStato.atmosfere || []).filter(x => x.nome.toLowerCase() !== a.nome.toLowerCase()), a]})){ chiudiFoglio(); avviso('Salvata: ' + a.nome); disegnaBard(); } },
+  atmTogli: (v, b) => { if (b.dataset.conferma !== '1'){ b.dataset.conferma = '1'; b.textContent = 'Sicuro?'; return; }
+    if (mandaBard({atmosfere: (bardStato.atmosfere || []).filter(x => x.id !== v)})) disegnaBard(); },
   bardAggiungi: () => apriBardAggiungi(),
   bardTipo: v => { bardNuovoTipo = v; apriBardAggiungi(); },
   bardMinuti: v => { bardMinuti = +v; apriBardAggiungi(); },

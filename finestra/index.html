@@ -79,7 +79,9 @@ function normalizza(a){
   return {n:1, finestre:{}};
 }
 let casaFori = normalizza(leggi('finestre-fori', null));
-const derivato = () => tv ? {modo:'singola', fori:[{x:0, y:0, w:1, h:1}]} : ({modo:'singola', fori:[(casaFori.finestre || {})[mio] || foroPredefinito()]});
+/* ?sim=… (la stanza simulata, stanza/): il riquadro è tutto foro, la finestra non si calibra */
+const simulata = q.get('sim') || '';
+const derivato = () => tv || simulata ? {modo:'singola', fori:[{x:0, y:0, w:1, h:1}]} : ({modo:'singola', fori:[(casaFori.finestre || {})[mio] || foroPredefinito()]});
 let assetto = derivato();
 if (q.get('w') && q.get('h')) assetto = {modo:'unica', fori:[{x:+q.get('x') / innerWidth, y:+q.get('y') / innerHeight, w:+q.get('w') / innerWidth, h:+q.get('h') / innerHeight}]};
 let mostraBordi = false;
@@ -311,6 +313,7 @@ function scocca(){ lampo = {t:performance.now(), forza:.75 + Math.random() * .5}
    il portatile del master. ?bard=1 fa suonare anche un'altra pagina, ?bard=0 zittisce il TV. */
 const suonaQui = !anteprima && (q.get('bard') === '1' || (tv && q.get('bard') !== '0'));
 let serataFino = 0;
+addEventListener('message', e => { if (e.origin === location.origin && e.data && e.data.tipo === 'bardSblocca' && typeof bard !== 'undefined' && bard) bard.sblocca(); });
 const bard = suonaQui && typeof LettoreBard !== 'undefined' ? new LettoreBard({quandoCambia: d => { bardOra = Object.assign(bardOra || {}, d); if (window.annunciaBard) window.annunciaBard(); }}) : null;
 let bardOra = null;
 if (bard){
@@ -494,7 +497,8 @@ if (anteprima){
     } catch(e) { mostraCartello('Codice non disponibile: ' + e.message, null, 15000); }
   }
   /* all'avvio: se è già membro ascolta il canale privato; uno schermo nuovo, senza il vecchio link, mostra subito il codice */
-  controllaAbbinamento().then(m => { if (!m && !casa) mostraCodice(); });
+  /* nella stanza simulata il QR lo mostra solo il TV: le finestrelle aspettano (stessa sessione, stesso abbinamento) */
+  controllaAbbinamento().then(m => { if (!m && !casa){ if (simulata === 'finestra') setInterval(controllaAbbinamento, 5000); else mostraCodice(); } });
   /* gli indirizzi firmati delle immagini valgono 30 giorni: una volta ogni 20 giorni la pagina si rinfresca da sola */
   setTimeout(() => location.reload(), 20 * 24 * 3600e3);
 
