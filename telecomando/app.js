@@ -11,7 +11,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
 const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 const euro = n => (n < .1 ? n.toFixed(3) : n.toFixed(2)).replace('.', ',') + ' $';
-const VERSIONE = '4.4';
+const VERSIONE = '4.6';
 
 /* ── la casa ──────────────────────────────────────────────────────────────── */
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
@@ -79,6 +79,7 @@ const gestoreCanale = {
     if (evento === 'dmaster'){ dmasterFino = d.attivo ? Date.now() + 30000 : 0; const prima = inSerata(); serataFino = d.attivo && d.serata ? Date.now() + 30000 : 0; lettore.imposta({muto: inSerata()}); aggiornaComando(); if (scheda === 'bard' && prima !== inSerata()) disegnaBard(); else if (scheda === 'bard') aggiornaBard(); return; }
     if (evento === 'bard'){ prendiBard(d); return; }
     if (evento === 'console'){ suConsole(d); return; }
+    if (evento === 'consoleScheda'){ suScheda(d); return; }
     if (evento === 'bardOra'){ if (!suonoQui()){ bardOra = d.musica || null; if (scheda === 'bard') aggiornaBard(); } return; }
     if (evento !== 'eccomi') return;
     collegate = Date.now();
@@ -359,8 +360,11 @@ const scelta = (fai, v, ic, testo, acceso) => `<button class="scelta" data-fai="
 const cursore = (id, ic, testo, min, max, val, uscita, passo = 1) => `<div class="cursore">${icona(ic, 18)}<label for="${id}">${esc(testo)}</label><input type="range" id="${id}" min="${min}" max="${max}" step="${passo}" value="${val}"><output id="${id}-o">${esc(uscita)}</output></div>`;
 const interruttore = (fai, ic, testo, sotto, acceso) => `<div class="interruttore" role="switch" tabindex="0" data-fai="${fai}" aria-checked="${!!acceso}">${icona(ic, 20)}<span><b>${esc(testo)}</b>${sotto ? '<small>' + esc(sotto) + '</small>' : ''}</span><i class="levetta"></i></div>`;
 const aperti = new Set(leggi('atm-gruppi-aperti', ['stanza']));
-document.addEventListener('toggle', e => { const d = e.target; if (!d.matches || !d.matches('details[data-ricorda]')) return; if (d.open) aperti.add(d.dataset.ricorda); else aperti.delete(d.dataset.ricorda); scrivi('atm-gruppi-aperti', [...aperti]); }, true);
-const gruppo = (id, ic, testo, piccolo, corpo) => `<details class="gruppo" data-ricorda="${id}"${aperti.has(id) ? ' open' : ''}><summary>${icona(ic, 18)}<span>${esc(testo)}</span>${piccolo ? '<small>' + esc(piccolo) + '</small>' : ''}</summary><div class="dentro-gruppo">${corpo}</div></details>`;
+/* gli appunti della scena in serata stanno aperti, finché non li chiudi tu */
+const DI_SOLITO_APERTI = new Set(['con-scena']), chiusi = new Set(leggi('atm-gruppi-chiusi', []));
+document.addEventListener('toggle', e => { const d = e.target; if (!d.matches || !d.matches('details[data-ricorda]')) return; const k = d.dataset.ricorda;
+  if (d.open){ aperti.add(k); chiusi.delete(k); } else { aperti.delete(k); chiusi.add(k); } scrivi('atm-gruppi-aperti', [...aperti]); scrivi('atm-gruppi-chiusi', [...chiusi]); }, true);
+const gruppo = (id, ic, testo, piccolo, corpo) => `<details class="gruppo" data-ricorda="${id}"${aperti.has(id) || (DI_SOLITO_APERTI.has(id) && !chiusi.has(id)) ? ' open' : ''}><summary>${icona(ic, 18)}<span>${esc(testo)}</span>${piccolo ? '<small>' + esc(piccolo) + '</small>' : ''}</summary><div class="dentro-gruppo">${corpo}</div></details>`;
 function riempi(r){ const p = (r.value - r.min) / (r.max - r.min) * 100; r.style.setProperty('--p', p + '%'); }
 function legaCursore(id, fn){ const r = document.getElementById(id); if (!r) return; riempi(r); r.oninput = () => { riempi(r); fn(+r.value, document.getElementById(id + '-o')); }; return r; }
 
@@ -987,7 +991,7 @@ function comando(c){
 function disegnaConsole(s){
   const c = consoleStato, vivo = c && Date.now() - consoleIl < 15000;
   const sc = c && c.scontro;
-  const firma = c ? JSON.stringify([sc ? [sc.turno, sc.round, sc.attivo, sc.voci.map(v => [v.id, v.pf, v.aTerra])] : null, c.tempo && c.tempo.map(t => t.id), (c.qui || []).map(x => x.id), (c.sempre || []).map(x => x.id), (c.adesso || []).map(x => x.id), !!c.finestre, (c.paesaggi || []).map(p => p.id), vivo]) : 'vuota';
+  const firma = c ? JSON.stringify([c.scena ? [c.scena.id, c.scena.titolo, (c.scena.appunti || '').length, (c.scena.leggi || '').length] : null, sc ? [sc.turno, sc.round, sc.attivo, sc.voci.map(v => [v.id, v.pf, v.aTerra])] : null, c.tempo && c.tempo.map(t => t.id), (c.qui || []).map(x => x.id), (c.sempre || []).map(x => x.id), (c.adesso || []).map(x => x.id), !!c.finestre, (c.paesaggi || []).map(p => p.id), vivo]) : 'vuota';
   if (s.dataset.console === firma && s.innerHTML){ aggiornaConsole(s); return; }
   s.dataset.console = firma;
   const effetto = x => `<button class="scelta" data-fai="conEffetto" data-v="${esc(x.id)}">${x.tasto ? `<i class="tasto">${esc(x.tasto)}</i>` : ''}${icona('fulmine', 20)}<span>${esc(x.nome)}</span></button>`;
@@ -997,12 +1001,15 @@ function disegnaConsole(s){
     <button class="btn pericolo piena" data-fai="conFerma" style="margin-top:6px">${icona('chiudi', 18)}Ferma tutto</button>
     ${sc ? `<div class="sezione">${titolo('fulmine', 'Scontro', 'round ' + sc.round + (sc.attivo ? '' : ' · fermo'))}
       <div class="ordine">${sc.voci.map(v => { const k = v.pfMax ? Math.max(0, Math.min(100, Math.round((v.pf ?? 0) / v.pfMax * 100))) : 0;
-        return `<button class="riga-scontro${sc.turno === v.id ? ' turno' : ''}${v.aTerra ? ' aterra' : ''}${v.pg ? ' pg' : ''}" ${v.pg ? 'disabled' : `data-fai="conNemico" data-v="${esc(v.id)}"`}>
+        return `<button class="riga-scontro${sc.turno === v.id ? ' turno' : ''}${v.aTerra ? ' aterra' : ''}${v.pg ? ' pg' : ''}" data-fai="conNemico" data-v="${esc(v.id)}">
           <span class="ini">${v.iniziativa ?? '–'}</span><span class="nome">${sc.turno === v.id ? '▶ ' : ''}${esc(v.nome)}${v.aTerra ? ' · a terra' : ''}</span>
           <span class="pf">${v.pf != null ? v.pf + (v.pfMax ? '/' + v.pfMax : '') : '—'}${v.ca != null ? ' · CA ' + v.ca : ''}</span>
           ${v.pfMax ? `<i class="barra"><b style="width:${k}%"></b></i>` : ''}</button>`; }).join('')}</div>
       <div class="azioni"><button class="btn" data-fai="conTurno" data-v="indietro">${icona('indietro', 18)}Indietro</button><button class="btn oro" data-fai="conTurno" data-v="avanti">Prossimo${icona('freccia', 18)}</button></div>
-      <p class="nota">Tocca un nemico per togliergli punti ferita o metterlo a terra. I PF dei personaggi li tengono i giocatori.</p></div>` : ''}
+      <p class="nota">Tocca un nemico per togliergli o ridargli punti ferita, o metterlo a terra: finisce nel diario. I PF dei personaggi li tengono i giocatori.</p></div>` : ''}
+    ${c.scena && (c.scena.leggi || c.scena.appunti) ? gruppo('con-scena', 'quadro', c.scena.titolo || 'La scena', 'sul leggio', `
+      ${c.scena.appunti ? `<div class="blocco"><span>I tuoi appunti</span><p class="appunti">${esc(c.scena.appunti)}</p></div>` : ''}
+      ${c.scena.leggi ? `<div class="blocco"><span>Da leggere al tavolo</span><p class="da-leggere">${esc(c.scena.leggi)}</p></div>` : ''}`) : ''}
     <div class="sezione">${titolo('nuvola', 'Tempo', 'finestre e suono insieme')}
       <div class="scelte c3">${(c.tempo || []).map(t => `<button class="scelta" data-fai="conTempo" data-v="${t.id}" aria-pressed="${!!t.acceso}">${icona(ICONE_TEMPO[t.id] || 'nuvola', 22)}<span>${esc(t.nome)}</span></button>`).join('')}</div>
       <div class="pannello" style="margin-top:10px;padding:2px 14px">
@@ -1024,13 +1031,30 @@ function disegnaConsole(s){
   legaCursore('conVolEff', (v, o) => { o.textContent = v + '%'; clearTimeout(te); te = setTimeout(() => comando({azione: 'volEffetti', valore: v / 100}), 150); });
   aggiornaSpia();
 }
-function apriNemico(id){
+let nemicoModo = 'togli';
+const schede = {};
+function suScheda(d){ if (!d || !d.id) return; schede[d.id] = d; if (foglioAperto && foglioAperto.nemico === d.id) apriNemico(d.id, true); }
+function htmlScheda(sch){
+  if (!sch) return '<p class="nota">Carico la scheda…</p>';
+  const num = [['CA', sch.ca], ['PF', sch.pf != null ? sch.pf + (sch.pfMax ? '/' + sch.pfMax : '') : null], ['Per colpire', sch.attacco != null ? (String(sch.attacco).startsWith('-') || String(sch.attacco).startsWith('+') ? sch.attacco : '+' + sch.attacco) : null], ['Danni', sch.danni], ['Attacchi', sch.attacchi]].filter(x => x[1] != null && x[1] !== '');
+  return `<div class="scheda-tel">${sch.sotto ? `<p class="nota" style="margin:0 0 8px">${esc(sch.sotto)}</p>` : ''}
+    ${num.length ? `<div class="numeri">${num.map(([k, v]) => `<span><small>${k}</small><b>${esc(v)}</b></span>`).join('')}</div>` : ''}
+    ${sch.descrizione ? `<p class="descr">${esc(sch.descrizione)}</p>` : ''}</div>`;
+}
+function apriNemico(id, soloAggiorna){
   const v = consoleStato && consoleStato.scontro && consoleStato.scontro.voci.find(x => x.id === id); if (!v) return;
+  if (!soloAggiorna && !schede[id]) comando({azione: 'scheda', id});
+  if (v.pg){
+    apriFoglio(`<h3 class="foglio-titolo">${esc(v.nome)}</h3><p class="nota" style="margin-top:0">I punti ferita li tiene il giocatore sul suo telefono.</p>${htmlScheda(schede[id])}`);
+    foglioAperto = {nemico: id}; return;
+  }
   apriFoglio(`<h3 class="foglio-titolo">${esc(v.nome)}</h3>
     <p class="nota" style="margin-top:0">${v.pf != null ? 'Punti ferita ' + v.pf + (v.pfMax ? ' su ' + v.pfMax : '') : 'Punti ferita non segnati'}${v.ca != null ? ' · CA ' + v.ca : ''}${v.aTerra ? ' · a terra' : ''}</p>
-    <div class="scelte c4">${[1, 2, 3, 4, 5, 6, 8, 10, 12, 15, 20, 25].map(n => `<button class="scelta" data-fai="conDanno" data-v="${n}"><b style="font:600 18px var(--display)">−${n}</b></button>`).join('')}</div>
-    <div class="riga-cerca" style="margin-top:10px"><label class="campo" style="flex:1;margin:0"><input id="danniScritti" type="number" inputmode="numeric" min="1" placeholder="altri punti"></label><button class="btn oro" data-fai="conDanno" data-v="">Togli</button></div>
-    <button class="btn piena" style="margin-top:12px" data-fai="conATerra" data-v="${v.aTerra ? '0' : '1'}">${v.aTerra ? 'Rialzalo' : 'Mettilo a terra'}</button>`);
+    <div class="segmenti" style="margin-bottom:10px">${[['togli', 'Togli PF'], ['ridai', 'Ridai PF']].map(([m, t]) => `<button data-fai="conModo" data-v="${m}" aria-pressed="${nemicoModo === m}">${t}</button>`).join('')}</div>
+    <div class="scelte c4">${[1, 2, 3, 4, 5, 6, 8, 10, 12, 15, 20, 25].map(n => `<button class="scelta" data-fai="conDanno" data-v="${n}"><b style="font:600 18px var(--display)">${nemicoModo === 'ridai' ? '+' : '−'}${n}</b></button>`).join('')}</div>
+    <div class="riga-cerca" style="margin-top:10px"><label class="campo" style="flex:1;margin:0"><input id="danniScritti" type="number" inputmode="numeric" min="1" placeholder="altri punti"></label><button class="btn oro" data-fai="conDanno" data-v="">${nemicoModo === 'ridai' ? 'Ridai' : 'Togli'}</button></div>
+    <button class="btn piena" style="margin-top:12px" data-fai="conATerra" data-v="${v.aTerra ? '0' : '1'}">${v.aTerra ? 'Rialzalo' : 'Mettilo a terra'}</button>
+    <h2 class="titolo" style="margin-top:18px">${icona('quadro', 16)}Scheda</h2>${htmlScheda(schede[id])}`);
   foglioAperto = {nemico: id};
 }
 function aggiornaConsole(s){
@@ -1312,7 +1336,9 @@ const AZIONI = {
   conPaesaggio: v => comando({azione: 'paesaggio', id: v}),
   conTurno: v => comando({azione: 'turno', verso: v}),
   conNemico: v => apriNemico(v),
-  conDanno: v => { const n = +v || +(($('#danniScritti') || {}).value || 0); if (!(n > 0)){ avviso('Quanti punti?', true); return; } comando({azione: 'danno', id: foglioAperto && foglioAperto.nemico, valore: n}); chiudiFoglio(); avviso('−' + n + ' PF'); },
+  conDanno: v => { const n = +v || +(($('#danniScritti') || {}).value || 0); if (!(n > 0)){ avviso('Quanti punti?', true); return; }
+    const cura = nemicoModo === 'ridai'; comando({azione: cura ? 'cura' : 'danno', id: foglioAperto && foglioAperto.nemico, valore: n}); chiudiFoglio(); nemicoModo = 'togli'; avviso((cura ? '+' : '−') + n + ' PF'); },
+  conModo: v => { nemicoModo = v; const id = foglioAperto && foglioAperto.nemico; if (id) apriNemico(id); },
   conATerra: v => { comando({azione: 'aTerra', id: foglioAperto && foglioAperto.nemico, giu: v === '1'}); chiudiFoglio(); },
   bardUscita: () => {},
   atmApplica: v => { const a = (bardStato.atmosfere || []).find(x => x.id === v); if (a) applicaAtmosfera(a); },
