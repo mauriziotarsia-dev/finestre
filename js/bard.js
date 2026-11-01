@@ -39,6 +39,16 @@ class LettoreBard {
     if (this.ctx.state === 'suspended') this.ctx.resume().catch(() => {});
     return this.ctx;
   }
+  /** l'uscita audio (le casse del TV, una JBL…): l'id del browser; se non c'è più, l'uscita predefinita del sistema */
+  async uscita(id){
+    this.idUscita = id || '';
+    const x = this._ctx(); if (!x) return false;
+    try {
+      if (x.setSinkId) await x.setSinkId(this.idUscita);
+      if (this.el && this.el.setSinkId) await this.el.setSinkId(this.idUscita);
+      return true;
+    } catch(e) { console.warn('[bard] uscita', e.message); try { if (x.setSinkId) await x.setSinkId(''); } catch(e2) {} return false; }
+  }
   /** da chiamare a un tocco (sul telefono il browser non fa suonare prima) */
   sblocca(){ const x = this._ctx(); if (x && this.el) this.el.play && this.qui && !this.muto && this.stato.musica && this.stato.musica.acceso && this.el.play().catch(() => {}); return x ? x.state : 'nessuno'; }
   get attivo(){ return this.qui && !this.muto; }
@@ -147,6 +157,7 @@ class LettoreBard {
     const x = this._ctx(); if (!x) return;
     if (!this.el){
       this.el = new Audio(); this.el.crossOrigin = 'anonymous'; this.el.preload = 'auto';
+      if (this.idUscita && this.el.setSinkId) this.el.setSinkId(this.idUscita).catch(() => {});
       try { x.createMediaElementSource(this.el).connect(this.canali.musica); } catch(e) { console.warn('[bard] musica', e); }
       this.el.addEventListener('ended', () => this._avanti());
       this.el.addEventListener('error', () => setTimeout(() => this._avanti(), 1500));

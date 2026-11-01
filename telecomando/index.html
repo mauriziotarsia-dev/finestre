@@ -299,7 +299,8 @@ details.gruppo .campo > span{margin-top:6px}
 .brano:last-child{border-bottom:0} .brano .ic{color:var(--spento)}
 .brano[aria-pressed="true"]{color:var(--oro-luce);background:rgba(212,175,55,.08)} .brano[aria-pressed="true"] .ic{color:var(--live)}
 .scelta.suona{border-color:var(--live);color:var(--live)}
-#s-bard.in-serata .sezione,#s-bard.in-serata > .btn{opacity:.5}
+#s-bard.in-serata:not([data-console]) .sezione{opacity:.5}
+.scelta{position:relative} .scelta .tasto{position:absolute;top:4px;left:6px;font:600 10px ui-monospace,monospace;font-style:normal;color:var(--oro)}
 @media (prefers-reduced-motion: reduce){ *{animation:none!important;transition:none!important} }
 </style>
 </head>
@@ -319,7 +320,7 @@ details.gruppo .campo > span{margin-top:6px}
 <script src="../js/fermo.js?v=1"></script>
 <script src="../js/foto-online.js?v=2.1.0"></script>
 <script src="../js/profondita.js?v=2.1.0"></script>
-<script src="../js/bard.js?v=1"></script>
-<script src="app.js?v=4.1"></script>
+<script src="../js/bard.js?v=2"></script>
+<script src="app.js?v=4.2"></script>
 </body>
 </html>

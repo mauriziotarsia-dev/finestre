@@ -11,7 +11,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
 const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 const euro = n => (n < .1 ? n.toFixed(3) : n.toFixed(2)).replace('.', ',') + ' $';
-const VERSIONE = '4.1';
+const VERSIONE = '4.2';
 
 /* ── la casa ──────────────────────────────────────────────────────────────── */
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
@@ -76,12 +76,13 @@ function assettoOPredefinito(){
 /* ── canale con le finestre ──────────────────────────────────────────────── */
 const gestoreCanale = {
   suMessaggio(evento, d){
-    if (evento === 'dmaster'){ dmasterFino = d.attivo ? Date.now() + 30000 : 0; serataFino = d.attivo && d.serata ? Date.now() + 30000 : 0; lettore.imposta({muto: inSerata()}); aggiornaComando(); if (scheda === 'bard') aggiornaBard(); return; }
+    if (evento === 'dmaster'){ dmasterFino = d.attivo ? Date.now() + 30000 : 0; const prima = inSerata(); serataFino = d.attivo && d.serata ? Date.now() + 30000 : 0; lettore.imposta({muto: inSerata()}); aggiornaComando(); if (scheda === 'bard' && prima !== inSerata()) disegnaBard(); else if (scheda === 'bard') aggiornaBard(); return; }
     if (evento === 'bard'){ prendiBard(d); return; }
+    if (evento === 'console'){ suConsole(d); return; }
     if (evento === 'bardOra'){ if (!suonoQui()){ bardOra = d.musica || null; if (scheda === 'bard') aggiornaBard(); } return; }
     if (evento !== 'eccomi') return;
     collegate = Date.now();
-    if (d.bard){ bardTvSuona = !!d.bard.suona; if (d.bard.serata) serataFino = Math.max(serataFino, Date.now() + 25000); prendiBard(d.bard.stato); if (!suonoQui() && d.bard.ora) bardOra = d.bard.ora.musica || bardOra; if (scheda === 'bard') aggiornaBard(); }
+    if (d.bard){ bardTvSuona = !!d.bard.suona; if (Array.isArray(d.bard.casse)){ bardCasse = d.bard.casse; bardUscitaTv = d.bard.uscita || ''; } if (d.bard.serata) serataFino = Math.max(serataFino, Date.now() + 25000); prendiBard(d.bard.stato); if (!suonoQui() && d.bard.ora) bardOra = d.bard.ora.musica || bardOra; if (scheda === 'bard') aggiornaBard(); }
     if (d.comando === 'dmaster') dmasterFino = Math.max(dmasterFino, Date.now() + 25000);
     if (comandaDM() && d.scena){   /* comanda DMaster: qui si guarda e basta, la scena è la sua */
       scena = Object.assign({}, SCENA_PRED, d.scena); delete scena.da; scrivi('finestre-scena', scena); postaAnteprima({tipo:'scena', scena}); lettore.suScena(scena);
@@ -105,14 +106,20 @@ const canale = {
 };
 { /* mentre comanda DMaster, verso le finestre parte solo la domanda «chi c'è?» */
   const mandaDavvero = canale.manda.bind(canale);
-  canale.manda = (evento, dati) => { if (evento !== 'chi' && comandaDM() && !(/^bard/.test(evento) && !inSerata())){ avvisoInMano(); return false; } return mandaDavvero(evento, dati); };
+  canale.manda = (evento, dati) => { if (evento !== 'chi' && comandaDM() && !(/^bard/.test(evento) && !inSerata()) && !/^console/.test(evento)){ avvisoInMano(); return false; } return mandaDavvero(evento, dati); };
 }
 let ultimoAvvisoInMano = 0;
 function avvisoInMano(){ if (Date.now() - ultimoAvvisoInMano > 2500){ ultimoAvvisoInMano = Date.now(); avviso('Le finestre sono in mano a DMaster', true); } }
 function aggiornaComando(){
   const dm = comandaDM();
   document.body.classList.toggle('in-mano', dm);
-  const f = document.getElementById('inMano'); if (f) f.hidden = !dm;
+  const f = document.getElementById('inMano');
+  if (f){
+    const serata = typeof inSerata === 'function' && inSerata();
+    f.hidden = !dm || (serata && scheda === 'bard');
+    f.innerHTML = serata ? '<b>Serata in corso</b> DMaster comanda finestre e suoni. Da qui li comandi con la console: scheda <b>Bard</b>.'
+      : '<b>In mano a DMaster</b> DMaster comanda finestre e atmosfera: qui le guardi soltanto. Bard resta tuo. Quando chiudi DMaster tornano a questo telefono da sole.';
+  }
 }
 setInterval(aggiornaComando, 4000);
 setInterval(() => { if (canale.pronto) canale.manda('chi'); aggiornaSpia(); }, 20000);
@@ -364,7 +371,7 @@ const app = $('#app');
 app.innerHTML = MARCHIO + SCHEDE.map(([id]) => `<section class="scheda" id="s-${id}"></section>`).join('');
 function vai(id){
   if (scheda === 'impostazioni' && id !== 'impostazioni' && mostraBordi){ mostraBordi = false; canale.manda('fori', Object.assign({mostra:false}, assettoOPredefinito())); }
-  scheda = id; history.replaceState(null, '', location.pathname + location.search + '#' + id);
+  scheda = id; history.replaceState(null, '', location.pathname + location.search + '#' + id); aggiornaComando();
   disegnaScheda(); scrollTo(0, 0);
 }
 function disegnaScheda(){
@@ -929,9 +936,74 @@ function prendiBard(st){
   if (scheda === 'bard') disegnaBard();
 }
 
+/* ── la console della serata (riordino-259 di DMaster): in serata Bard diventa la tastiera dei suoni del master.
+   DMaster manda lo stato («console»), il telefono manda i comandi («consoleComando»); il suono esce dal portatile. */
+let consoleStato = null, consoleIl = 0, consoleFirma = '', bardCasse = [], bardUscitaTv = '';
+const ICONE_TEMPO = {pioggia: 'pioggia', temporale: 'fulmine', vento: 'vento', nebbia: 'nebbia', neve: 'fiocco'};
+const ORE_CONSOLE = [['vera', 'orologio', 'Come fuori'], ['alba', 'alba', 'Alba'], ['giorno', 'sole', 'Giorno'], ['tramonto', 'tramonto', 'Tramonto'], ['notte', 'luna', 'Notte']];
+function chiediConsole(){ if (inSerata()) canale.manda('consoleChiedi', {}); }
+setInterval(() => { if (scheda === 'bard' && inSerata()) chiediConsole(); }, 20000);
+function suConsole(d){
+  if (d.chiusa){ consoleStato = null; consoleIl = 0; }
+  else { consoleStato = Object.assign({}, consoleStato || {}, d, d.paesaggi ? {} : {paesaggi: (consoleStato && consoleStato.paesaggi) || []}); consoleIl = Date.now(); }
+  if (scheda === 'bard') disegnaBard();
+}
+function comando(c){
+  if (!canale.manda('consoleComando', c)) { avviso('DMaster non è collegato', true); return; }
+  navigator.vibrate && navigator.vibrate(15);
+}
+function disegnaConsole(s){
+  const c = consoleStato, vivo = c && Date.now() - consoleIl < 15000;
+  const firma = c ? JSON.stringify([c.tempo && c.tempo.map(t => t.id), (c.qui || []).map(x => x.id), (c.sempre || []).map(x => x.id), (c.adesso || []).map(x => x.id), !!c.finestre, (c.paesaggi || []).map(p => p.id), vivo]) : 'vuota';
+  if (s.dataset.console === firma && s.innerHTML){ aggiornaConsole(s); return; }
+  s.dataset.console = firma;
+  const effetto = x => `<button class="scelta" data-fai="conEffetto" data-v="${esc(x.id)}">${x.tasto ? `<i class="tasto">${esc(x.tasto)}</i>` : ''}${icona('fulmine', 20)}<span>${esc(x.nome)}</span></button>`;
+  s.innerHTML = testa('liuto', 'Bard', 'Console della serata') + `
+    <div class="dove-suona">${icona('altoparlante', 18)}<span>${vivo ? 'Suona dal <b>portatile di DMaster</b>: qui comandi tu' : 'Aspetto DMaster… (la Serata deve essere aperta sul portatile)'}</span></div>
+    ${!c ? '' : `
+    <button class="btn pericolo piena" data-fai="conFerma" style="margin-top:6px">${icona('chiudi', 18)}Ferma tutto</button>
+    <div class="sezione">${titolo('nuvola', 'Tempo', 'finestre e suono insieme')}
+      <div class="scelte c3">${(c.tempo || []).map(t => `<button class="scelta" data-fai="conTempo" data-v="${t.id}" aria-pressed="${!!t.acceso}">${icona(ICONE_TEMPO[t.id] || 'nuvola', 22)}<span>${esc(t.nome)}</span></button>`).join('')}</div>
+      <div class="pannello" style="margin-top:10px;padding:2px 14px">
+        ${cursore('conVolTempo', 'altoparlante', 'Volume', 0, 100, Math.round((c.volTempo ?? .6) * 100), Math.round((c.volTempo ?? .6) * 100) + '%')}
+        ${interruttore('conChiuso', 'porta', 'Al chiuso', 'Il tempo si sente da fuori, attutito', !!c.attutito)}</div></div>
+    ${(c.qui || []).length ? `<div class="sezione">${titolo('onda', c.nomeLuogo ? 'Qui · ' + c.nomeLuogo : 'Qui')}
+      <div class="suoni">${c.qui.map(x => `<button class="suono" data-fai="conQui" data-v="${esc(x.id)}" aria-pressed="${!!x.acceso}">${x.principale ? '★ ' : ''}${x.musica ? '♫ ' : ''}${esc(x.nome)}</button>`).join('')}</div></div>` : ''}
+    <div class="sezione">${titolo('fulmine', 'Effetti', 'sempre')}<div class="scelte c3">${(c.sempre || []).map(effetto).join('')}</div>
+      ${(c.adesso || []).length ? `<h2 class="titolo" style="margin-top:14px">${icona('stella', 16)}Adesso<small>${esc(c.perche || '')}</small></h2><div class="scelte c3">${c.adesso.map(effetto).join('')}</div>` : ''}
+      <div class="pannello" style="margin-top:10px">${cursore('conVolEff', 'altoparlante', 'Volume', 0, 100, Math.round((c.volEffetti ?? .8) * 100), Math.round((c.volEffetti ?? .8) * 100) + '%')}</div></div>
+    ${c.finestre ? `<div class="sezione">${titolo('bifora', 'Finestre')}
+      <button class="btn piena${c.finestre.acceso ? ' oro' : ''}" data-fai="conAccese" style="margin-bottom:8px">${icona('accensione', 18)}<span>${c.finestre.acceso ? 'Accese · tocca per spegnere' : 'Spente · tocca per accendere'}</span></button>
+      <div class="scelte c5">
+        ${ORE_CONSOLE.map(([v, ic, t]) => `<button class="scelta" data-fai="conOra" data-v="${v}" aria-pressed="${c.finestre.ora === v}">${icona(ic, 20)}<span>${t}</span></button>`).join('')}</div>
+      ${(c.paesaggi || []).length ? `<div class="griglia" style="margin-top:12px;grid-template-columns:repeat(auto-fill,minmax(78px,1fr))">${c.paesaggi.map(p => `<button class="carta" data-fai="conPaesaggio" data-v="${esc(p.id)}" aria-pressed="${c.finestre.paesaggio === p.id}"><img loading="lazy" alt="" src="${esc(p.img)}"><span class="su"><b>${esc(p.nome)}</b></span></button>`).join('')}</div>` : ''}</div>` : ''}
+    <p class="nota">Gli stessi comandi della console di DMaster (tasto R): il portatile resta libero per la storia.</p>`}`;
+  let tv = null, te = null;
+  legaCursore('conVolTempo', (v, o) => { o.textContent = v + '%'; clearTimeout(tv); tv = setTimeout(() => comando({azione: 'volTempo', valore: v / 100}), 150); });
+  legaCursore('conVolEff', (v, o) => { o.textContent = v + '%'; clearTimeout(te); te = setTimeout(() => comando({azione: 'volEffetti', valore: v / 100}), 150); });
+  aggiornaSpia();
+}
+function aggiornaConsole(s){
+  const c = consoleStato; if (!c) return;
+  const per = (fai, lista) => { const m = new Map((lista || []).map(x => [String(x.id), x])); s.querySelectorAll(`[data-fai="${fai}"]`).forEach(b => { const x = m.get(b.dataset.v); if (x) b.setAttribute('aria-pressed', String(!!x.acceso)); }); };
+  per('conTempo', c.tempo); per('conQui', c.qui);
+  const ch = s.querySelector('[data-fai="conChiuso"]'); if (ch) ch.setAttribute('aria-checked', String(!!c.attutito));
+  if (c.finestre){
+    const a = s.querySelector('[data-fai="conAccese"]'); if (a){ a.classList.toggle('oro', !!c.finestre.acceso); a.querySelector('span').textContent = c.finestre.acceso ? 'Accese · tocca per spegnere' : 'Spente · tocca per accendere'; }
+    s.querySelectorAll('[data-fai="conOra"]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.v === c.finestre.ora)));
+    s.querySelectorAll('[data-fai="conPaesaggio"]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.v === c.finestre.paesaggio)));
+  }
+  for (const [id, v] of [['conVolTempo', c.volTempo], ['conVolEff', c.volEffetti]]){
+    const r = document.getElementById(id); if (!r || v == null || document.activeElement === r) continue;
+    r.value = Math.round(v * 100); riempi(r); const o = document.getElementById(id + '-o'); if (o) o.textContent = r.value + '%';
+  }
+}
+
 function disegnaBard(){
-  if (bardLibStato === 'da caricare') caricaBard();
   const s = $('#s-bard');
+  if (inSerata()){ if (!consoleStato || Date.now() - consoleIl > 15000) chiediConsole(); disegnaConsole(s); return; }
+  s.dataset.console = '';
+  if (bardLibStato === 'da caricare') caricaBard();
   const sott = bardDi('sottofondo'), mus = bardDi('musica'), eff = bardDi('effetto'), nTempo = bardDi('tempo').length;
   const t = bardStato.tempo || {acceso: true, volume: .6}, m = bardStato.musica || {};
   const pronto = bardLibStato === 'ok';
@@ -972,6 +1044,8 @@ function disegnaBard(){
 }
 function aggiornaBard(){
   const s = $('#s-bard'); if (!s || !s.innerHTML) return;
+  if (inSerata() !== !!s.dataset.console){ disegnaBard(); return; }
+  if (inSerata()) return;
   const dm = inSerata(), f = $('#bardSerata'); if (f) f.hidden = !dm;
   s.classList.toggle('in-serata', dm);
   const d = $('#bardDove');
@@ -1111,6 +1185,10 @@ function disegnaImpostazioni(){
         <p class="nota" style="margin-top:0">Le chiavi restano su questo telefono.</p></div>`)}
     ${gruppo('bard', 'liuto', 'Bard', suonoQui() ? 'suona dal telefono' : 'suona dal TV', `
       <div class="segmenti">${[['stanza', 'tv', 'Il TV'], [ID_TELEFONO, 'telefono', 'Questo telefono']].map(([v, ic, t]) => `<button data-fai="bardDove" data-v="${v}" aria-pressed="${bardStato.dove === v}">${icona(ic, 18)}${t}</button>`).join('')}</div>
+      ${suonoQui() ? '' : `<label class="campo" style="margin-top:12px"><span>Uscita del TV</span><select data-cambia="bardUscita">
+        <option value="">Quella di Windows (di solito le casse del TV)</option>
+        ${bardCasse.map(c => `<option value="${esc(c.id)}"${(bardStato.uscitaTv && bardStato.uscitaTv.id === c.id) ? ' selected' : ''}>${esc(c.nome)}</option>`).join('')}</select></label>
+        ${bardCasse.length ? '' : '<p class="nota" style="margin-top:-4px">Il TV non ha ancora detto quali casse vede: succede dopo l\'installatore aggiornato sul G10, con la JBL già abbinata in Bluetooth.</p>'}`}
       <p class="nota">${suonoQui() ? 'Suona da qui: dall\'altoparlante o da una cassa collegata al telefono. Tieni l\'app aperta e lo schermo acceso, se no il telefono smette di suonare.' : 'Suona il G10 del TV: dalle casse del TV o da una cassa Bluetooth abbinata al G10. Puoi bloccare il telefono.'} Durante una serata i suoni li fa DMaster dal portatile.</p>`)}
     ${gruppo('aspetto', 'nuvola', 'Come si muovono', '', `
       ${interruttore('movimento', 'nuvola', 'Movimento', 'Nuvole che scorrono e alberi al vento, anche sulle immagini ferme', scena.movimento !== false)}
@@ -1168,6 +1246,15 @@ const AZIONI = {
   bardEffetto: (v, b) => { if (inSerata()){ avviso('Serata in corso: i suoni li comanda DMaster', true); return; } const x = bardDi('effetto').find(y => y.id === v); if (!x) return;
     if (suonoQui()) lettore.effetto(x); else if (!canale.manda('bardEffetto', {id: x.id, url: x.url})) avviso('Il TV non è collegato', true);
     b.classList.add('suona'); setTimeout(() => b.classList.remove('suona'), 500); },
+  conFerma: () => comando({azione: 'fermaTutto'}),
+  conTempo: v => comando({azione: 'tempo', id: v}),
+  conQui: v => comando({azione: 'qui', id: v}),
+  conEffetto: (v, b) => { comando({azione: 'effetto', id: v}); b.classList.add('suona'); setTimeout(() => b.classList.remove('suona'), 500); },
+  conChiuso: (v, b) => { const su = b.getAttribute('aria-checked') !== 'true'; b.setAttribute('aria-checked', String(su)); comando({azione: 'attutito', valore: su}); },
+  conAccese: () => comando({azione: 'finestre', acceso: !(consoleStato && consoleStato.finestre && consoleStato.finestre.acceso)}),
+  conOra: v => comando({azione: 'finestre', ora: v}),
+  conPaesaggio: v => comando({azione: 'paesaggio', id: v}),
+  bardUscita: () => {},
   bardAggiungi: () => apriBardAggiungi(),
   bardTipo: v => { bardNuovoTipo = v; apriBardAggiungi(); },
   bardMinuti: v => { bardMinuti = +v; apriBardAggiungi(); },
@@ -1438,6 +1525,7 @@ document.addEventListener('click', e => {
 });
 /* la stanza di questo telefono (31/10): si cambia e si riparte da lì */
 document.addEventListener('change', e => {
+  if (e.target.matches('[data-cambia="bardUscita"]')){ const c = bardCasse.find(x => x.id === e.target.value); mandaBard({uscitaTv: c ? {id: c.id, nome: c.nome} : null}); avviso(c ? 'Il TV suona da: ' + c.nome : 'Il TV suona dall\'uscita di Windows'); return; }
   if (e.target.matches('[data-cambia="accStanza"]') && e.target.value && (!casaPrivata || e.target.value !== casaPrivata.id)){ scrivi('atm-stanza', e.target.value); location.reload(); }
 });
 document.addEventListener('keydown', e => { if ((e.key === 'Enter' || e.key === ' ') && e.target.matches('[role="switch"]')){ e.preventDefault(); e.target.click(); } });

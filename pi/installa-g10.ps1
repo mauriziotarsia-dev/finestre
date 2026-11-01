@@ -54,7 +54,9 @@ if ($Abbina) {
 }
 
 Passo 'Avvio automatico'
-$Url = "https://mauriziotarsia-dev.github.io/finestre/finestra/?casa=$Casa&vista=est&tvx=$TvX&tvy=$TvY"
+$Url = "https://mauriziotarsia-dev.github.io/finestre/finestra/?casa=$Casa&vista=est&tvx=$TvX&tvy=$TvY&uscite=1"
+# &uscite=1 + --use-fake-ui-for-media-stream (1/11, Bard): la pagina vede i nomi delle casse (TV, JBL...) e il telefono sceglie da quale suonare.
+# Il permesso del microfono si accetta da solo: in questo profilo di Edge c'è solo la pagina del TV, e il microfono non si usa.
 $Edge = Join-Path ${env:ProgramFiles(x86)} 'Microsoft\Edge\Application\msedge.exe'
 if (-not (Test-Path $Edge)) { $Edge = Join-Path $env:ProgramFiles 'Microsoft\Edge\Application\msedge.exe' }
 $Avvio = Join-Path $Cartella 'avvio-g10.cmd'
@@ -65,7 +67,7 @@ cd /d "$Cartella"
 git pull --ff-only >nul 2>&1
 start "" /min pyw -3.12 pi\sensore.py
 start "" /min pyw -3.12 pi\cuci-animazione.py --casa $Casa --forza 3 --chi g10
-start "" "$Edge" --kiosk "$Url" --edge-kiosk-type=fullscreen --no-first-run --autoplay-policy=no-user-gesture-required --user-data-dir="%LOCALAPPDATA%\IllusionistTV"
+start "" "$Edge" --kiosk "$Url" --edge-kiosk-type=fullscreen --no-first-run --autoplay-policy=no-user-gesture-required --use-fake-ui-for-media-stream --user-data-dir="%LOCALAPPDATA%\IllusionistTV"
 "@ | Set-Content -Encoding ASCII $Avvio
 $azione = New-ScheduledTaskAction -Execute $Avvio
 $quando = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME

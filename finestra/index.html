@@ -30,7 +30,7 @@
 <script src="../js/vista.js?v=4.3"></script>
 <script src="../js/inseguitore.js?v=1"></script>
 <script src="../js/uccelli.js?v=3"></script>
-<script src="../js/bard.js?v=1"></script>
+<script src="../js/bard.js?v=2"></script>
 <script>
 /* ═══════════════════════════════════════════════════════════════════════════
    La pagina che il Raspberry mostra dietro il traforo.
@@ -318,6 +318,27 @@ if (bard){
   bard.imposta({qui: bard.stato.dove === 'stanza'});
   setInterval(() => bard.imposta({muto: Date.now() < serataFino}), 2000);
 }
+/* le casse che vede questo apparecchio (Windows: le casse del TV dall'HDMI, una JBL abbinata in Bluetooth…).
+   I nomi il browser li dà solo con il permesso del microfono: sul G10 Edge lo accetta da solo (installa-g10.ps1,
+   &uscite=1); il microfono non si usa, si chiude subito. Il telefono sceglie (stato.uscitaTv), qui si applica. */
+let casse = [];
+async function leggiCasse(){
+  if (!bard || !navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return;
+  try {
+    let d = await navigator.mediaDevices.enumerateDevices();
+    if (q.get('uscite') === '1' && !d.some(x => x.kind === 'audiooutput' && x.label)){
+      try { const m = await navigator.mediaDevices.getUserMedia({audio: true}); m.getTracks().forEach(t => t.stop()); d = await navigator.mediaDevices.enumerateDevices(); } catch(e) {}
+    }
+    casse = d.filter(x => x.kind === 'audiooutput' && x.deviceId !== 'default' && x.deviceId !== 'communications').map(x => ({id: x.deviceId, nome: x.label || 'Uscita audio'}));
+  } catch(e) { casse = []; }
+  applicaUscita();
+}
+function applicaUscita(){
+  if (!bard) return;
+  const u = bard.stato.uscitaTv, c = u && (casse.find(x => x.id === u.id) || casse.find(x => x.nome === u.nome));
+  bard.uscita(c ? c.id : '');
+}
+if (bard){ leggiCasse(); navigator.mediaDevices && navigator.mediaDevices.addEventListener && navigator.mediaDevices.addEventListener('devicechange', () => setTimeout(leggiCasse, 800)); }
 function intensitaLampo(ora){
   if (!lampo) return 0;
   const dt = ora - lampo.t; if (dt > 1400){ lampo = null; return 0; }
@@ -402,13 +423,13 @@ if (anteprima){
   const comandaDM = () => Date.now() < dmasterFino;
   /* con le prestazioni: immagini al secondo davvero disegnate, risoluzione del disegno, qualità (per capire da lontano se fatica) */
   const schedaVideo = () => { try { const g = vista.gl, e = g.getExtension('WEBGL_debug_renderer_info'); return e ? g.getParameter(e.UNMASKED_RENDERER_WEBGL) : g.getParameter(g.RENDERER); } catch(e) { return ''; } };
-  const chi = () => ({lato: mio, tv: tv ? {id: proiezione.id} : undefined, assetto: tv ? null : casaFori, scena, schermo:{w:innerWidth, h:innerHeight, dpr:devicePixelRatio}, comando: comandaDM() ? 'dmaster' : null, bard: bard ? {rev: bard.stato.rev || 0, stato: bard.stato, ora: bardOra, suona: bard.attivo, serata: Date.now() < serataFino} : undefined,
+  const chi = () => ({lato: mio, tv: tv ? {id: proiezione.id} : undefined, assetto: tv ? null : casaFori, scena, schermo:{w:innerWidth, h:innerHeight, dpr:devicePixelRatio}, comando: comandaDM() ? 'dmaster' : null, bard: bard ? {rev: bard.stato.rev || 0, stato: bard.stato, ora: bardOra, suona: bard.attivo, serata: Date.now() < serataFino, casse, uscita: bard.idUscita || ''} : undefined,
     prestazioni:{fps: Math.round(fpsMisurati), hzSchermo: Math.round(1000 / intervalloSchermo), msDisegno: Math.round(msDisegno * 10) / 10, scala, qualita, disegno:{w:c.width, h:c.height}, schermoVero:{w:Math.round(screen.width * devicePixelRatio), h:Math.round(screen.height * devicePixelRatio)}, gl: schedaVideo(), browser: navigator.userAgent}});
   /* lo stesso ascolto per il canale del vecchio link e per quello privato della casa (js/accesso.js) */
   const gestore = rispondi => ({
     suMessaggio(evento, dati){
       if (evento === 'dmaster'){ dmasterFino = dati.attivo ? Date.now() + 30000 : 0; serataFino = dati.attivo && dati.serata ? Date.now() + 30000 : 0; if (bard) bard.imposta({muto: Date.now() < serataFino}); return; }
-      if (evento === 'bard'){ if (bard && (dati.rev || 0) >= (bard.stato.rev || 0)){ scrivi('bard-stato', dati); bard.applica(dati); bard.imposta({qui: dati.dove === 'stanza'}); } return; }
+      if (evento === 'bard'){ if (bard && (dati.rev || 0) >= (bard.stato.rev || 0)){ scrivi('bard-stato', dati); bard.applica(dati); bard.imposta({qui: dati.dove === 'stanza'}); applicaUscita(); } return; }
       if (evento === 'bardEffetto'){ if (bard) bard.effetto(dati); return; }
       const daDM = dati && dati.da === 'dmaster';
       if (comandaDM() && !daDM && (evento === 'scena' || evento === 'lampo' || evento === 'occhio')) return;
