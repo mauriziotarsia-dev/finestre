@@ -299,6 +299,13 @@ details.gruppo .campo > span{margin-top:6px}
 .brano:last-child{border-bottom:0} .brano .ic{color:var(--spento)}
 .brano[aria-pressed="true"]{color:var(--oro-luce);background:rgba(212,175,55,.08)} .brano[aria-pressed="true"] .ic{color:var(--live)}
 .scelta.suona{border-color:var(--live);color:var(--live)}
+.ordine{display:flex;flex-direction:column;border:1px solid var(--bordo);border-radius:10px;overflow:hidden}
+.riga-scontro{display:grid;grid-template-columns:34px 1fr auto;align-items:center;gap:4px 10px;padding:10px 12px;border:0;border-bottom:1px solid var(--bordo);background:var(--incasso);color:var(--crema);text-align:left;font-size:15px;cursor:pointer;position:relative}
+.riga-scontro:last-child{border-bottom:0} .riga-scontro.pg{cursor:default;opacity:.85} .riga-scontro:disabled{color:var(--crema)}
+.riga-scontro .ini{font:600 15px var(--display);color:var(--tenue);text-align:center} .riga-scontro .pf{font-size:13px;color:var(--tenue);white-space:nowrap}
+.riga-scontro.turno{background:rgba(212,175,55,.1);box-shadow:inset 3px 0 0 var(--oro)} .riga-scontro.turno .nome{color:var(--oro-luce)}
+.riga-scontro.aterra .nome{text-decoration:line-through;color:var(--spento)}
+.riga-scontro .barra{grid-column:2/-1;height:3px;border-radius:3px;background:var(--bordo);overflow:hidden;display:block} .riga-scontro .barra b{display:block;height:100%;background:var(--live)}
 .suono.atmosfera{border-color:rgba(212,175,55,.45);color:var(--oro-luce)} .suono .ic{display:inline;vertical-align:-2px;color:var(--oro)}
 #s-bard.in-serata:not([data-console]) .sezione{opacity:.5}
 .scelta{position:relative} .scelta .tasto{position:absolute;top:4px;left:6px;font:600 10px ui-monospace,monospace;font-style:normal;color:var(--oro)}
@@ -322,6 +329,6 @@ details.gruppo .campo > span{margin-top:6px}
 <script src="../js/foto-online.js?v=2.1.0"></script>
 <script src="../js/profondita.js?v=2.1.0"></script>
 <script src="../js/bard.js?v=2"></script>
-<script src="app.js?v=4.3"></script>
+<script src="app.js?v=4.4"></script>
 </body>
 </html>
