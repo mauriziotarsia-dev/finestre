@@ -497,12 +497,18 @@ if (anteprima){
     } catch(e) { mostraCartello('Codice non disponibile: ' + e.message, null, 15000); }
   }
   /* all'avvio: se è già membro ascolta il canale privato; uno schermo nuovo, senza il vecchio link, mostra subito il codice */
+  /* la rete torna: si dice subito «eccomi», così DMaster e i telefoni rimandano quello che serve */
+  addEventListener('online', () => setTimeout(() => { const d = chi(); if (privato) privato.manda('eccomi', d); if (canale) canale.manda('eccomi', d); }, 2500));
   /* nella stanza simulata il QR lo mostra solo il TV: le finestrelle aspettano (stessa sessione, stesso abbinamento) */
   controllaAbbinamento().then(m => { if (!m && !casa){ if (simulata === 'finestra') setInterval(controllaAbbinamento, 5000); else mostraCodice(); } });
   /* gli indirizzi firmati delle immagini valgono 30 giorni: una volta ogni 20 giorni la pagina si rinfresca da sola */
-  setTimeout(() => location.reload(), 20 * 24 * 3600e3);
+  /* se in quel momento la rete manca, si aspetta che torni (sw.js tiene comunque la pagina) */
+  setTimeout(function rinfresca(){ if (navigator.onLine === false) setTimeout(rinfresca, 10 * 60e3); else location.reload(); }, 20 * 24 * 3600e3);
 
 }
+
+/* la memoria per quando la rete cade (sw.js): pagina, programmi, immagini e suoni restano anche offline */
+if (!anteprima && 'serviceWorker' in navigator) navigator.serviceWorker.register('../sw.js', {scope: '../'}).catch(e => console.warn('memoria offline non attiva', e));
 
 /* ── il giro ───────────────────────────────────────────────────────────────── */
 impagina();

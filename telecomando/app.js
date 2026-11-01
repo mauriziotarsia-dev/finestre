@@ -124,6 +124,8 @@ function aggiornaComando(){
 setInterval(aggiornaComando, 4000);
 setInterval(() => { if (canale.pronto) canale.manda('chi'); aggiornaSpia(); }, 20000);
 document.addEventListener('visibilitychange', () => { if (!document.hidden && canale.pronto) canale.manda('chi'); });
+/* la rete torna: si richiede subito lo stato (e la console, se c'è una serata) */
+window.addEventListener('online', () => setTimeout(() => { if (canale.pronto){ canale.manda('chi'); if (typeof chiediConsole === 'function') chiediConsole(); } }, 2000));
 function aggiornaSpia(){
   const viva = canale.pronto && Date.now() - collegate < 45000;
   document.querySelectorAll('.spia').forEach(s => { s.classList.toggle('viva', viva); s.querySelector('span').textContent = !canale.pronto ? 'collegamento…' : viva ? 'in onda' : 'non raggiungibili'; });
