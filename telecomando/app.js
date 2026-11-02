@@ -9,7 +9,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
 const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 const euro = n => (n < .1 ? n.toFixed(3) : n.toFixed(2)).replace('.', ',') + ' $';
-const VERSIONE = '4.9';
+const VERSIONE = '5.0';
 
 /* ── la casa ──────────────────────────────────────────────────────────────── */
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
@@ -128,6 +128,7 @@ window.addEventListener('online', () => setTimeout(() => { if (canale.pronto){ c
 function aggiornaSpia(){
   const viva = canale.pronto && Date.now() - collegate < 45000;
   document.querySelectorAll('.spia').forEach(s => { s.classList.toggle('viva', viva); s.querySelector('span').textContent = !canale.pronto ? 'collego…' : viva ? 'in onda' : 'non rispondono'; });
+  if (typeof aggiornaIngresso === 'function') aggiornaIngresso();
 }
 
 let invio = null;
@@ -352,8 +353,10 @@ $('#velo').onclick = chiudiFoglio;
 $('#chiudiFoglio').innerHTML = icona('chiudi', 18);
 
 /* ── pezzi di interfaccia ────────────────────────────────────────────────── */
-const testa = (ic, titolo, sotto, spia = true) => `<header class="testa"><div><h1>${icona(ic, 22)}${esc(titolo)}</h1><p>${esc(sotto)}</p></div>${spia ? '<span class="spia"><i></i><span>…</span></span>' : ''}</header>`;
+const testa = (ic, titolo, sotto, spia = true) => `<header class="testa"><button class="torna" data-fai="ingresso" aria-label="Torna all'ingresso">${icona('indietro', 20)}</button><div><h1>${icona(ic, 22)}${esc(titolo)}</h1><p>${esc(sotto)}</p></div>${spia ? '<span class="spia"><i></i><span>…</span></span>' : ''}</header>`;
 const titolo = (ic, testo, piccolo = '') => `<h2 class="titolo">${icona(ic, 16)}${esc(testo)}${piccolo ? '<small>' + esc(piccolo) + '</small>' : ''}</h2>`;
+/* 2/11 · un pulsante dipinto (bozze B e D): il medaglione con il nome sotto, come nella console della serata */
+const pad = (fai, v, med, testo, acceso, px = 42, tasto = '') => `<button class="pad" data-fai="${fai}" data-v="${esc(v)}" aria-pressed="${!!acceso}" title="${esc(testo)}">${tasto ? `<i class="tasto">${esc(tasto)}</i>` : ''}<span class="tondo">${medaglione(med, px)}</span><span>${esc(testo)}</span></button>`;
 const scelta = (fai, v, ic, testo, acceso) => `<button class="scelta" data-fai="${fai}" data-v="${esc(v)}" aria-pressed="${!!acceso}">${icona(ic, 22)}<span>${esc(testo)}</span></button>`;
 const cursore = (id, ic, testo, min, max, val, uscita, passo = 1) => `<div class="cursore">${icona(ic, 18)}<label for="${id}">${esc(testo)}</label><input type="range" id="${id}" min="${min}" max="${max}" step="${passo}" value="${val}"><output id="${id}-o">${esc(uscita)}</output></div>`;
 const interruttore = (fai, ic, testo, sotto, acceso) => `<div class="interruttore" role="switch" tabindex="0" data-fai="${fai}" aria-checked="${!!acceso}">${icona(ic, 20)}<span><b>${esc(testo)}</b>${sotto ? '<small>' + esc(sotto) + '</small>' : ''}</span><i class="levetta"></i></div>`;
@@ -362,33 +365,60 @@ const aperti = new Set(leggi('atm-gruppi-aperti', ['stanza']));
 const DI_SOLITO_APERTI = new Set(['con-scena']), chiusi = new Set(leggi('atm-gruppi-chiusi', []));
 document.addEventListener('toggle', e => { const d = e.target; if (!d.matches || !d.matches('details[data-ricorda]')) return; const k = d.dataset.ricorda;
   if (d.open){ aperti.add(k); chiusi.delete(k); } else { aperti.delete(k); chiusi.add(k); } scrivi('atm-gruppi-aperti', [...aperti]); scrivi('atm-gruppi-chiusi', [...chiusi]); }, true);
+const interruttoreMed = (fai, med, testo, sotto, acceso) => `<div class="interruttore" role="switch" tabindex="0" data-fai="${fai}" aria-checked="${!!acceso}"><span class="tondo" style="display:block;border-radius:999px;line-height:0">${medaglione(med, 40)}</span><span><b>${esc(testo)}</b>${sotto ? '<small>' + esc(sotto) + '</small>' : ''}</span><i class="levetta"></i></div>`;
 const gruppo = (id, ic, testo, piccolo, corpo) => `<details class="gruppo" data-ricorda="${id}"${aperti.has(id) || (DI_SOLITO_APERTI.has(id) && !chiusi.has(id)) ? ' open' : ''}><summary>${icona(ic, 18)}<span>${esc(testo)}</span>${piccolo ? '<small>' + esc(piccolo) + '</small>' : ''}</summary><div class="dentro-gruppo">${corpo}</div></details>`;
 function riempi(r){ const p = (r.value - r.min) / (r.max - r.min) * 100; r.style.setProperty('--p', p + '%'); }
 function legaCursore(id, fn){ const r = document.getElementById(id); if (!r) return; riempi(r); r.oninput = () => { riempi(r); fn(+r.value, document.getElementById(id + '-o')); }; return r; }
 
 /* ═════════════════════════════ SCHEDE ═════════════════════════════════════ */
 const SCHEDE = [['finestre','bifora','Finestre'], ['bard','liuto','Bard'], ['paesaggi','quadro','Paesaggi'], ['crea','scintilla','Crea'], ['impostazioni','manopole','Impostazioni']];
-let scheda = (location.hash.slice(1) in {finestre:1, bard:1, paesaggi:1, crea:1, impostazioni:1}) ? location.hash.slice(1) : 'finestre';
+/* 2/11 · l'app si apre sull'ingresso (bozza E): i cinque medaglioni grandi; da lì si entra nelle schede, la freccia in alto torna */
+let scheda = (location.hash.slice(1) in {finestre:1, bard:1, paesaggi:1, crea:1, impostazioni:1}) ? location.hash.slice(1) : 'ingresso';
 $('#barra').innerHTML = SCHEDE.map(([id, ic, nome]) => `<button data-scheda="${id}">${icona(ic, 22)}<span>${nome}</span></button>`).join('');
 $('#barra').onclick = e => { const b = e.target.closest('[data-scheda]'); if (b) vai(b.dataset.scheda); };
 const app = $('#app');
-app.innerHTML = MARCHIO + SCHEDE.map(([id]) => `<section class="scheda" id="s-${id}"></section>`).join('');
+app.innerHTML = MARCHIO + '<section class="scheda" id="s-ingresso"></section>' + SCHEDE.map(([id]) => `<section class="scheda" id="s-${id}"></section>`).join('');
 function vai(id){
   if (scheda === 'impostazioni' && id !== 'impostazioni' && mostraBordi){ mostraBordi = false; canale.manda('fori', Object.assign({mostra:false}, assettoOPredefinito())); }
-  scheda = id; history.replaceState(null, '', location.pathname + location.search + '#' + id); aggiornaComando();
+  scheda = id; history.replaceState(null, '', location.pathname + location.search + (id === 'ingresso' ? '' : '#' + id)); aggiornaComando();
   disegnaScheda(); scrollTo(0, 0);
 }
 function disegnaScheda(){
   document.querySelectorAll('.scheda').forEach(s => s.classList.toggle('attiva', s.id === 's-' + scheda));
+  document.body.classList.toggle('su-ingresso', scheda === 'ingresso');
   document.querySelectorAll('#barra button').forEach(b => b.setAttribute('aria-current', b.dataset.scheda === scheda ? 'page' : 'false'));
-  ({finestre: disegnaFinestre, bard: disegnaBard, paesaggi: disegnaPaesaggi, crea: disegnaCrea, impostazioni: disegnaImpostazioni})[scheda]();
+  ({ingresso: disegnaIngresso, finestre: disegnaFinestre, bard: disegnaBard, paesaggi: disegnaPaesaggi, crea: disegnaCrea, impostazioni: disegnaImpostazioni})[scheda]();
   aggiornaSpia();
 }
+
+/* ═══════════ INGRESSO (bozza E, 2/11): quello che c'è in onda e le cinque sezioni coi medaglioni grandi ═══ */
+function cartaInOnda(){
+  const p = libreria.find(x => x.id === scena.paesaggio);
+  const img = p ? (p.yt ? `https://i.ytimg.com/vi/${encodeURIComponent(p.yt)}/hqdefault.jpg` : p.immagini.giorno) : '';
+  const viva = canale.pronto && Date.now() - collegate < 45000;
+  const stato = !canale.pronto ? 'collego…' : !viva ? 'gli schermi non rispondono' : comandaDM() ? 'in mano a DMaster' : scena.acceso ? 'in onda' : 'spente';
+  const suoni = inSerata() ? 'serata in corso' : bardStato.sottofondo ? bardStato.sottofondo.titolo : (bardStato.musica && bardStato.musica.acceso ? 'musica' : '');
+  const nome = p ? p.nome : scena.yt ? 'Video di YouTube' : scena.immagini ? 'Paesaggio' : 'Nessun paesaggio';
+  const sotto = [NOME_ORA[scena.ora], ((METEO.find(m => m[0] === scena.meteo) || [,,''])[2]).toLowerCase(), suoni].filter(Boolean).join(' · ');
+  return `${img ? `<img class="foto" alt="" src="${esc(img)}">` : `<span class="tondo" style="display:block;line-height:0">${medaglione('finestra', 58)}</span>`}
+    <span class="cosa"><span class="stato${viva ? ' viva' : ''}"><i></i>${esc((casaPrivata && casaPrivata.nome) || 'La stanza')} · ${esc(stato)}</span><b>${esc(nome)}</b><small>${esc(sotto)}</small></span>`;
+}
+function disegnaIngresso(){
+  if (libreriaStato === 'da caricare') caricaLibreria();
+  const voci = [['finestre', 'finestra', 'Finestre', 'Ora, tempo e luce'], ['bard', 'liuto', 'Bard', inSerata() ? 'Console della serata' : 'Musiche e suoni della stanza'],
+    ['paesaggi', 'paesaggio', 'Paesaggi', 'La libreria dei panorami'], ['crea', 'pennello', 'Crea', "Un paesaggio dipinto dall'AI"], ['impostazioni', 'manopole', 'Impostazioni', 'Stanza, schermi e chiavi']];
+  $('#s-ingresso').innerHTML = `<header class="ingresso-testa"><div class="fili"><i></i><h1>DMaster<br>Atmosphere</h1><i></i></div><p>powered by DMaster Stage</p></header>
+    <button class="in-onda-ora" id="cartaInOnda" data-fai="apriScheda" data-v="finestre" style="width:100%;text-align:left;cursor:pointer;color:inherit">${cartaInOnda()}</button>
+    <nav class="voci-ingresso" aria-label="Sezioni">${voci.map(([id, med, nome, dice]) => `<button class="voce-ingresso" data-fai="apriScheda" data-v="${id}">${medaglione(med, 62)}<span class="cosa"><b>${esc(nome)}</b><small>${esc(dice)}</small></span>${icona('freccia', 18)}</button>`).join('')}</nav>
+    <p class="nota" style="text-align:center;margin-top:18px">DMaster Atmosphere ${VERSIONE}</p>`;
+}
+function aggiornaIngresso(){ const c = $('#cartaInOnda'); if (c && scheda === 'ingresso') c.innerHTML = cartaInOnda(); }
 
 /* ═══════════ FINESTRE: anteprima dal vivo e comandi ═════════════════════ */
 const ORE = [['vera','orologio','Come fuori'], ['alba','alba','Alba'], ['giorno','sole','Giorno'], ['tramonto','tramonto','Tramonto'], ['notte','luna','Notte']];
 const METEO = [['sereno','sole','Sereno'], ['nuvoloso','nuvola','Nuvoloso'], ['nebbia','nebbia','Nebbia'], ['pioggia','pioggia','Pioggia'], ['temporale','fulmine','Temporale'], ['neve','fiocco','Neve']];
 const FLUIDITA = [[60,'Massima'], [50,'A 50 Hz'], [30,'Silenziosa']];
+const MED_METEO = {sereno: 'giorno', nuvoloso: 'nuvoloso', nebbia: 'nebbia', pioggia: 'pioggia', temporale: 'temporale', neve: 'neve'};
 const NOME_ORA = {vera:'come fuori', alba:'alba', giorno:'giorno', tramonto:'tramonto', notte:'notte'};
 let anteprimaPronta = false, anteprimaFrame = null;
 function postaAnteprima(m){ if (anteprimaFrame && anteprimaPronta) anteprimaFrame.contentWindow.postMessage(m, '*'); }
@@ -422,8 +452,8 @@ function disegnaFinestre(){
           <button class="btn" data-fai="lampo">${icona('fulmine', 20)}<span>Lampo</span></button>
         </div>
       </div>
-      <div class="sezione">${titolo('orologio', 'Ora')}<div class="scelte c5" id="sceltaOra">${ORE.map(([v, ic, t]) => scelta('ora', v, ic, t)).join('')}</div></div>
-      <div class="sezione">${titolo('nuvola', 'Tempo')}<div class="scelte c3" id="sceltaMeteo">${METEO.map(([v, ic, t]) => scelta('meteo', v, ic, t)).join('')}</div>
+      <div class="sezione">${titolo('orologio', 'Ora')}<div class="pads c5" id="sceltaOra">${ORE.map(([v, , t]) => pad('ora', v, v, t, false, 46)).join('')}</div></div>
+      <div class="sezione">${titolo('nuvola', 'Tempo')}<div class="pads c6" id="sceltaMeteo">${METEO.map(([v, , t]) => pad('meteo', v, MED_METEO[v], t, false, 42)).join('')}</div>
         <div class="pannello" style="margin-top:10px">
           <div id="rigaIntensita">${cursore('intensita', 'goccia', 'Intensità', 0, 100, Math.round(scena.intensita * 100), Math.round(scena.intensita * 100) + '%')}</div>
           <div class="riga-vento">${icona('vento', 18)}<span>Vento</span><div class="segmenti">${VENTI.map(([v, t]) => `<button data-fai="vento" data-v="${v == null ? '' : v}">${t}</button>`).join('')}</div></div>
@@ -942,6 +972,12 @@ function prendiBard(st){
 
 /* ── le atmosfere pronte (1/11): sottofondo + musica + tempo (+ ora e tempo delle finestre) con un nome, un tocco.
    Stanno nello stato di Bard (bardStato.atmosfere): le vedono tutti i telefoni, DMaster e il TV. */
+/* il medaglione di un'atmosfera: il tempo o l'ora delle finestre se li porta, se no dal nome */
+function medAtmosfera(a){
+  if (a.finestre && a.finestre.meteo && a.finestre.meteo !== 'sereno') return MED_METEO[a.finestre.meteo] || 'pioggia';
+  if (a.finestre && a.finestre.ora && a.finestre.ora !== 'vera') return a.finestre.ora;
+  return medaglioneDaNome(a.nome, a.finestre ? 'giorno' : 'sottofondo');
+}
 function atmosferaDiAdesso(nome, conFinestre){
   const m = bardStato.musica || {}, brani = bardDi('musica'), ora = bardOra && brani.find(b => b.id === bardOra.id);
   return {id: Date.now().toString(36), nome: String(nome).trim().slice(0, 30),
@@ -973,7 +1009,6 @@ function apriSalvaAtmosfera(){
 /* ── la console della serata (riordino-259 di DMaster): in serata Bard diventa la tastiera dei suoni del master.
    DMaster manda lo stato («console»), il telefono manda i comandi («consoleComando»); il suono esce dal portatile. */
 let consoleStato = null, consoleIl = 0, consoleFirma = '', bardCasse = [], bardUscitaTv = '';
-const ICONE_TEMPO = {pioggia: 'pioggia', temporale: 'fulmine', vento: 'vento', nebbia: 'nebbia', neve: 'fiocco'};
 const ORE_CONSOLE = [['vera', 'orologio', 'Come fuori'], ['alba', 'alba', 'Alba'], ['giorno', 'sole', 'Giorno'], ['tramonto', 'tramonto', 'Tramonto'], ['notte', 'luna', 'Notte']];
 function chiediConsole(){ if (inSerata()) canale.manda('consoleChiedi', {}); }
 setInterval(() => { if (scheda === 'bard' && inSerata()) chiediConsole(); }, 20000);
@@ -992,7 +1027,7 @@ function disegnaConsole(s){
   const firma = c ? JSON.stringify([c.scena ? [c.scena.id, c.scena.titolo, (c.scena.appunti || '').length, (c.scena.leggi || '').length] : null, sc ? [sc.turno, sc.round, sc.attivo, sc.voci.map(v => [v.id, v.pf, v.aTerra])] : null, c.tempo && c.tempo.map(t => t.id), (c.qui || []).map(x => x.id), (c.sempre || []).map(x => x.id), (c.adesso || []).map(x => x.id), !!c.finestre, (c.paesaggi || []).map(p => p.id), vivo]) : 'vuota';
   if (s.dataset.console === firma && s.innerHTML){ aggiornaConsole(s); return; }
   s.dataset.console = firma;
-  const effetto = x => `<button class="scelta" data-fai="conEffetto" data-v="${esc(x.id)}">${x.tasto ? `<i class="tasto">${esc(x.tasto)}</i>` : ''}${icona('fulmine', 20)}<span>${esc(x.nome)}</span></button>`;
+  const effetto = x => pad('conEffetto', x.id, x.med || medaglioneDaNome(x.nome), x.nome, false, 46, x.tasto);
   s.innerHTML = testa('liuto', 'Bard', 'Console della serata') + `
     <div class="dove-suona">${icona('altoparlante', 18)}<span>${vivo ? 'Suona dal <b>portatile di DMaster</b>: qui comandi tu' : 'Aspetto DMaster… (la Serata deve essere aperta sul portatile)'}</span></div>
     ${!c ? '' : `
@@ -1009,19 +1044,19 @@ function disegnaConsole(s){
       ${c.scena.appunti ? `<div class="blocco"><span>I tuoi appunti</span><p class="appunti">${esc(c.scena.appunti)}</p></div>` : ''}
       ${c.scena.leggi ? `<div class="blocco"><span>Da leggere al tavolo</span><p class="da-leggere">${esc(c.scena.leggi)}</p></div>` : ''}`) : ''}
     <div class="sezione">${titolo('nuvola', 'Tempo', 'finestre e suono insieme')}
-      <div class="scelte c3">${(c.tempo || []).map(t => `<button class="scelta" data-fai="conTempo" data-v="${t.id}" aria-pressed="${!!t.acceso}">${icona(ICONE_TEMPO[t.id] || 'nuvola', 22)}<span>${esc(t.nome)}</span></button>`).join('')}</div>
+      <div class="pads c5">${(c.tempo || []).map(t => pad('conTempo', t.id, MEDAGLIONI[t.id] ? t.id : 'pioggia', t.nome, !!t.acceso, 46)).join('')}</div>
       <div class="pannello" style="margin-top:10px;padding:2px 14px">
         ${cursore('conVolTempo', 'altoparlante', 'Volume', 0, 100, Math.round((c.volTempo ?? .6) * 100), Math.round((c.volTempo ?? .6) * 100) + '%')}
         ${interruttore('conChiuso', 'porta', 'Al chiuso', 'Il tempo si sente da fuori, attutito', !!c.attutito)}</div></div>
     ${(c.qui || []).length ? `<div class="sezione">${titolo('onda', c.nomeLuogo ? 'Qui · ' + c.nomeLuogo : 'Qui')}
-      <div class="suoni">${c.qui.map(x => `<button class="suono" data-fai="conQui" data-v="${esc(x.id)}" aria-pressed="${!!x.acceso}">${x.principale ? '★ ' : ''}${x.musica ? '♫ ' : ''}${esc(x.nome)}</button>`).join('')}</div></div>` : ''}
-    <div class="sezione">${titolo('fulmine', 'Effetti', 'sempre')}<div class="scelte c3">${(c.sempre || []).map(effetto).join('')}</div>
-      ${(c.adesso || []).length ? `<h2 class="titolo" style="margin-top:14px">${icona('stella', 16)}Adesso<small>${esc(c.perche || '')}</small></h2><div class="scelte c3">${c.adesso.map(effetto).join('')}</div>` : ''}
+      <div class="suoni">${c.qui.map(x => `<button class="suono con-med" data-fai="conQui" data-v="${esc(x.id)}" aria-pressed="${!!x.acceso}">${medaglione(x.musica ? 'liuto' : medaglioneDaNome(x.nome, 'sottofondo'), 28)}${x.principale ? '★ ' : ''}${esc(x.nome)}</button>`).join('')}</div></div>` : ''}
+    <div class="sezione">${titolo('fulmine', 'Effetti', 'sempre')}<div class="pads c5">${(c.sempre || []).map(effetto).join('')}</div>
+      ${(c.adesso || []).length ? `<h2 class="titolo" style="margin-top:14px">${icona('stella', 16)}Adesso<small>${esc(c.perche || '')}</small></h2><div class="pads c5">${c.adesso.map(effetto).join('')}</div>` : ''}
       <div class="pannello" style="margin-top:10px">${cursore('conVolEff', 'altoparlante', 'Volume', 0, 100, Math.round((c.volEffetti ?? .8) * 100), Math.round((c.volEffetti ?? .8) * 100) + '%')}</div></div>
     ${c.finestre ? `<div class="sezione">${titolo('bifora', 'Finestre')}
       <button class="btn piena${c.finestre.acceso ? ' oro' : ''}" data-fai="conAccese" style="margin-bottom:8px">${icona('accensione', 18)}<span>${c.finestre.acceso ? 'Accese · tocca per spegnere' : 'Spente · tocca per accendere'}</span></button>
-      <div class="scelte c5">
-        ${ORE_CONSOLE.map(([v, ic, t]) => `<button class="scelta" data-fai="conOra" data-v="${v}" aria-pressed="${c.finestre.ora === v}">${icona(ic, 20)}<span>${t}</span></button>`).join('')}</div>
+      <div class="pads c5">
+        ${ORE_CONSOLE.map(([v, , t]) => pad('conOra', v, v, t, c.finestre.ora === v, 46)).join('')}</div>
       ${(c.paesaggi || []).length ? `<div class="griglia" style="margin-top:12px;grid-template-columns:repeat(auto-fill,minmax(78px,1fr))">${c.paesaggi.map(p => `<button class="carta" data-fai="conPaesaggio" data-v="${esc(p.id)}" aria-pressed="${c.finestre.paesaggio === p.id}"><img loading="lazy" alt="" src="${esc(p.img)}"><span class="su"><b>${esc(p.nome)}</b></span></button>`).join('')}</div>` : ''}</div>` : ''}
     <p class="nota">Gli stessi comandi della console di DMaster (tasto R): il portatile resta libero per la storia.</p>`}`;
   let tv = null, te = null;
@@ -1084,13 +1119,13 @@ function disegnaBard(){
     <div class="dove-suona">${icona('altoparlante', 18)}<span id="bardDove"></span><button class="btn piccolo" data-fai="vaiImpBard">Cambia</button></div>
     ${!pronto ? `<p class="vuoto">${bardLibStato === 'carico' ? 'Carico i suoni della stanza…' : esc(bardLibStato)}</p>` : ''}
     ${pronto ? `<div class="sezione">${titolo('stella', 'Atmosfere', (bardStato.atmosfere || []).length ? 'un tocco per tutto' : '')}
-      <div class="suoni">${(bardStato.atmosfere || []).map(a => `<button class="suono atmosfera" data-fai="atmApplica" data-v="${esc(a.id)}">${a.finestre ? icona('bifora', 14) + ' ' : ''}${esc(a.nome)}</button>`).join('')}
+      <div class="suoni">${(bardStato.atmosfere || []).map(a => `<button class="suono atmosfera con-med" data-fai="atmApplica" data-v="${esc(a.id)}">${medaglione(medAtmosfera(a), 28)}${esc(a.nome)}</button>`).join('')}
         <button class="suono" data-fai="atmNuova" style="border-style:dashed;color:var(--tenue)">+ salva quella di adesso</button></div></div>` : ''}
     <div class="sezione">${titolo('pioggia', 'Tempo')}
-      <div class="pannello" style="padding:2px 14px">${interruttore('bardTempo', 'pioggia', 'Suoni del tempo', nTempo ? 'Seguono le finestre: pioggia, vento, neve, tuoni coi lampi' : 'Seguono le finestre. Le registrazioni non sono ancora nella stanza (si copiano da DMaster): per ora un suono più semplice', t.acceso)}
+      <div class="pannello" style="padding:2px 14px">${interruttoreMed('bardTempo', scena.meteo && scena.meteo !== 'sereno' ? MED_METEO[scena.meteo] || 'pioggia' : 'giorno', 'Suoni del tempo', nTempo ? 'Seguono le finestre: pioggia, vento, neve, tuoni coi lampi' : 'Seguono le finestre. Le registrazioni non sono ancora nella stanza (si copiano da DMaster): per ora un suono più semplice', t.acceso)}
         ${cursore('volTempo', 'altoparlante', 'Volume', 0, 100, Math.round(t.volume * 100), Math.round(t.volume * 100) + '%')}</div></div>
     ${pronto ? `<div class="sezione">${titolo('onda', 'Sottofondo', sott.length ? 'tocca per accendere o spegnere' : '')}
-      ${sott.length ? `<div class="suoni">${sott.map(x => `<button class="suono" data-fai="bardSott" data-v="${esc(x.id)}" aria-pressed="${!!(bardStato.sottofondo && bardStato.sottofondo.id === x.id)}">${esc(x.titolo)}</button>`).join('')}</div>
+      ${sott.length ? `<div class="suoni">${sott.map(x => `<button class="suono con-med" data-fai="bardSott" data-v="${esc(x.id)}" aria-pressed="${!!(bardStato.sottofondo && bardStato.sottofondo.id === x.id)}">${medaglione(medaglioneDaNome(x.titolo, 'sottofondo'), 28)}${esc(x.titolo)}</button>`).join('')}</div>
         <div class="pannello" style="margin-top:10px">${cursore('volSott', 'altoparlante', 'Volume', 0, 100, Math.round(bardStato.volSottofondo * 100), Math.round(bardStato.volSottofondo * 100) + '%')}</div>`
         : pronto ? '<p class="nota" style="margin-top:0">Ancora nessun sottofondo: «+ Aggiungi un suono» qui sotto.</p>' : ''}</div>
     <div class="sezione">${titolo('nota', 'Musica')}
@@ -1102,7 +1137,7 @@ function disegnaBard(){
         <div class="pannello" style="margin-top:10px">${cursore('volMusica', 'altoparlante', 'Volume', 0, 100, Math.round(bardStato.volMusica * 100), Math.round(bardStato.volMusica * 100) + '%')}</div>`
         : pronto ? '<p class="nota" style="margin-top:0">Ancora nessuna musica: «+ Aggiungi un suono» qui sotto.</p>' : ''}</div>
     <div class="sezione">${titolo('fulmine', 'Effetti', eff.length ? 'tocca per suonare' : '')}
-      ${eff.length ? `<div class="scelte c3">${eff.map(x => `<button class="scelta" data-fai="bardEffetto" data-v="${esc(x.id)}">${icona('fulmine', 20)}<span>${esc(x.titolo)}</span></button>`).join('')}</div>
+      ${eff.length ? `<div class="pads c5">${eff.map(x => pad('bardEffetto', x.id, medaglioneDaNome(x.titolo), x.titolo, false, 46)).join('')}</div>
         <div class="pannello" style="margin-top:10px">${cursore('volEff', 'altoparlante', 'Volume', 0, 100, Math.round(bardStato.volEffetti * 100), Math.round(bardStato.volEffetti * 100) + '%')}</div>`
         : '<p class="nota" style="margin-top:0">Ancora nessun effetto: «+ Aggiungi un suono» qui sotto.</p>'}</div>` : ''}
     ${CASA_PRIVATA ? `<button class="btn oro piena" style="margin-top:18px" data-fai="bardAggiungi">${icona('piu', 18)}Aggiungi un suono</button>
@@ -1359,6 +1394,7 @@ const AZIONI = {
     try { await Accesso.togli(CASA_PRIVATA, [v]); await caricaBard(); avviso('Tolto dalla stanza'); } catch(e) { avviso(e.message, true); } },
   bardRicarica: () => caricaBard(),
   bardDove: v => { mandaBard({dove: v}); if (v === ID_TELEFONO) lettore.sblocca(); disegnaImpostazioni(); },
+  ingresso: () => vai('ingresso'), apriScheda: v => vai(v),
   vaiImpBard: () => { aperti.add('bard'); scrivi('atm-gruppi-aperti', [...aperti]); vai('impostazioni'); },
   chiudiFoglio: () => chiudiFoglio(),
   ora: v => cambia({ora:v}),
