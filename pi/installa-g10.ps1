@@ -22,8 +22,9 @@
 #>
 param(
   [string]$Casa = 'bbb55e2f-69f4-4522-9c19-e940637e90c1',
-  [int]$TvX = 2600,   # dove sta il centro del TV rispetto al radar, in mm (x: verso destra guardando le finestrelle)
-  [int]$TvY = 1800,   #                                                      (y: dal muro delle finestrelle verso la stanza)
+  [switch]$RadarDalleFinestre,   # solo se il radar NON è accanto al TV ma dietro una finestrella (montaggio vecchio):
+  [int]$TvX = 2600,   # allora: dove sta il centro del TV rispetto al radar, in mm (x: verso destra guardando le finestrelle)
+  [int]$TvY = 1800,   #                                                             (y: dal muro delle finestrelle verso la stanza)
   [switch]$Abbina     # abbina questo computer alla casa privata: mostra un codice da scrivere sul telefono
 )
 $ErrorActionPreference = 'Stop'
@@ -54,7 +55,9 @@ if ($Abbina) {
 }
 
 Passo 'Avvio automatico'
-$Url = "https://mauriziotarsia-dev.github.io/finestre/finestra/?casa=$Casa&vista=est&tvx=$TvX&tvy=$TvY&uscite=1"
+# 2/11: il radar sta accanto al TV, rivolto verso la stanza: il TV non ha bisogno di sapere altro
+$Url = "https://mauriziotarsia-dev.github.io/finestre/finestra/?casa=$Casa&vista=est&uscite=1"
+if ($RadarDalleFinestre) { $Url += "&radar=finestre&tvx=$TvX&tvy=$TvY" }
 # &uscite=1 + --use-fake-ui-for-media-stream (1/11, Bard): la pagina vede i nomi delle casse (TV, JBL...) e il telefono sceglie da quale suonare.
 # Il permesso del microfono si accetta da solo: in questo profilo di Edge c'è solo la pagina del TV, e il microfono non si usa.
 $Edge = Join-Path ${env:ProgramFiles(x86)} 'Microsoft\Edge\Application\msedge.exe'

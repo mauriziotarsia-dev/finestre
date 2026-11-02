@@ -74,14 +74,33 @@ const mio = tv ? 'tv' : q.get('lato') === 'destra' ? 'destra' : 'sinistra';
 /* il titolo dice chi è (sul Raspberry con due schermi serve a mettere ogni finestra sul suo) */
 if (!anteprima) document.title = tv ? 'Illusionist TV' : 'Illusionist finestra ' + mio;
 function normalizza(a){
-  if (a && a.finestre) return {n: a.n === 2 ? 2 : 1, finestre: a.finestre};
+  if (a && a.finestre) return {n: a.n === 2 ? 2 : 1, finestre: a.finestre, staccato: Math.max(0, Math.min(30, +a.staccato || 0))};
   if (a && a.fori && a.fori.length === 1) return {n:1, finestre:{sinistra:a.fori[0]}};   /* formato di prima */
   return {n:1, finestre:{}};
 }
 let casaFori = normalizza(leggi('finestre-fori', null));
 /* ?sim=… (la stanza simulata, stanza/): il riquadro è tutto foro, la finestra non si calibra */
 const simulata = q.get('sim') || '';
-const derivato = () => tv || simulata ? {modo:'singola', fori:[{x:0, y:0, w:1, h:1}]} : ({modo:'singola', fori:[(casaFori.finestre || {})[mio] || foroPredefinito()]});
+/* ⚠ 2/11 · SCHERMO STACCATO DAL MURO (Maurizio: «staccare di una decina di cm lo schermo, allargando l'immagine a tutto
+   lo schermo, senza radar; il radar solo per il TV»). Il muro è largo esattamente come il foro (45 × 18 cm), quindi con lo
+   schermo appoggiato l'immagine finisce dove finisce il muro: nessuna prospettiva vera. Staccato di N cm, guardando di
+   sbieco si vede anche lo schermo intorno al foro: lì il paesaggio deve continuare. Il disegno copre il foro allargato di
+   N × 0,7 cm per lato (fino a ~35° di sbieco; oltre, il muro lascia solo una fessura), entro lo schermo. La scala la dà
+   il foro calibrato: 45 cm di altezza, 18 di larghezza. Sulle finestrelle staccate il radar non serve più. */
+const FORO_CM = {w:18, h:45}, SBIECO = .7;
+const staccatoCm = () => tv || simulata ? 0 : Math.max(0, Math.min(30, q.get('staccato') != null ? +q.get('staccato') || 0 : +casaFori.staccato || 0));
+const radarQui = () => !!(tv || simulata) || !staccatoCm();
+function allarga(f){
+  const g = staccatoCm(); if (!g) return f;
+  const ex = g * SBIECO * f.w / FORO_CM.w, ey = g * SBIECO * f.h / FORO_CM.h;
+  const x0 = Math.max(0, f.x - ex), y0 = Math.max(0, f.y - ey), x1 = Math.min(1, f.x + f.w + ex), y1 = Math.min(1, f.y + f.h + ey);
+  return {x:x0, y:y0, w:x1 - x0, h:y1 - y0};
+}
+const derivato = () => {
+  if (tv || simulata) return {modo:'singola', fori:[{x:0, y:0, w:1, h:1}]};
+  const buco = (casaFori.finestre || {})[mio] || foroPredefinito();
+  return {modo:'singola', fori:[allarga(buco)], buco};
+};
 let assetto = derivato();
 if (q.get('w') && q.get('h')) assetto = {modo:'unica', fori:[{x:+q.get('x') / innerWidth, y:+q.get('y') / innerHeight, w:+q.get('w') / innerWidth, h:+q.get('h') / innerHeight}]};
 let mostraBordi = false;
@@ -136,7 +155,8 @@ addEventListener('resize', impagina);
 function disegnaBordi(){
   document.querySelectorAll('.bordo').forEach(e => e.remove());
   if (!mostraBordi) return;
-  geom.forEach((f, i) => { const d = document.createElement('div'); d.className = 'bordo';
+  const W = innerWidth, H = innerHeight, b = assetto.buco && staccatoCm() ? assetto.buco : null;
+  (b ? [{x:b.x * W, y:b.y * H, w:b.w * W, h:b.h * H}] : geom).forEach((f, i) => { const d = document.createElement('div'); d.className = 'bordo';
     Object.assign(d.style, {left:f.x + 'px', top:f.y + 'px', width:f.w + 'px', height:f.h + 'px'});
     d.innerHTML = '<span>' + (tv ? 'TV' : casaFori.n === 2 ? 'Finestra ' + mio : 'Finestra') + '</span>'; document.body.appendChild(d); });
 }
@@ -363,11 +383,18 @@ const occhio = {x:0, z:0}, occhioTgt = {x:0, z:0};
 const inseguitore = new Inseguitore(q.get('anticipo') ? {anticipo: +q.get('anticipo') / 1000} : {});
 let margine = 1.04, provaFino = 0, sensore = null, ultimoSensore = 0, ultimaPresenza = 0;
 const misura = {n:0, t0:0, eta:0, intervallo:0, ultimo:0};
-const TV_POS = {x: +q.get('tvx') || 2600, y: +q.get('tvy') || 1800};   /* da misurare sabato (pianta della stanza) */
+const TV_POS = {x: +q.get('tvx') || 2600, y: +q.get('tvy') || 1800};
+/* ⚠ 2/11: il radar si monta accanto al TV, rivolto verso la stanza (le finestrelle staccate non lo usano più).
+   Allora per il TV vale lo stesso conto delle finestrelle. Il vecchio montaggio (radar dietro una finestrella,
+   TV a 90°) resta con &radar=finestre (o se l'indirizzo porta ancora tvx/tvy); &specchio=1 se destra e sinistra
+   risultano scambiate. */
+const radarDalleFinestre = q.get('radar') === 'finestre' || (q.get('radar') !== 'tv' && q.has('tvx'));
+const specchio = q.get('specchio') === '1' ? -1 : 1;
 function verso(x, y){
-  /* il TV è a 90° dalle finestrelle: chi va verso le finestrelle (y più piccolo) per il TV va a sinistra,
+  x *= specchio;
+  /* radar dietro le finestrelle: il TV è a 90°, chi va verso le finestrelle (y più piccolo) per il TV va a sinistra,
      chi va verso il TV (x più grande) gli si avvicina */
-  if (tv){
+  if (tv && radarDalleFinestre){
     const d = Math.max(300, TV_POS.x - x), ang = Math.atan2(y - TV_POS.y, d);
     return {x: Math.max(-1, Math.min(1, ang / (Math.PI / 4))), z: Math.max(-1, Math.min(1, (2600 - d) / 1600))};
   }
@@ -392,11 +419,14 @@ function daPersone(lista, etaMs = 0){
 const misuraVisibile = q.get('misura') === '1';
 let cartellino = null;
 function mostraMisura(){
-  if (!cartellino){ cartellino = document.createElement('div'); cartellino.style.cssText = 'position:fixed;left:8px;bottom:8px;z-index:99;font:13px/1.4 monospace;color:#9f9;background:rgba(0,0,0,.7);padding:6px 9px;border-radius:6px;pointer-events:none'; document.body.appendChild(cartellino); }
+  if (!cartellino){ cartellino = document.createElement('div'); cartellino.style.cssText = 'position:fixed;left:8px;bottom:8px;z-index:99;font:13px/1.4 monospace;color:#9f9;background:rgba(0,0,0,.7);padding:6px 9px;border-radius:6px;pointer-events:none;white-space:pre'; document.body.appendChild(cartellino); }
   const p = inseguitore.posizione(performance.now() / 1000);
-  cartellino.textContent = `radar: ${misura.intervallo ? (1000 / misura.intervallo).toFixed(1) : '—'} letture/s · ogni ${misura.intervallo.toFixed(0)} ms · età all'arrivo ${misura.eta.toFixed(0)} ms · anticipo ${(inseguitore.o.anticipo * 1000).toFixed(0)} ms` + (p ? ` · x ${p.x.toFixed(2)} z ${p.z.toFixed(2)}` : '');
+  const st = staccatoCm();
+  cartellino.textContent = `${Math.round(fpsMisurati)} immagini/s · disegno ${msDisegno.toFixed(1)} ms · scala ${scala} · tela ${c.width}×${c.height}${st ? ' · staccato ' + st + ' cm' : ''}` + (radarQui() ? '\n' : '');
+  if (!radarQui()) return;
+  cartellino.textContent += `radar: ${misura.intervallo ? (1000 / misura.intervallo).toFixed(1) : '—'} letture/s · ogni ${misura.intervallo.toFixed(0)} ms · età all'arrivo ${misura.eta.toFixed(0)} ms · anticipo ${(inseguitore.o.anticipo * 1000).toFixed(0)} ms` + (p ? ` · x ${p.x.toFixed(2)} z ${p.z.toFixed(2)}` : '');
 }
-function daTelefono(x, z){ provaFino = performance.now() + 8000; inseguitore.campione(+x || 0, +z || 0, performance.now() / 1000); ultimaPresenza = performance.now(); }
+function daTelefono(x, z){ if (!radarQui()) return; provaFino = performance.now() + 8000; inseguitore.campione(+x || 0, +z || 0, performance.now() / 1000); ultimaPresenza = performance.now(); }
 function apriSensore(){
   if (sensore || anteprima) return;
   try {
@@ -576,8 +606,8 @@ function giro(ora){
   /* con «Come fuori» l'ora cambia da sola: la luce del paesaggio sfuma piano, in un minuto e mezzo */
   if (!inCambio){ const f = fonteDi(scena); if (f && vista.urlInVista && vista.urlInVista !== chiaveFonte(f) && !vista.inArrivo) vista.mostra(f, 90).catch(() => {}); }
   /* prospettiva viva: acceso dal telefono (o in prova); morbido, così non trema */
-  const viva = scena.prospettivaViva || performance.now() < provaFino;
-  if (scena.prospettivaViva) apriSensore(); else chiudiSensore();
+  const viva = radarQui() && (scena.prospettivaViva || performance.now() < provaFino);
+  if (radarQui() && scena.prospettivaViva) apriSensore(); else chiudiSensore();
   const presente = viva && ora - ultimaPresenza < 600;
   const pos = presente ? inseguitore.posizione(ora / 1000) : null;
   if (pos){ occhio.x = Math.max(-1.1, Math.min(1.1, pos.x)); occhio.z = Math.max(-1.1, Math.min(1.1, pos.z)); }

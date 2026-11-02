@@ -9,7 +9,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
 const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 const euro = n => (n < .1 ? n.toFixed(3) : n.toFixed(2)).replace('.', ',') + ' $';
-const VERSIONE = '4.7';
+const VERSIONE = '4.8';
 
 /* ── la casa ──────────────────────────────────────────────────────────────── */
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
@@ -50,7 +50,7 @@ const SCENA_PRED = {acceso:true, yt:'', t:0, immagini:null, animati:null, paesag
 let scena = Object.assign({}, SCENA_PRED, leggi('finestre-scena', {}));
 /* le finestre della casa: una o due, ognuna sul suo schermo (sono a due metri l'una dall'altra) */
 function normalizzaFori(a){
-  if (a && a.finestre) return {n: a.n === 2 ? 2 : 1, finestre: Object.assign({}, a.finestre)};
+  if (a && a.finestre) return {n: a.n === 2 ? 2 : 1, finestre: Object.assign({}, a.finestre), staccato: Math.max(0, Math.min(30, +a.staccato || 0))};
   if (a && a.fori && a.fori.length === 1) return {n:1, finestre:{sinistra:a.fori[0]}};   /* formato di prima */
   return {n:1, finestre:{}};
 }
@@ -66,7 +66,7 @@ let dmasterFino = 0;
 const comandaDM = () => Date.now() < dmasterFino;
 function foroPredefinito(sch){ const H = .9, W = H * sch.h * 2 / 5 / sch.w; return {x:(1 - W) / 2, y:(1 - H) / 2, w:W, h:H}; }
 function assettoOPredefinito(){
-  return {n: assetto.n === 2 ? 2 : 1, finestre:{
+  return {n: assetto.n === 2 ? 2 : 1, staccato: +assetto.staccato || 0, finestre:{
     sinistra: assetto.finestre.sinistra || foroPredefinito(schermoDi('sinistra')),
     destra: assetto.finestre.destra || foroPredefinito(schermoDi('destra'))}};
 }
@@ -88,7 +88,7 @@ const gestoreCanale = {
       aggiornaComando(); aggiornaSpia(); impaginaAnteprima(); if (scheda === 'finestre') aggiornaFinestre(); return;
     }
     if (d.assetto && (d.assetto.finestre || d.assetto.fori)){ const a = normalizzaFori(d.assetto); if (d.assetto.finestre || !leggi('finestre-fori', null)){ assetto = a; scrivi('finestre-fori', assetto); } }
-    if (d.schermo){ schermi[d.lato || 'sinistra'] = d.schermo; scrivi('finestre-schermi', schermi); schermo = schermoDi('sinistra'); }
+    if (d.schermo){ schermi[d.lato || 'sinistra'] = Object.assign({}, d.schermo, d.prestazioni ? {fps: d.prestazioni.fps, scala: d.prestazioni.scala} : {}); scrivi('finestre-schermi', schermi); schermo = schermoDi('sinistra'); }
     if (!leggi('finestre-scena', null) && d.scena){ scena = Object.assign({}, SCENA_PRED, d.scena); scrivi('finestre-scena', scena); }
     else if (rimanda){ rimanda = false; canale.manda('scena', scena); canale.manda('fori', Object.assign({mostra: mostraBordi}, assettoOPredefinito())); }   /* dopo «Ricarica», la scena di questo telefono */
     else if (d.scena && diversa(d.scena, scena)) canale.manda('scena', scena);   /* la finestra mostra altro (es. rimasta spenta): vale quello che dice il telefono */
@@ -1221,7 +1221,7 @@ function disegnaImpostazioni(){
   const s = $('#s-impostazioni'), a = assettoOPredefinito();
   const nomi = a.n === 2 ? ['sinistra', 'destra'] : ['sinistra'];
   const fori = nomi.map(nm => { const f = a.finestre[nm], sc = schermoDi(nm), t = a.n === 2 ? 'Finestra ' + nm : 'La finestra';
-    return `<div class="pannello" style="margin-top:10px"><div class="titolo" style="margin-bottom:4px">${icona('monofora', 15)}${t}<small>schermo ${sc.w}×${sc.h}</small></div>
+    return `<div class="pannello" style="margin-top:10px"><div class="titolo" style="margin-bottom:4px">${icona('monofora', 15)}${t}<small>schermo ${sc.w}×${sc.h}${sc.fps ? ' · ' + sc.fps + ' img/s' + (sc.scala < 1 ? ' · disegno al ' + Math.round(sc.scala * 100) + '%' : '') : ''}</small></div>
       ${cursore('fx' + nm, 'destra', 'Da sinistra', 0, 100, (f.x * 100).toFixed(1), (f.x * 100).toFixed(1) + '%', .1)}
       ${cursore('fy' + nm, 'giu', 'Dall\'alto', 0, 100, (f.y * 100).toFixed(1), (f.y * 100).toFixed(1) + '%', .1)}
       ${cursore('fw' + nm, 'mirino', 'Larghezza', 2, 100, (f.w * 100).toFixed(1), (f.w * 100).toFixed(1) + '%', .1)}
@@ -1269,13 +1269,16 @@ function disegnaImpostazioni(){
     ${gruppo('aspetto', 'nuvola', 'Come si muovono', '', `
       ${interruttore('movimento', 'nuvola', 'Movimento', 'Nuvole che scorrono e alberi al vento, anche sulle immagini ferme', scena.movimento !== false)}
       ${interruttore('prospettiva', 'occhio', 'Prospettiva', 'Le due finestre vedono il paesaggio da punti appena diversi', scena.prospettiva !== false)}
-      ${interruttore('prospettivaViva', 'persona', 'Prospettiva viva', 'Le finestre seguono chi si muove nella stanza (serve il sensore)', !!scena.prospettivaViva)}
+      ${interruttore('prospettivaViva', 'persona', 'Prospettiva viva', a.staccato ? 'Il TV segue chi si muove nella stanza (serve il sensore accanto al TV). Le finestrelle hanno già la prospettiva vera dello schermo staccato' : 'Le finestre seguono chi si muove nella stanza (serve il sensore)', !!scena.prospettivaViva)}
       <div class="blocco"><span>Luce dello schermo</span>${cursore('luceGiorno', 'sole', 'Di giorno', 5, 100, scena.luceGiorno, scena.luceGiorno + '%')}${cursore('luceNotte', 'luna', 'Di notte', 2, 100, scena.luceNotte, scena.luceNotte + '%')}</div>
       <div class="blocco"><span>Fluidità · immagini al secondo</span><div class="scelte c3">${FLUIDITA.map(([v, t]) => `<button class="scelta" data-fai="fps" data-v="${v}" aria-pressed="${v === (scena.fps || 60)}"><b style="font:600 18px var(--display)">${v}</b><span>${esc(t)}</span></button>`).join('')}</div>
         <p class="nota">Meno immagini = ventola più tranquilla. 50 solo se lo schermo è a 50 Hz.</p></div>`)}
     ${gruppo('allinea', 'mirino', 'Allineamento', a.n === 2 ? 'due finestre' : 'una finestra', `
       <div class="segmenti">${[1, 2].map(n => `<button data-fai="nFinestre" data-v="${n}" aria-pressed="${a.n === n}">${icona(n === 1 ? 'monofora' : 'bifora', 18)}${n === 1 ? 'Una finestra' : 'Due finestre'}</button>`).join('')}</div>
       ${interruttore('bordi', 'mirino', 'Mostra i bordi sulle finestre', 'Una cornice tratteggiata per allineare ogni foro al traforo', mostraBordi)}
+      <div class="pannello" style="margin-top:10px">
+        ${cursore('staccato', 'livelli', 'Schermo staccato dal muro', 0, 20, a.staccato || 0, a.staccato ? a.staccato + ' cm' : 'appoggiato')}
+        <p class="nota" style="margin:0 0 6px">Quanti centimetri c'è fra la fine del muro e lo schermo. Staccato, il paesaggio riempie anche lo schermo intorno al foro: spostandoti ne scopri un po' oltre i bordi, come da una finestra vera. Allinea sempre la cornice tratteggiata al foro, guardando di fronte.</p></div>
       ${fori}
       <div class="pannello" style="margin-top:10px">
         ${cursore('zoom', 'lente', 'Ingrandisci', 100, 200, Math.round(scena.zoom * 100), Math.round(scena.zoom * 100) + '%')}
@@ -1283,7 +1286,7 @@ function disegnaImpostazioni(){
       <div class="pannello" style="margin-top:10px"><div class="titolo" style="margin-bottom:4px">${icona('persona', 15)}Prova la prospettiva viva</div>
         ${cursore('provaX', 'destra', 'Dove sei', -100, 100, 0, 'centro')}
         ${cursore('provaZ', 'mirino', 'Quanto vicino', -100, 100, 0, '0')}
-        <p class="nota" style="margin:0 0 6px">Fai finta di muoverti nella stanza: le finestre reagiscono come col sensore.</p></div>
+        <p class="nota" style="margin:0 0 6px">${a.staccato ? 'Fai finta di muoverti nella stanza: il TV reagisce come col sensore (le finestrelle staccate no, hanno la prospettiva vera).' : 'Fai finta di muoverti nella stanza: le finestre reagiscono come col sensore.'}</p></div>
       ${a.n === 2 && !schermi.destra ? '<p class="nota">La finestra destra non ha ancora risposto: si collega quando c\'è il secondo schermo.</p>' : ''}`)}
     ${gruppo('collega', 'catena', 'Collegamento', '', `
       <p class="nota" style="margin-top:0">Indirizzo da aprire sul Raspberry:</p><code class="link">${esc(linkPi)}</code>
@@ -1298,6 +1301,7 @@ function disegnaImpostazioni(){
   });
   legaCursore('luceGiorno', (v, o) => { o.textContent = v + '%'; cambia({luceGiorno: v}, false); });
   legaCursore('luceNotte', (v, o) => { o.textContent = v + '%'; cambia({luceNotte: v}, false); });
+  legaCursore('staccato', (v, o) => { o.textContent = v ? v + ' cm' : 'appoggiato'; assetto = assettoOPredefinito(); assetto.staccato = v; mandaFori(); });
   legaCursore('zoom', (v, o) => { o.textContent = v + '%'; cambia({zoom: v / 100}, false); });
   legaCursore('vx', (v, o) => { o.textContent = v; cambia({vx: v / 100}, false); });
   let tOcchio = null;
