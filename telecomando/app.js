@@ -9,7 +9,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
 const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 const euro = n => (n < .1 ? n.toFixed(3) : n.toFixed(2)).replace('.', ',') + ' $';
-const VERSIONE = '4.8';
+const VERSIONE = '4.9';
 
 /* ── la casa ──────────────────────────────────────────────────────────────── */
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
@@ -1277,7 +1277,7 @@ function disegnaImpostazioni(){
       <div class="segmenti">${[1, 2].map(n => `<button data-fai="nFinestre" data-v="${n}" aria-pressed="${a.n === n}">${icona(n === 1 ? 'monofora' : 'bifora', 18)}${n === 1 ? 'Una finestra' : 'Due finestre'}</button>`).join('')}</div>
       ${interruttore('bordi', 'mirino', 'Mostra i bordi sulle finestre', 'Una cornice tratteggiata per allineare ogni foro al traforo', mostraBordi)}
       <div class="pannello" style="margin-top:10px">
-        ${cursore('staccato', 'livelli', 'Schermo staccato dal muro', 0, 20, a.staccato || 0, a.staccato ? a.staccato + ' cm' : 'appoggiato')}
+        ${cursore('staccato', 'livelli', 'Schermo staccato dal muro', 0, 10, a.staccato || 0, a.staccato ? a.staccato + ' cm' : 'appoggiato')}
         <p class="nota" style="margin:0 0 6px">Quanti centimetri c'è fra la fine del muro e lo schermo. Staccato, il paesaggio riempie anche lo schermo intorno al foro: spostandoti ne scopri un po' oltre i bordi, come da una finestra vera. Allinea sempre la cornice tratteggiata al foro, guardando di fronte.</p></div>
       ${fori}
       <div class="pannello" style="margin-top:10px">
