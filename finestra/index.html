@@ -89,8 +89,8 @@ const simulata = q.get('sim') || '';
    il foro calibrato: 45 cm di altezza, 18 di larghezza. Sulle finestrelle staccate il radar non serve più. */
 /* 2/11 · la cornice di pietra del traforo lascia un'apertura di circa 14 cm (il foro nel muro dietro è 18): la cornice
    tratteggiata si allinea all'apertura di pietra, quella che si vede di fronte; il paesaggio deve arrivare fino al foro
-   del muro (2 cm in più per lato) e oltre, di N × 0,7 cm. L'altezza dell'apertura di pietra è da misurare (per ora 45). */
-const FORO_CM = {w:14, h:45, muroW:18, muroH:45}, SBIECO = .7;
+   del muro (2 cm in più per lato) e oltre, di N × 0,7 cm. Apertura di pietra alta circa 38 cm (Maurizio, 2/11). */
+const FORO_CM = {w:14, h:38, muroW:18, muroH:45}, SBIECO = .7;
 const staccatoCm = () => tv || simulata ? 0 : Math.max(0, Math.min(30, q.get('staccato') != null ? +q.get('staccato') || 0 : +casaFori.staccato || 0));
 const radarQui = () => !!(tv || simulata) || !staccatoCm();
 function allarga(f){
