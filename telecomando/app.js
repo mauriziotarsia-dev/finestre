@@ -9,7 +9,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
 const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 const euro = n => (n < .1 ? n.toFixed(3) : n.toFixed(2)).replace('.', ',') + ' $';
-const VERSIONE = '5.0';
+const VERSIONE = '5.1';
 
 /* ── la casa ──────────────────────────────────────────────────────────────── */
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
@@ -75,6 +75,7 @@ function assettoOPredefinito(){
 const gestoreCanale = {
   suMessaggio(evento, d){
     if (evento === 'dmaster'){ dmasterFino = d.attivo ? Date.now() + 30000 : 0; const prima = inSerata(); serataFino = d.attivo && d.serata ? Date.now() + 30000 : 0; lettore.imposta({muto: inSerata()}); aggiornaComando(); if (scheda === 'bard' && prima !== inSerata()) disegnaBard(); else if (scheda === 'bard') aggiornaBard(); return; }
+    if (evento === 'tv'){ ultimoTv = d && (d.spento || (!d.immagine && !d.video)) ? null : d; postaAnteprima({tipo:'tv', tv: d}); return; }
     if (evento === 'bard'){ prendiBard(d); return; }
     if (evento === 'console'){ suConsole(d); return; }
     if (evento === 'consoleScheda'){ suScheda(d); return; }
@@ -371,7 +372,9 @@ function riempi(r){ const p = (r.value - r.min) / (r.max - r.min) * 100; r.style
 function legaCursore(id, fn){ const r = document.getElementById(id); if (!r) return; riempi(r); r.oninput = () => { riempi(r); fn(+r.value, document.getElementById(id + '-o')); }; return r; }
 
 /* ═════════════════════════════ SCHEDE ═════════════════════════════════════ */
-const SCHEDE = [['finestre','bifora','Finestre'], ['bard','liuto','Bard'], ['paesaggi','quadro','Paesaggi'], ['crea','scintilla','Crea'], ['impostazioni','manopole','Impostazioni']];
+/* 3/11 · la scheda delle finestre si chiama Illusionist (Maurizio: «finestre in inglese diventa windows, non possiamo»;
+   Illusionist è il nome già deciso il 29/10 per finestre e paesaggi; Bard resta Bard) */
+const SCHEDE = [['finestre','bifora','Illusionist'], ['bard','liuto','Bard'], ['paesaggi','quadro','Paesaggi'], ['crea','scintilla','Crea'], ['impostazioni','manopole','Impostazioni']];
 /* 2/11 · l'app si apre sull'ingresso (bozza E): i cinque medaglioni grandi; da lì si entra nelle schede, la freccia in alto torna */
 let scheda = (location.hash.slice(1) in {finestre:1, bard:1, paesaggi:1, crea:1, impostazioni:1}) ? location.hash.slice(1) : 'ingresso';
 $('#barra').innerHTML = SCHEDE.map(([id, ic, nome]) => `<button data-scheda="${id}">${icona(ic, 22)}<span>${nome}</span></button>`).join('');
@@ -405,7 +408,7 @@ function cartaInOnda(){
 }
 function disegnaIngresso(){
   if (libreriaStato === 'da caricare') caricaLibreria();
-  const voci = [['finestre', 'finestra', 'Finestre', 'Ora, tempo e luce'], ['bard', 'liuto', 'Bard', inSerata() ? 'Console della serata' : 'Musiche e suoni della stanza'],
+  const voci = [['finestre', 'finestra', 'Illusionist', 'TV e finestrelle: ora, tempo e luce'], ['bard', 'liuto', 'Bard', inSerata() ? 'Console della serata' : 'Musiche e suoni della stanza'],
     ['paesaggi', 'paesaggio', 'Paesaggi', 'La libreria dei panorami'], ['crea', 'pennello', 'Crea', "Un paesaggio dipinto dall'AI"], ['impostazioni', 'manopole', 'Impostazioni', 'Stanza, schermi e chiavi']];
   $('#s-ingresso').innerHTML = `<header class="ingresso-testa"><div class="fili"><i></i><h1>DMaster<br>Atmosphere</h1><i></i></div><p>powered by DMaster Stage</p></header>
     <button class="in-onda-ora" id="cartaInOnda" data-fai="apriScheda" data-v="finestre" style="width:100%;text-align:left;cursor:pointer;color:inherit">${cartaInOnda()}</button>
@@ -420,8 +423,13 @@ const METEO = [['sereno','sole','Sereno'], ['nuvoloso','nuvola','Nuvoloso'], ['n
 const FLUIDITA = [[60,'Massima'], [50,'A 50 Hz'], [30,'Silenziosa']];
 const MED_METEO = {sereno: 'giorno', nuvoloso: 'nuvoloso', nebbia: 'nebbia', pioggia: 'pioggia', temporale: 'temporale', neve: 'neve'};
 const NOME_ORA = {vera:'come fuori', alba:'alba', giorno:'giorno', tramonto:'tramonto', notte:'notte'};
-let anteprimaPronta = false, anteprimaFrame = null;
-function postaAnteprima(m){ if (anteprimaFrame && anteprimaPronta) anteprimaFrame.contentWindow.postMessage(m, '*'); }
+/* 3/11 · due anteprime (Maurizio: «vedere sull'app cosa si vede in piccolo sulle due finestrelle e su quella principale»):
+   il TV (la stessa pagina con vista=est: il suo soggetto, e quello che DMaster gli manda in serata) e le due finestrelle */
+let anteprimaPronta = false, anteprimaFrame = null, anteprimaTvPronta = false, anteprimaTvFrame = null, ultimoTv = null;
+function postaAnteprima(m){
+  if (anteprimaFrame && anteprimaPronta && m.tipo !== 'tv') anteprimaFrame.contentWindow.postMessage(m, '*');
+  if (anteprimaTvFrame && anteprimaTvPronta && m.tipo !== 'fori') anteprimaTvFrame.contentWindow.postMessage(m, '*');
+}
 function forieAnteprima(){
   /* l'anteprima mostra le finestre nella loro forma vera; se sono due, una accanto all'altra con un po' di muro in mezzo */
   const a = assettoOPredefinito(), f = a.finestre.sinistra, sch = schermoDi('sinistra');
@@ -434,6 +442,7 @@ function impaginaAnteprima(){
   const box = $('#anteprima'); if (!box) return;
   const fa = forieAnteprima();
   box.style.aspectRatio = String(fa.aspetto);
+  box.style.flex = fa.aspetto + ' 1 0';   /* larghezze in proporzione alle forme: TV e finestrelle alti uguali */
   postaAnteprima({tipo:'fori', fori:fa.fori, modo:fa.modo});
 }
 const VENTI = [[null,'Auto'], [.1,'Calmo'], [.4,'Brezza'], [.8,'Forte']];
@@ -442,15 +451,16 @@ function disegnaFinestre(){
   const s = $('#s-finestre');
   if (!s.dataset.fatto){
     s.dataset.fatto = 1;
-    s.innerHTML = testa('bifora', 'Finestre', 'Quello che si vede adesso') + `
-      <div class="vivo">
-        <div class="anteprima" id="anteprima"><iframe id="anteprimaFrame" title="Anteprima delle finestre" src="../finestra/?anteprima=1"></iframe>
-          <div class="etich"><b id="nomeInOnda">—</b><small id="sottoInOnda"></small></div></div>
-        <div class="rapide">
-          <button class="btn" data-fai="accendi" id="btnAccendi">${icona('accensione', 20)}<span>Accese</span></button>
-          <button class="btn" data-fai="vaiPaesaggi">${icona('quadro', 20)}<span>Paesaggio</span><small>cambia</small></button>
-          <button class="btn" data-fai="lampo">${icona('fulmine', 20)}<span>Lampo</span></button>
-        </div>
+    s.innerHTML = testa('bifora', 'Illusionist', 'Quello che si vede adesso') + `
+      <div class="stanza-mini">
+        <figure class="anteprima tv" id="anteprimaTv"><iframe id="anteprimaTvFrame" title="Anteprima del TV" src="../finestra/?anteprima=1&vista=est"></iframe><figcaption>TV</figcaption></figure>
+        <figure class="anteprima" id="anteprima"><iframe id="anteprimaFrame" title="Anteprima delle finestrelle" src="../finestra/?anteprima=1"></iframe><figcaption>Finestrelle</figcaption></figure>
+      </div>
+      <div class="in-onda-riga"><b id="nomeInOnda">—</b><small id="sottoInOnda"></small></div>
+      <div class="rapide in-riga">
+        <button class="btn" data-fai="accendi" id="btnAccendi">${icona('accensione', 20)}<span>Accese</span></button>
+        <button class="btn" data-fai="vaiPaesaggi">${icona('quadro', 20)}<span>Paesaggio</span></button>
+        <button class="btn" data-fai="lampo">${icona('fulmine', 20)}<span>Lampo</span></button>
       </div>
       <div class="sezione">${titolo('orologio', 'Ora')}<div class="pads c5" id="sceltaOra">${ORE.map(([v, , t]) => pad('ora', v, v, t, false, 46)).join('')}</div></div>
       <div class="sezione">${titolo('nuvola', 'Tempo')}<div class="pads c6" id="sceltaMeteo">${METEO.map(([v, , t]) => pad('meteo', v, MED_METEO[v], t, false, 42)).join('')}</div>
@@ -460,6 +470,8 @@ function disegnaFinestre(){
         </div></div>`;
     anteprimaFrame = $('#anteprimaFrame');
     anteprimaFrame.onload = () => { anteprimaPronta = true; impaginaAnteprima(); postaAnteprima({tipo:'scena', scena}); };
+    anteprimaTvFrame = $('#anteprimaTvFrame');
+    anteprimaTvFrame.onload = () => { anteprimaTvPronta = true; anteprimaTvFrame.contentWindow.postMessage({tipo:'scena', scena}, '*'); if (ultimoTv) anteprimaTvFrame.contentWindow.postMessage({tipo:'tv', tv: ultimoTv}, '*'); };
     legaCursore('intensita', (v, o) => { o.textContent = v + '%'; cambia({intensita: v / 100}, false); });
     impaginaAnteprima();
   }
@@ -472,7 +484,7 @@ function aggiornaFinestre(){
   const vv = ventoVicino(scena.vento);
   s.querySelectorAll('[data-fai="vento"]').forEach(b => b.setAttribute('aria-pressed', String((b.dataset.v === '' ? null : +b.dataset.v) === vv)));
   $('#rigaIntensita').hidden = scena.meteo === 'sereno';
-  $('#btnAccendi').innerHTML = icona('accensione', 20) + '<span>' + (scena.acceso ? 'Accese' : 'Spente') + '</span><small>' + (scena.acceso ? 'spegni' : 'accendi') + '</small>';
+  $('#btnAccendi').innerHTML = icona('accensione', 20) + '<span>' + (scena.acceso ? 'Accese' : 'Spente') + '</span>';
   $('#btnAccendi').classList.toggle('oro', !!scena.acceso);
   const p = libreria.find(x => x.id === scena.paesaggio);
   $('#nomeInOnda').textContent = p ? p.nome : scena.yt ? 'Video di YouTube' : scena.immagini ? 'Paesaggio' : 'Nessun paesaggio';
@@ -1053,7 +1065,7 @@ function disegnaConsole(s){
     <div class="sezione">${titolo('fulmine', 'Effetti', 'sempre')}<div class="pads c5">${(c.sempre || []).map(effetto).join('')}</div>
       ${(c.adesso || []).length ? `<h2 class="titolo" style="margin-top:14px">${icona('stella', 16)}Adesso<small>${esc(c.perche || '')}</small></h2><div class="pads c5">${c.adesso.map(effetto).join('')}</div>` : ''}
       <div class="pannello" style="margin-top:10px">${cursore('conVolEff', 'altoparlante', 'Volume', 0, 100, Math.round((c.volEffetti ?? .8) * 100), Math.round((c.volEffetti ?? .8) * 100) + '%')}</div></div>
-    ${c.finestre ? `<div class="sezione">${titolo('bifora', 'Finestre')}
+    ${c.finestre ? `<div class="sezione">${titolo('bifora', 'Illusionist')}
       <button class="btn piena${c.finestre.acceso ? ' oro' : ''}" data-fai="conAccese" style="margin-bottom:8px">${icona('accensione', 18)}<span>${c.finestre.acceso ? 'Accese · tocca per spegnere' : 'Spente · tocca per accendere'}</span></button>
       <div class="pads c5">
         ${ORE_CONSOLE.map(([v, , t]) => pad('conOra', v, v, t, c.finestre.ora === v, 46)).join('')}</div>

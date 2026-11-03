@@ -232,8 +232,8 @@ input[type=range]::-moz-range-thumb{width:20px;height:20px;border-radius:50%;bac
 nav.barra{position:fixed;left:0;right:0;bottom:0;z-index:40;height:var(--barra);padding-bottom:env(safe-area-inset-bottom);display:flex;justify-content:center;
   background:linear-gradient(180deg,rgba(11,15,22,.86),rgba(6,8,12,.97));backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border-top:1px solid var(--bordo)}
 nav.barra .dentro{display:flex;width:100%;max-width:560px}
-nav.barra button{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;border:0;background:none;cursor:pointer;position:relative;
-  color:var(--spento);font:500 9.5px var(--display);letter-spacing:.14em;text-transform:uppercase;transition:color .2s}
+nav.barra button{flex:1 1 auto;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;border:0;background:none;cursor:pointer;position:relative;
+  color:var(--spento);font:500 9px var(--display);letter-spacing:.05em;min-width:0;text-transform:uppercase;transition:color .2s}
 nav.barra button[aria-current="page"]{color:var(--oro-luce)}
 nav.barra button[aria-current="page"]::before{content:'';position:absolute;top:-1px;left:28%;right:28%;height:2px;border-radius:2px;background:var(--oro);box-shadow:0 0 12px var(--oro)}
 
@@ -353,6 +353,18 @@ body.su-ingresso main{padding-bottom:28px}
 .testa .torna:active{color:var(--oro)}
 .testa .torna{align-self:center} .testa .torna + div{flex:1}
 .ingresso-testa h1{text-transform:uppercase}
+
+/* 3/11 · le anteprime della stanza: TV e finestrelle affiancati, alti uguali */
+.stanza-mini{display:flex;gap:8px;align-items:flex-start}
+.stanza-mini .anteprima{margin:0;min-width:0;box-shadow:0 10px 26px rgba(0,0,0,.5)}
+.anteprima.tv{aspect-ratio:16/9;flex:1.7778 1 0}
+.anteprima figcaption{position:absolute;left:6px;bottom:5px;font:500 9.5px var(--display);letter-spacing:.12em;text-transform:uppercase;color:var(--crema);background:rgba(6,8,12,.62);padding:2px 6px;border-radius:6px;pointer-events:none}
+.in-onda-riga{display:flex;align-items:baseline;gap:8px;margin:10px 2px 0;min-width:0}
+.in-onda-riga b{font:500 12px var(--display);letter-spacing:.1em;text-transform:uppercase;color:var(--testo);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:none;max-width:60%}
+.in-onda-riga small{font:italic 500 15px var(--libro);color:var(--tenue);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rapide.in-riga{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:10px}
+.rapide.in-riga .btn{justify-content:center;min-height:46px;padding:0 8px;gap:6px;letter-spacing:.06em;min-width:0}
+@media (max-width:380px){ .rapide.in-riga .btn{font-size:11px} .rapide.in-riga .btn .ic{width:17px;height:17px} }
 @media (max-width: 400px){ .testa h1{font-size:19px;letter-spacing:.14em} .testa p{font-size:16.5px} }
 @media (prefers-reduced-motion: reduce){ *{animation:none!important;transition:none!important} }
 </style>
@@ -375,6 +387,6 @@ body.su-ingresso main{padding-bottom:28px}
 <script src="../js/foto-online.js?v=2.1.0"></script>
 <script src="../js/profondita.js?v=2.1.0"></script>
 <script src="../js/bard.js?v=2"></script>
-<script src="app.js?v=5.0"></script>
+<script src="app.js?v=5.1"></script>
 </body>
 </html>
