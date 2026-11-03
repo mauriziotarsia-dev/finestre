@@ -612,7 +612,7 @@ async function banco(d, rispondi, schedaVideo){
   try { rispondi('bancoEsito', esito); } catch(e) {}
   if (d.salva !== false) try {
     await fetch(SUPABASE_URL + '/storage/v1/object/dmaster-media/finestre/banco/' + mio + '-' + id + '.json', {method: 'POST',
-      headers: {apikey: SUPABASE_CHIAVE_PUBBLICA, Authorization: 'Bearer ' + SUPABASE_CHIAVE_PUBBLICA, 'Content-Type': 'application/json', 'x-upsert': 'true'},
+      headers: {apikey: SUPABASE_CHIAVE_PUBBLICA, Authorization: 'Bearer ' + SUPABASE_CHIAVE_PUBBLICA, 'Content-Type': 'image/png', 'x-upsert': 'true'},   /* il deposito accetta solo tipi da immagine/suono: è JSON lo stesso */
       body: JSON.stringify(esito)});
   } catch(e) { console.warn('banco: esito non salvato', e); }
   return esito;
