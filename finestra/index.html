@@ -634,7 +634,7 @@ async function statoRemoto(d, schedaVideo){
     pixel: (() => { try { if (!ultimoParam) return null; vista.disegna(geomGL, ultimoParam); const g = vista.gl, out = {}, b = new Uint8Array(4);
       for (const [n, x, y] of [['centro', .5, .5], ['alto', .5, .15], ['basso', .5, .85]]){ g.readPixels(Math.floor(c.width * x), Math.floor(c.height * y), 1, 1, g.RGBA, g.UNSIGNED_BYTE, b); out[n] = Array.from(b); }
       out.errGL = g.getError(); out.persa = g.isContextLost(); return out; } catch(e) { return 'errore ' + e.message; } })(),
-    fps: Math.round(fpsMisurati), msDisegno, errori: erroriRecenti.slice(), ultimoParam: ultimoParam ? {buio: ultimoParam.buio, luce: ultimoParam.luce, trasparente: ultimoParam.trasparente} : null};
+    fps: Math.round(fpsMisurati), hzSchermo: Math.round(1000 / intervalloSchermo), schermoVero: {w: Math.round(screen.width * devicePixelRatio), h: Math.round(screen.height * devicePixelRatio)}, msDisegno, errori: erroriRecenti.slice(), ultimoParam: ultimoParam ? {buio: ultimoParam.buio, luce: ultimoParam.luce, trasparente: ultimoParam.trasparente} : null};
   await fetch(SUPABASE_URL + '/storage/v1/object/dmaster-media/finestre/banco/stato-' + mio + '.json', {method: 'POST',
     headers: {apikey: SUPABASE_CHIAVE_PUBBLICA, Authorization: 'Bearer ' + SUPABASE_CHIAVE_PUBBLICA, 'Content-Type': 'image/png', 'x-upsert': 'true'}, body: JSON.stringify(st)});
 }
