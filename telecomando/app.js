@@ -9,7 +9,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
 const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 const euro = n => (n < .1 ? n.toFixed(3) : n.toFixed(2)).replace('.', ',') + ' $';
-const VERSIONE = '5.1';
+const VERSIONE = '5.2';
 
 /* ── la casa ──────────────────────────────────────────────────────────────── */
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
@@ -453,8 +453,8 @@ function disegnaFinestre(){
     s.dataset.fatto = 1;
     s.innerHTML = testa('bifora', 'Illusionist', 'Quello che si vede adesso') + `
       <div class="stanza-mini">
-        <figure class="anteprima tv" id="anteprimaTv"><iframe id="anteprimaTvFrame" title="Anteprima del TV" src="../finestra/?anteprima=1&vista=est"></iframe><figcaption>TV</figcaption></figure>
         <figure class="anteprima" id="anteprima"><iframe id="anteprimaFrame" title="Anteprima delle finestrelle" src="../finestra/?anteprima=1"></iframe><figcaption>Finestrelle</figcaption></figure>
+        <figure class="anteprima tv" id="anteprimaTv"><iframe id="anteprimaTvFrame" title="Anteprima del TV" src="../finestra/?anteprima=1&vista=est"></iframe><figcaption>TV</figcaption></figure>
       </div>
       <div class="in-onda-riga"><b id="nomeInOnda">—</b><small id="sottoInOnda"></small></div>
       <div class="rapide in-riga">
