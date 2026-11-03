@@ -479,6 +479,7 @@ if (anteprima){
       else if (evento === 'prova'){ if (Array.isArray(dati.spegni)) vista.spegni = new Set(dati.spegni); if (dati.scala){ scalaFissa = +dati.scala; scala = scalaFissa; impagina(); } }
       else if (evento === 'occhio') daTelefono(dati.x, dati.z);
       else if (evento === 'chi') rispondi('eccomi', chi());
+      else if (evento === 'stato'){ if (!dati.chi || dati.chi === mio) statoRemoto(dati, schedaVideo).catch(() => {}); }
       else if (evento === 'banco'){ if (!dati.chi || dati.chi === 'tutti' || dati.chi === mio) banco(dati, rispondi, schedaVideo).catch(e => console.warn('banco', e)); }
       else if (evento === 'mostraCodice') mostraCodice();
       else if (evento === 'abbinato' || evento === 'vecchioChiuso') controllaAbbinamento();
@@ -617,6 +618,22 @@ async function banco(d, rispondi, schedaVideo){
       body: JSON.stringify(esito)});
   } catch(e) { console.warn('banco: esito non salvato', e); }
   return esito;
+}
+/* lo stato del disegno, da lontano (3/11): per capire perché uno schermo resta nero senza vederlo */
+const erroriRecenti = [];
+addEventListener('error', e => { erroriRecenti.push(String(e.message || e.error || '').slice(0, 200)); if (erroriRecenti.length > 10) erroriRecenti.shift(); });
+addEventListener('unhandledrejection', e => { erroriRecenti.push('promessa: ' + String(e.reason && e.reason.message || e.reason).slice(0, 200)); if (erroriRecenti.length > 10) erroriRecenti.shift(); });
+const _warn = console.warn.bind(console);
+console.warn = (...a) => { try { erroriRecenti.push('warn: ' + a.map(x => String(x && x.message || x)).join(' ').slice(0, 200)); if (erroriRecenti.length > 10) erroriRecenti.shift(); } catch(e) {} _warn(...a); };
+async function statoRemoto(d, schedaVideo){
+  const f = fonteDi(scena);
+  const st = {chi: mio, quando: new Date().toISOString(), gl: schedaVideo(), schermo: {w: innerWidth, h: innerHeight, dpr: devicePixelRatio, visibile: document.visibilityState},
+    tela: {w: c.width, h: c.height, css: c.style.cssText}, geomGL, scala, qualita, coperto, inCambio, scuro, scuroVerso, paesaggioInVista,
+    fonteOk: vista.fonti[0].ok, fonteUrl: vista.fonti[0].url, inArrivo: vista.inArrivo, fonteAttesa: f,
+    scena: {acceso: scena.acceso, paesaggio: scena.paesaggio, ora: scena.ora, meteo: scena.meteo, yt: scena.yt, haImmagini: !!scena.immagini},
+    fps: Math.round(fpsMisurati), msDisegno, errori: erroriRecenti.slice(), ultimoParam: ultimoParam ? {buio: ultimoParam.buio, luce: ultimoParam.luce, trasparente: ultimoParam.trasparente} : null};
+  await fetch(SUPABASE_URL + '/storage/v1/object/dmaster-media/finestre/banco/stato-' + mio + '.json', {method: 'POST',
+    headers: {apikey: SUPABASE_CHIAVE_PUBBLICA, Authorization: 'Bearer ' + SUPABASE_CHIAVE_PUBBLICA, 'Content-Type': 'image/png', 'x-upsert': 'true'}, body: JSON.stringify(st)});
 }
 /* in prova sul computer: ?banco=1 (non salva niente) */
 if (q.get('banco')) setTimeout(() => banco({salva: false, giri: +q.get('banco') > 1 ? +q.get('banco') : 120}, () => {}, () => '').then(e => { window.__banco = e; console.log('BANCO', JSON.stringify(e)); }), 2500);
