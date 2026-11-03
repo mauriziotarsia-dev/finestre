@@ -462,7 +462,12 @@ class Vista {
   constructor(canvas){
     this.c = canvas;
     /* desynchronized: Chromium disegna senza aspettare il compositore (un fotogramma di ritardo in meno, utile alla prospettiva viva) */
-    const opz = {alpha:true, premultipliedAlpha:false, antialias:false, preserveDrawingBuffer:false, desynchronized:true};
+    /* ⚠ 3/11: su Windows (G10, Edge, grafica AMD) la tela «desynchronized» con trasparenza va su un livello della scheda
+       video che non compare: il disegno c'è (i pixel si leggono) ma lo schermo resta nero. Lì si disegna nel modo normale.
+       ?desinc=1 / ?desinc=0 nell'indirizzo per forzare. */
+    const qd = new URLSearchParams(location.search).get('desinc');
+    const desinc = qd != null ? qd === '1' : !/Windows/i.test(navigator.userAgent);
+    const opz = {alpha:true, premultipliedAlpha:false, antialias:false, preserveDrawingBuffer:false, desynchronized:desinc};
     /* WebGL2 dove c'è (Raspberry compresi): mipmap anche sulle immagini non quadrate, e gocce «in serie» */
     let gl = canvas.getContext('webgl2', opz);
     this.gl2 = !!gl;
