@@ -327,6 +327,7 @@ const NEBBIA_ORA = {alba:[.86,.74,.68], giorno:[.74,.77,.8], tramonto:[.78,.6,.5
 const met = Object.assign({}, METEO.sereno), nebCol = [...NEBBIA_ORA.giorno];
 const stormi = new Stormi();
 let notte = 0, ombre = 0, meteora = null, prossimaMeteora = 0;
+let ultimoParam = null, bancoInCorso = false;
 let fpsMisurati = 60, uccelli = 0, cieloX = Math.random(), notteFinta = 0, luce = .7, lampo = null, prossimoLampo = 0, lampoX = .5;
 
 function scocca(){ lampo = {t:performance.now(), forza:.75 + Math.random() * .5}; lampoX = .15 + Math.random() * .7; if (bard) bard.tuono(); }
@@ -478,6 +479,7 @@ if (anteprima){
       else if (evento === 'prova'){ if (Array.isArray(dati.spegni)) vista.spegni = new Set(dati.spegni); if (dati.scala){ scalaFissa = +dati.scala; scala = scalaFissa; impagina(); } }
       else if (evento === 'occhio') daTelefono(dati.x, dati.z);
       else if (evento === 'chi') rispondi('eccomi', chi());
+      else if (evento === 'banco'){ if (!dati.chi || dati.chi === 'tutti' || dati.chi === mio) banco(dati, rispondi, schedaVideo).catch(e => console.warn('banco', e)); }
       else if (evento === 'mostraCodice') mostraCodice();
       else if (evento === 'abbinato' || evento === 'vecchioChiuso') controllaAbbinamento();
     },
@@ -542,6 +544,81 @@ if (anteprima){
 
 /* la memoria per quando la rete cade (sw.js): pagina, programmi, immagini e suoni restano anche offline */
 if (!anteprima && 'serviceWorker' in navigator) navigator.serviceWorker.register('../sw.js', {scope: '../'}).catch(e => console.warn('memoria offline non attiva', e));
+
+/* ── banco di prova da lontano (3/11/2026) ──────────────────────────────────────
+   Maurizio non è nella stanza e gli apparecchi non hanno schermi attaccati: per sapere se un apparecchio regge
+   più finestre insieme, la pagina disegna il paesaggio di adesso su tele nascoste (es. TV 1920×1080 a 60 col radar
+   che si muove + due finestrelle 1080×1920 a 30), un giro alla volta, aspettando ogni volta che la scheda video
+   finisca. Due passate: il tempo di adesso e il temporale (il caso più pesante). L'esito va nel deposito
+   (finestre/banco/<chi>-<id>.json) e sul canale («bancoEsito»). Il video del paesaggio non avanza durante la prova:
+   la decodifica non è contata. Si avvia con l'evento «banco» {chi:'tv'|'sinistra'|'destra'|'tutti', prove:[…]}. */
+async function banco(d, rispondi, schedaVideo){
+  if (bancoInCorso) return;
+  bancoInCorso = true;
+  const id = String(d.id || Date.now()).replace(/[^\w-]/g, '').slice(0, 40);
+  const prove = (Array.isArray(d.prove) && d.prove.length ? d.prove : [
+    {nome:'tv', w:1920, h:1080, fps:60, radar:true},
+    {nome:'finestrella sinistra', w:1080, h:1920, fps:30, lato:-1},
+    {nome:'finestrella destra', w:1080, h:1920, fps:30, lato:1}]).slice(0, 4);
+  const giri = Math.max(60, Math.min(1800, +d.giri || 600));        /* giri da 1/60 di secondo: 600 = 10 secondi */
+  const f = fonteDi(scena);
+  const esito = {id, chi: mio, quando: new Date().toISOString(), gl: schedaVideo(), browser: navigator.userAgent,
+    schermo: {w: screen.width, h: screen.height, dpr: devicePixelRatio, visibile: document.visibilityState},
+    fonte: f ? String(f.url || '').split('/').pop().slice(0, 120) : null, video: !!(f && f.video), cielo: !!(f && f.cielo), profondita: !!(f && f.profondita),
+    giri, prove: prove.map(p => ({nome: p.nome, w: p.w, h: p.h, fps: p.fps, radar: !!p.radar})), passate: []};
+  const viste = [];
+  const cede = () => new Promise(r => { const m = new MessageChannel(); m.port1.onmessage = () => r(); m.port2.postMessage(0); });
+  try {
+    for (const p of prove){
+      const cv = document.createElement('canvas'); cv.width = p.w; cv.height = p.h;
+      const v = new Vista(cv);
+      if (f){ try { await v.mostra(f, 0); } catch(e) { esito.erroreFonte = String(e && e.message || e); } }
+      viste.push({p, v, fori: [{x: 0, y: 0, w: p.w, h: p.h, map: [0, 0, 1, 1], aspetto: p.w / p.h, lato: p.lato || 0}]});
+    }
+    await new Promise(r => setTimeout(r, 1500));
+    const base = ultimoParam || {t: 0, movimento: true, prospettiva: true, coperto: 0, nebbia: 0, pioggia: 0, neve: 0, tempesta: 0, vento: .3, lampo: 0, lampoX: .5,
+      uccelli: 0, notte: 0, ombre: 0, cieloX: 0, notteFinta: 0, luce: .7, buio: 0, qualita: 1, colNebbia: [.6, .62, .65], occhio: {x: 0, z: 0}, margine: 1.04};
+    const passate = [{nome: 'tempo di adesso (' + (scena.meteo || 'sereno') + ')', cambia: {}},
+      {nome: 'temporale', cambia: {coperto: 1, nebbia: .18, pioggia: 1, neve: 0, tempesta: 1, vento: .9}}];
+    const px = new Uint8Array(4);
+    const stat = a => { const o = a.slice().sort((x, y) => x - y), n = o.length || 1, m = o.reduce((x, y) => x + y, 0) / n;
+      return {media: +m.toFixed(2), p95: +(o[Math.floor(n * .95)] || 0).toFixed(2), max: +(o[n - 1] || 0).toFixed(2)}; };
+    for (const pa of passate){
+      const perVista = viste.map(() => []), perGiro = [];
+      for (let i = 0; i < giri; i++){
+        const t = i / 60;
+        let giro = 0;
+        for (let j = 0; j < viste.length; j++){
+          const {p, v, fori} = viste[j], ogni = Math.max(1, Math.round(60 / (p.fps || 60)));
+          if (i % ogni) continue;
+          const s = Object.assign({}, base, pa.cambia, {t: (base.t || 0) + t, qualita: 1, lampo: 0,
+            occhio: p.radar ? {x: Math.sin(t * 1.3) * .8, z: Math.cos(t * .7) * .5} : {x: 0, z: 0}, margine: p.radar ? 1.2 : 1.04});
+          const t0 = performance.now();
+          v.disegna(fori, s);
+          v.gl.readPixels(0, 0, 1, 1, v.gl.RGBA, v.gl.UNSIGNED_BYTE, px);   /* aspetta che la scheda video abbia finito */
+          const ms = performance.now() - t0;
+          perVista[j].push(ms); giro += ms;
+        }
+        perGiro.push(giro);
+        if (i % 20 === 19) await cede();
+      }
+      const oltre = perGiro.filter(x => x > 1000 / 60).length;
+      esito.passate.push({nome: pa.nome, giro: stat(perGiro), giriOltre16ms: +(oltre / perGiro.length * 100).toFixed(1),
+        viste: viste.map(({p}, j) => Object.assign({nome: p.nome}, stat(perVista[j])))});
+    }
+  } catch(e) { esito.errore = String(e && e.message || e); }
+  for (const {v} of viste){ try { v.togli(); const x = v.gl.getExtension('WEBGL_lose_context'); if (x) x.loseContext(); } catch(e) {} }
+  bancoInCorso = false;
+  try { rispondi('bancoEsito', esito); } catch(e) {}
+  if (d.salva !== false) try {
+    await fetch(SUPABASE_URL + '/storage/v1/object/dmaster-media/finestre/banco/' + mio + '-' + id + '.json', {method: 'POST',
+      headers: {apikey: SUPABASE_CHIAVE_PUBBLICA, Authorization: 'Bearer ' + SUPABASE_CHIAVE_PUBBLICA, 'Content-Type': 'application/json', 'x-upsert': 'true'},
+      body: JSON.stringify(esito)});
+  } catch(e) { console.warn('banco: esito non salvato', e); }
+  return esito;
+}
+/* in prova sul computer: ?banco=1 (non salva niente) */
+if (q.get('banco')) setTimeout(() => banco({salva: false, giri: +q.get('banco') > 1 ? +q.get('banco') : 120}, () => {}, () => '').then(e => { window.__banco = e; console.log('BANCO', JSON.stringify(e)); }), 2500);
 
 /* ── il giro ───────────────────────────────────────────────────────────────── */
 impagina();
@@ -622,12 +699,14 @@ function giro(ora){
   if (misuraVisibile && ora - misura.t0 > 500){ misura.t0 = ora; mostraMisura(); }
   margine += ((viva || Math.abs(occhio.x) > .01 ? 1.2 : 1.04) - margine) * (1 - Math.exp(-dt * .8));
   const t0d = performance.now();
-  /* sotto un'immagine della Serata il paesaggio non si vede: non si disegna (il G10 respira) */
-  if (!coperto) vista.disegna(geomGL, {
+  const param = {
     t: (ora / 1000) % 3588, trasparente: !!scena.yt, movimento: scena.movimento !== false, prospettiva: scena.prospettiva !== false,
     coperto: met.coperto, nebbia: met.nebbia, pioggia: met.pioggia, neve: met.neve, tempesta: met.tempesta, vento: met.vento,
     lampo: intensitaLampo(ora), lampoX, uccelli, stormi: stormi.dati(), notte, ombre, meteora, cieloX, notteFinta, luce, buio: scuro, qualita, colNebbia: nebCol, occhio, margine
-  });
+  };
+  ultimoParam = param;
+  /* sotto un'immagine della Serata il paesaggio non si vede: non si disegna (il G10 respira); durante il banco di prova neanche */
+  if (!coperto && !bancoInCorso) vista.disegna(geomGL, param);
   msDisegno = msDisegno * .95 + (performance.now() - t0d) * .05;
   requestAnimationFrame(giro);
 }
