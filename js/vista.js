@@ -353,11 +353,17 @@ void main(){
   vec2 ti = clamp(uCropD.xy + uv * uCropD.zw, .001, .999);
   float alberi = texture2D(uAlberi, ti).r;                      /* solo dove ci sono alberi (o vicino) */
   float ombra = 0.;
-  if (uCieloM.x > 0.){                                          /* la nuvola che passa sopra quel punto, più o meno */
-    float pu = ti.x * uCieloM.z / (uCieloM.y * uCieloM.x) * 1.4 + uCieloX + .37;
-    float pv = mix(.75, .25, smoothstep(uCieloM.x, 1., ti.y));
-    vec3 cc = texture2D(uCielo, vec2(fract(pu), pv)).rgb;
-    ombra = smoothstep(.66, .9, dot(cc, vec3(.3, .59, .11)));
+  /* ⚠ 4/11 · OMBRE DELLE NUVOLE (Maurizio, TV: «strisce luminose verticali che si accendono e spengono … e strisce più
+     scure»). Prima l'ombra si leggeva dal cielo dipinto quasi solo in funzione della colonna (la riga cambiava poco):
+     ogni nuvola chiara diventava una striscia scura dall'orizzonte in giù, che spariva quando la nuvola passava.
+     Ora le ombre sono chiazze sul terreno, in prospettiva (strette e fitte verso l'orizzonte, larghe davanti),
+     che scivolano col vento alla velocità del cielo */
+  if (uCieloM.x > 0.){
+    float g = smoothstep(uCieloM.x, 1., ti.y);                 /* 0 all'orizzonte, 1 in basso */
+    float z = 1. / (g + .12);
+    vec2 s = vec2((ti.x - .5) * z * 1.8 + uCieloX * 8., z * 1.3 + uCieloX * 1.5);
+    float nn = rumore(s) * .62 + rumore(s * 2.3 + vec2(5.3, 1.7)) * .38;
+    ombra = smoothstep(.56, .78, nn) * smoothstep(.02, .2, g);
   }
   float onda = .5 + .5 * sin(uT * .85 - uv.x * 6.5 + rumore(uv * 2.5 + vec2(uT * .04, 0.)) * 3.);
   float raffica = mix(.35, 1., smoothstep(.35, .95, onda));
