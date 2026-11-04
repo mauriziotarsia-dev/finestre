@@ -27,7 +27,7 @@
 <script src="../js/canale.js?v=2.2.0"></script>
 <script src="../js/accesso.js?v=8"></script>
 <script src="../js/qrcode.js?v=1"></script>
-<script src="../js/vista.js?v=5.0"></script>
+<script src="../js/vista.js?v=5.1"></script>
 <script src="../js/inseguitore.js?v=1"></script>
 <script src="../js/uccelli.js?v=3"></script>
 <script src="../js/bard.js?v=5"></script>
@@ -246,7 +246,9 @@ function fonteDi(s){
       maschera = s.immagini['maschera-' + oraV] || video.split('?')[0].replace(/_(?:est-)?anim-\w+\.mp4$/, '_' + pre + 'maschera-' + oraV + '.png');
     }
   }
-  return {url, profondita: s.immagini.profondita || null, video, fuoco: s.fuoco || null, cielo: s.immagini.profondita ? cielo : null, fermo, maschera};
+  /* dove sale il fumo (4/11): lo stesso per tutte le luci; se la scena non lo porta (DMaster) si prova il file col nome */
+  const comignoli = s.immagini.comignoli || (/_(?:est-)?(giorno|alba|tramonto|notte)\.jpg$/.test(url.split('?')[0]) ? url.split('?')[0].replace(/_((?:est-)?)(giorno|alba|tramonto|notte)\.jpg$/, '_$1comignoli.json') : null);
+  return {url, profondita: s.immagini.profondita || null, video, fuoco: s.fuoco || null, cielo: s.immagini.profondita ? cielo : null, fermo, maschera, comignoli};
 }
 function chiaveFonte(f){ return f ? f.url + '|' + (f.video || '') : null; }
 function paesaggioDi(s){ return s.yt ? 'yt:' + s.yt + ':' + (s.t || 0) : s.immagini ? 'img:' + (s.paesaggio || s.immagini.giorno) : 'niente'; }
@@ -273,7 +275,10 @@ function applica(nuova, salva = true){
     /* stesso paesaggio: se cambia l'ora la luce sfuma in pochi secondi */
     const f = fonteDi(scena);
     if (f && vista.urlInVista && vista.urlInVista !== chiaveFonte(f)) vista.mostra(f, 3.5).catch(console.warn);
-    else if (f && vista.fonti[0].ok) vista.fonti[0].fuoco = f.fuoco;
+    else if (f && vista.fonti[0].ok){
+      vista.fonti[0].fuoco = f.fuoco;
+      if ((f.comignoli || null) !== (vista.fonti[0].fumiUrl || null)) vista.caricaFumi(vista.fonti[0], f.comignoli, vista.fonti[0].dimg);   /* comignoli spostati dal telefono */
+    }
     scuroVerso = scuroDi();
     impagina();
   }

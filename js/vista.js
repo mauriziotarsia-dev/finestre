@@ -59,6 +59,8 @@ uniform float uOmbre;         /* quanto si vedono le ombre delle nuvole (giorno 
 uniform vec4 uMeteora;        /* stella cadente: da (x, y) a (z, w), nella vista */
 uniform float uMeteoraK;      /* a che punto è (0 = nessuna) */
 uniform float uHaVento;   /* (il passaggio a bassa risoluzione scrive dal basso: si legge capovolto) */
+uniform vec4 uFumo[6];        /* fumo dai comignoli: (x, y nella vista, larghezza del tetto in larghezze della vista, profondità) */
+uniform float uNFumo, uFumoA; /* quanti, e quanto si vedono (sfumano col paesaggio) */
 
 /* hash senza seno: sulle schede dei Raspberry il seno costa caro */
 float h1(vec2 p){ vec3 p3 = fract(vec3(p.xyx) * .1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
@@ -227,6 +229,39 @@ float uccelli(vec2 uv){
   return a;
 }
 
+/* ⚠ 4/11 · FUMO DAI COMIGNOLI (Maurizio: «va messo quando possibile, dà un senso di movimento e non di staticità»).
+   Dove salirebbe il fumo lo dice l'AI una volta sola (…_comignoli.json); qui si disegna dal vivo, mai in loop: un
+   pennacchio sottile che sale, si allarga e svanisce, mosso da vortici che salgono con lui. Con la calma sale quasi
+   dritto, col vento si piega sottovento (verso dove vanno le nuvole) già poco sopra il comignolo: si piega di più,
+   non va più veloce. Si calcola solo vicino a ciascun comignolo. */
+float fumo(vec2 uv){
+  float tot = 0.;
+  float k = 1. + uOcchio.z * .07;
+  for (int i = 0; i < 6; i++){
+    if (float(i) >= uNFumo) break;
+    vec4 F = uFumo[i];
+    /* dove appare il comignolo con la prospettiva (lo stesso spostamento del paesaggio a quella profondità) */
+    vec2 s = F.xy; float sh = uLato * .012 * (F.w - .35) + uOcchio.x * .065 * (1. - .7 * F.w);
+    s = (s - .5) / k + .5; s.x -= sh;
+    float u = max(1.3 * max(1., uPix.y / 1000.), F.z * uPix.x * .09);   /* una «canna»: circa un decimo del tetto, in pixel */
+    vec2 dq = (uv - s) * uPix / u;
+    float h = -dq.y, L = 34.;
+    if (h < -1.5 || h > L || abs(dq.x) > L * 1.3) continue;
+    float semi = h1(vec2(float(i) * 7.3, F.x * 91.));
+    float b = .18 + uVento * 1.25;                                    /* quanto si piega */
+    float cx = -b * h * h / L - (rumore(vec2(h * .07 - uT * .3, semi * 40.)) - .5) * h * .35;
+    float wd = .6 + h * .21 * (1. + uVento * .6);
+    float x = (dq.x - cx) / wd;
+    float pr = exp(-x * x * 1.8);
+    if (pr < .01) continue;
+    vec2 q = vec2(x * .9, h * .2 - uT * .85) + semi * 17.;
+    float nn = rumore(q) * .55 + rumore(q * 2.1 + 3.7) * .3 + rumore(q * 4.3 + 9.1) * .15;
+    float d = pr * smoothstep(.3, .72, nn + pr * .25) * smoothstep(-1.5, 1.2, h) * (1. - smoothstep(L * .35, L, h)) * (1. - h / L * .45);
+    tot = max(tot, d);
+  }
+  return tot * uFumoA;
+}
+
 void main(){
   vec2 uv = uMap.xy + vUv * uMap.zw;
   vec3 col = vec3(0.); float n = .5, sky = 0., alfa = 1.;
@@ -253,6 +288,13 @@ void main(){
     }
     /* uccelli (js/uccelli.js) */
     if (uUccelli > .01 && uNU > .5 && sky > .2 && uv.x > uUBox.x && uv.y > uUBox.y && uv.x < uUBox.z && uv.y < uUBox.w){ float b = uccelli(uv) * uUccelli * smoothstep(.2, .7, sky); col = mix(col, col * .3 + vec3(.035, .035, .045), b * .8); }
+    if (uNFumo > .5 && uFumoA > .01){
+      float fm = fumo(uv) * (1. - uPioggia * .6) * (1. - uTempesta * .3);
+      if (fm > .001){
+        vec3 cf = mix(vec3(.8, .81, .84), vec3(.16, .18, .24), smoothstep(.2, .9, uNotte)) * (1. - uCoperto * .18);
+        col = mix(col, cf, fm * .5);
+      }
+    }
     /* stelle che brillano (ognuna col suo ritmo) e, ogni tanto, una stella cadente */
     if (uNotte > .01 && sky > .3){
       vec2 pp = uv * uPix / (7. * scP), cel = floor(pp), f = fract(pp);
@@ -524,7 +566,8 @@ class Vista {
     const posizioni = (p, nomi) => { const u = {}; for (const n of nomi) u[n] = gl.getUniformLocation(p, n); return u; };
     /* il programma principale: paesaggio, cielo, nebbia, lampo, luce */
     this.p = programma(VERT, FRAG, ['aPos']);
-    this.u = posizioni(this.p, ['uOcchio','uImg0b','uVmix','uImg0','uImg1','uDep0','uDep1','uMap','uCrop0','uCrop1','uCropD0','uCropD1','uUccelli','uCielo0','uCielo1','uCieloM0','uCieloM1','uCieloX','uFermo0','uFermo1','uHaFermo0','uHaFermo1','uVentoT','uHaVento','uU','uNU','uUBox','uNotte','uOmbre','uMeteora','uMeteoraK','uMix','uHaImg','uHaDep0','uHaDep1','uMovimento0','uMovimento1',
+    this.fumoDati = new Float32Array(24);
+    this.u = posizioni(this.p, ['uOcchio','uImg0b','uVmix','uImg0','uImg1','uDep0','uDep1','uMap','uCrop0','uCrop1','uCropD0','uCropD1','uUccelli','uCielo0','uCielo1','uCieloM0','uCieloM1','uCieloX','uFermo0','uFermo1','uHaFermo0','uHaFermo1','uVentoT','uHaVento','uU','uNU','uUBox','uFumo','uNFumo','uFumoA','uNotte','uOmbre','uMeteora','uMeteoraK','uMix','uHaImg','uHaDep0','uHaDep1','uMovimento0','uMovimento1',
       'uLato','uT','uAspetto','uPix','uCoperto','uNebbia','uPioggia','uNeve','uTempesta','uVento','uLampo','uLampoX',
       'uNotteFinta','uLuce','uBuio','uQualita','uColNebbia','uMeteo']);
     gl.useProgram(this.p);
@@ -589,23 +632,43 @@ class Vista {
     c.width = Math.floor(w * k); c.height = Math.floor(h * k); c.getContext('2d').drawImage(im, 0, 0, c.width, c.height);
     return c;
   }
-  fonteVuota(){ return {img:null, tex:null, dep:null, depTex:null, video:null, cTex:null, cm:[0,0,0,0], fTex:null, iw:1, ih:1, url:null, ok:false}; }
+  fonteVuota(){ return {fumi:[], fumiUrl:null, dimg:null, img:null, tex:null, dep:null, depTex:null, video:null, cTex:null, cm:[0,0,0,0], fTex:null, iw:1, ih:1, url:null, ok:false}; }
 
   /* nuova immagine (o video in loop), con la sua profondità; sfuma da quella di prima in `dur` secondi */
-  async mostra({url, profondita = null, video = null, fuoco = null, cielo = null, fermo = null, maschera = null}, dur = 0){
-    if (this.fonti[0].ok && this.fonti[0].url === url + '|' + (video || '')){ this.fonti[0].fuoco = fuoco; return; }
+  async mostra({url, profondita = null, video = null, fuoco = null, cielo = null, fermo = null, maschera = null, comignoli = null}, dur = 0){
+    if (this.fonti[0].ok && this.fonti[0].url === url + '|' + (video || '')){
+      this.fonti[0].fuoco = fuoco;
+      if ((comignoli || null) !== (this.fonti[0].fumiUrl || null)) this.caricaFumi(this.fonti[0], comignoli, this.fonti[0].dimg);   /* spostati dal telefono */
+      return;
+    }
     const chiave = url + '|' + (video || '');
     if (this.inArrivo === chiave) return;
     this.inArrivo = chiave;
-    try { await this._mostra(chiave, url, profondita, video, dur, fuoco, cielo, fermo, maschera); } finally { if (this.inArrivo === chiave) this.inArrivo = null; }
+    try { await this._mostra(chiave, url, profondita, video, dur, fuoco, cielo, fermo, maschera, comignoli); } finally { if (this.inArrivo === chiave) this.inArrivo = null; }
   }
-  async _mostra(chiave, url, profondita, video, dur, fuoco, cielo, fermo, maschera){
+  /* dove sale il fumo: i punti dell'AI (o messi a mano dal telefono), con la profondità di ciascuno per la prospettiva */
+  async caricaFumi(f, url, dimg){
+    f.fumiUrl = url || null;
+    if (!url){ f.fumi = []; return; }
+    try {
+      const j = await (await fetch(url, {cache:'no-cache'})).json();
+      let dd = null, W = 0, H = 0;
+      if (dimg){ W = 128; H = Math.max(8, Math.round(W * dimg.naturalHeight / dimg.naturalWidth));
+        const c = document.createElement('canvas'); c.width = W; c.height = H; const x = c.getContext('2d', {willReadFrequently:true});
+        x.drawImage(dimg, 0, 0, W, H); dd = x.getImageData(0, 0, W, H).data; }
+      if (f.fumiUrl !== url) return;
+      f.fumi = (j.punti || []).slice(0, 6).map(q => ({x:+q.x, y:+q.y, w:+q.w || .04,
+        n: dd ? dd[(Math.min(H - 1, Math.max(0, Math.round(q.y * H))) * W + Math.min(W - 1, Math.max(0, Math.round(q.x * W)))) * 4] / 255 : .5}));
+    } catch(e) { f.fumi = []; }
+  }
+  async _mostra(chiave, url, profondita, video, dur, fuoco, cielo, fermo, maschera, comignoli = null){
     const f = this.fonteVuota(); f.url = chiave; f.fuoco = fuoco;
     const im = await caricaImg(url);
     f.img = im; f.iw = im.naturalWidth; f.ih = im.naturalHeight; f.tex = this.texture(); this.carica(f.tex, this.entro(im)); this.mip(f.tex);
     let dimg = null;
     if (profondita){ try { dimg = await caricaImg(profondita); f.depTex = this.texture(); this.carica(f.depTex, dimg); this.mip(f.depTex); } catch(e) { dimg = null; } }
     try { f.aTex = this.texture(); this.carica(f.aTex, mascheraAlberi(im, dimg)); } catch(e) { f.aTex = null; }
+    f.dimg = dimg; await this.caricaFumi(f, comignoli, dimg);
     /* il cielo che scorre (serve la profondità, per sapere dov'è il cielo). Il video resta per quello che
        si muove sotto il cielo (nebbia nelle valli, fumo dei camini): il suo cielo non si usa più */
     if (cielo && dimg){
@@ -800,6 +863,14 @@ class Vista {
       const c1 = f1.ok ? this.crop(v1 ? {iw:f1.video[0].videoWidth || f1.iw, ih:f1.video[0].videoHeight || f1.ih} : f1, foro.aspetto, marg, v1 ? null : f1.fuoco, foro.striscia, f1.fuoco) : [0,0,1,1];
       gl.uniform4fv(u.uCrop0, c0); gl.uniform4fv(u.uCrop1, c1);
       gl.uniform4fv(u.uCropD0, v0 ? this.cropProfondita(f0, c0) : c0); gl.uniform4fv(u.uCropD1, v1 ? this.cropProfondita(f1, c1) : c1);
+      /* il fumo dei comignoli di quello che si vede (quello nuovo, mentre sfuma dal vecchio) */
+      const fumi = haImg && f0.ok && s.movimento && !sp.has('fumo') ? (f0.fumi || []) : [];
+      if (fumi.length){
+        const ci = this.crop(f0, foro.aspetto, marg, f0.fuoco, foro.striscia, f0.fuoco);
+        fumi.forEach((q, j) => { this.fumoDati[j * 4] = (q.x - ci[0]) / ci[2]; this.fumoDati[j * 4 + 1] = (q.y - ci[1]) / ci[3]; this.fumoDati[j * 4 + 2] = q.w / ci[2]; this.fumoDati[j * 4 + 3] = q.n; });
+        gl.uniform4fv(u.uFumo, this.fumoDati);
+      }
+      gl.uniform1f(u.uNFumo, fumi.length); gl.uniform1f(u.uFumoA, 1 - (this.mix || 0));
       gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
       /* 3. pioggia e neve, goccia per goccia, sopra */
       if (gocce) this.disegnaGocce(foro, s);

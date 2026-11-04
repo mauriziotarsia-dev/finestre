@@ -9,7 +9,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
 const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 const euro = n => (n < .1 ? n.toFixed(3) : n.toFixed(2)).replace('.', ',') + ' $';
-const VERSIONE = '5.4';
+const VERSIONE = '5.5';
 
 /* ── la casa ──────────────────────────────────────────────────────────────── */
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
@@ -589,6 +589,7 @@ function cosaManca(p){
   const m = ['alba','tramonto','notte'].filter(o => !p.immagini[o]);
   if (!p.immagini['est-giorno']) m.push('tv');
   if (!['giorno','alba','tramonto','notte'].some(o => p.immagini['cielo-' + o])) m.push('cielo');
+  if (!p.immagini.comignoli || (p.immagini['est-giorno'] && !p.immagini['est-comignoli'])) m.push('fumo');
   /* 4/11 (Maurizio: «bisogna avere anche sul TV le animazioni come sulle finestrelle»): se le finestrelle sono
      animate, anche il TV */
   /* 4/11: se il paesaggio è animato, lo sono tutte le luci, finestrelle e TV («devo avere animazioni sui 4 momenti»).
@@ -608,9 +609,9 @@ function animiDaFare(p, manca = cosaManca(p)){
 function costoCompleta(manca, p = null){
   const m = Ai.modello(imp.modello), c = m.costo[imp.qualita] || m.costo.alta, nLuci = manca.filter(o => NOME_ORA[o]).length;
   const mv = MODELLI_VIDEO.find(x => x.id === imp.video.modello) || MODELLI_VIDEO[0];
-  return c * 1.15 * nLuci + (manca.includes('tv') ? c * 1.3 * (1 + 3 * 1.15) : 0) + (manca.includes('cielo') ? c * 4 : 0) + (manca.includes('anim') && mv && p ? mv.euroSecondo * imp.video.secondi * animiDaFare(p, manca.filter(x => x !== 'anim')) : 0);
+  return c * 1.15 * nLuci + (manca.includes('tv') ? c * 1.3 * (1 + 3 * 1.15) : 0) + (manca.includes('cielo') ? c * 4 : 0) + (manca.includes('fumo') ? .01 : 0) + (manca.includes('anim') && mv && p ? mv.euroSecondo * imp.video.secondi * animiDaFare(p, manca.filter(x => x !== 'anim')) : 0);
 }
-const NOME_MANCA = {alba:'alba', tramonto:'tramonto', notte:'notte', tv:'vista per il TV', cielo:'cielo che scorre', anim:'animazioni di tutte le luci, finestrelle e TV'};
+const NOME_MANCA = {alba:'alba', tramonto:'tramonto', notte:'notte', tv:'vista per il TV', cielo:'cielo che scorre', anim:'animazioni di tutte le luci, finestrelle e TV', fumo:'fumo dai comignoli'};
 
 /* il dettaglio di un paesaggio */
 function apriPaesaggio(p){
@@ -641,6 +642,7 @@ function apriPaesaggio(p){
         ${p.yt || !p.immagini['est-giorno'] ? '' : `<button class="btn" data-fai="vistaTv" data-v="${p.id}">${icona('tv', 18)}Rigenera vista TV</button>`}
         ${p.yt || manca.includes('cielo') ? '' : `<button class="btn" data-fai="cieli" data-v="${p.id}">${icona('nuvola', 18)}Rigenera il cielo</button>`}
         ${p.yt || !MODELLI_VIDEO.length ? '' : `<button class="btn" data-fai="anima" data-v="${p.id}">${icona('anima', 18)}Anima</button>`}
+        ${p.yt ? '' : `<button class="btn" data-fai="fumo" data-v="${p.id}">${icona('fiamma', 18)}Fumo dai comignoli</button>`}
         <button class="btn" data-fai="modifica" data-v="${p.id}">${icona('matita', 18)}Rinomina</button>
         <button class="btn pericolo" data-fai="elimina" data-v="${p.id}">${icona('cestino', 18)}Elimina</button>
       </div></div></details>
@@ -656,6 +658,33 @@ function apriPaesaggio(p){
     });
 }
 
+let editorFumo = null;
+function disegnaEditorFumo(){
+  const E = editorFumo; if (!E) return;
+  const est = E.vista === 'est', img = E.p.immagini[est ? 'est-giorno' : 'giorno'], punti = E.punti[E.vista] || [];
+  apriFoglio(`
+    <h3 style="font:500 16px var(--display);letter-spacing:.12em;text-transform:uppercase;margin:4px 0 4px">Fumo dai comignoli</h3>
+    <p class="nota" style="margin-top:0">Il fumo lo disegnano le finestre, dal vivo: sale dritto con la calma e si piega col vento. Tocca l'immagine per aggiungere un comignolo (sulla cima), tocca un punto per toglierlo.</p>
+    ${E.p.immagini['est-giorno'] ? `<div class="segmenti" style="margin-bottom:10px"><button data-fai="fumoVista" data-v="nord" aria-pressed="${!est}">Finestrelle</button><button data-fai="fumoVista" data-v="est" aria-pressed="${est}">TV</button></div>` : ''}
+    <div id="fumoImg" style="position:relative;border-radius:12px;overflow:hidden;touch-action:manipulation;${est ? '' : 'max-width:60%;margin:0 auto'}">
+      <img alt="" src="${esc(img)}" style="display:block;width:100%">
+      ${punti.map((q, i) => `<i data-i="${i}" style="position:absolute;left:${q.x * 100}%;top:${q.y * 100}%;width:22px;height:22px;margin:-11px 0 0 -11px;border-radius:50%;border:2px solid #fff;background:rgba(212,175,55,.65);box-shadow:0 0 0 2px rgba(0,0,0,.45)"></i>`).join('')}
+    </div>
+    <p class="nota">${punti.length ? punti.length + (punti.length === 1 ? ' comignolo' : ' comignoli') : (E.punti[E.vista] ? 'Nessun comignolo: niente fumo in questa vista.' : 'Non ancora cercati.')}</p>
+    <div class="azioni"><button class="btn" id="fumoTrova" data-fai="fumoTrova">${icona('scintilla', 18)}Trova con l'AI · ≈ ${euro(.01)}</button>
+      <button class="btn oro" data-fai="fumoSalva" ${Object.keys(E.cambiati).length ? '' : 'disabled'}>${icona('spunta', 18)}Salva</button></div>`, el => {
+    const box = el.querySelector('#fumoImg');
+    box.onclick = ev => {
+      const r = box.getBoundingClientRect(), t = ev.target.closest('i[data-i]');
+      const lista = E.punti[E.vista] = (E.punti[E.vista] || []).slice();
+      if (t) lista.splice(+t.dataset.i, 1);
+      else if (lista.length < 6) lista.push({x: (ev.clientX - r.left) / r.width, y: (ev.clientY - r.top) / r.height, w: est ? .04 : .06});
+      else { avviso('Al massimo 6 comignoli per vista.', true); return; }
+      E.cambiati[E.vista] = true; disegnaEditorFumo();
+    };
+  });
+  foglioAperto = E.p.id;
+}
 function mostraPaesaggio(p){
   cambia(Object.assign(scenaDi(p), {acceso:true}));
   avviso('In onda: ' + p.nome);
@@ -884,6 +913,18 @@ async function faiVistaEst(p, fotoNord, descrizione, conSole){
   await faiLuci(p, jpg, ['alba','tramonto','notte'].filter(o => p.immagini[o]), null, {est:true, conSole});
   aggiornaInLibreria(p);
   await faiProfondita(p, jpg, true);
+  await faiComignoli(p, jpg, true);
+}
+/* 4/11 · il fumo dei comignoli: l'AI guarda la luce del giorno e dice dove sale (js/ai.js trovaComignoli); il fumo
+   lo disegna poi la finestra, dal vivo. Pochi centesimi; se non riesce il paesaggio va bene lo stesso */
+async function faiComignoli(p, foto, est = false){
+  const k = (est ? 'est-' : '') + 'fumo', eti = (est ? 'TV · ' : '') + 'Fumo dai comignoli';
+  passo(k, 'ora', eti + ': cerco dove sale…');
+  try {
+    const punti = await Ai.trovaComignoli({chiavi: imp.chiavi, foto});
+    p.immagini[(est ? 'est-' : '') + 'comignoli'] = await caricaComignoli(casa, p, est, punti) + '?v=' + Date.now().toString(36);
+    passo(k, 'fatto', eti + ': ' + (punti.length ? punti.length + (punti.length === 1 ? ' comignolo' : ' comignoli') : 'nessuna casa da cui farlo salire'));
+  } catch(e) { passo(k, 'errore', eti + ': ' + e.message); }
 }
 async function faiAnimazione(p, foto, ora, elementi, tv = false){
   const pre = tv ? 'est-' : '', eti = (tv ? 'TV · ' : '') + (ora !== 'giorno' ? NOME_ORA[ora][0].toUpperCase() + NOME_ORA[ora].slice(1) + ' · ' : ''), ka = pre + 'anim-' + ora, kf = pre + 'fermo-' + ora;
@@ -955,6 +996,7 @@ async function crea(){
     await faiLuci(p, jpg, ['alba','tramonto','notte'].filter(o => imp.luci[o]), misura, {conTv});
     aggiornaInLibreria(p);
     await faiProfondita(p, jpg); aggiornaInLibreria(p);
+    await faiComignoli(p, jpg); aggiornaInLibreria(p);
     if (conTv){ try { await faiVistaEst(p, jpg, descEst, true); aggiornaInLibreria(p); } catch(e) { passo('est-giorno', 'errore', 'TV · vista verso est: ' + e.message); segnala(e); } }
     if (imp.cielo !== false){ await faiCieli(p); aggiornaInLibreria(p); }
     /* le animazioni: ogni luce, finestrelle e TV (4/11) */
@@ -1528,6 +1570,10 @@ const AZIONI = {
       if (!p.immagini.profondita){ await faiProfondita(p, foto); aggiornaInLibreria(p); }
       if (manca.includes('tv')){ try { await faiVistaEst(p, foto, desc, luci.includes('alba')); aggiornaInLibreria(p); } catch(e) { passo('est-giorno', 'errore', 'TV · vista verso est: ' + e.message); segnala(e); } }
       if (manca.includes('cielo')){ await faiCieli(p); aggiornaInLibreria(p); }
+      if (manca.includes('fumo')){
+        if (!p.immagini.comignoli){ await faiComignoli(p, foto); aggiornaInLibreria(p); }
+        if (p.immagini['est-giorno'] && !p.immagini['est-comignoli']){ await faiComignoli(p, await (await fetch(p.immagini['est-giorno'])).blob(), true); aggiornaInLibreria(p); }
+      }
       if (manca.includes('anim')) await animaTutto(p, animMancanti(p));
     });
   },
@@ -1554,6 +1600,30 @@ const AZIONI = {
       <p class="nota">Modello e durata si cambiano nelle Impostazioni. Ogni video richiede alcuni minuti: tieni il telefono acceso.</p>
       <div id="lavoroFoglio"></div>`);
     foglioAperto = p.id;
+  },
+  /* 4/11 · dove sale il fumo: tocca l'immagine per aggiungere un comignolo, tocca un punto per toglierlo */
+  fumo: async v => {
+    const p = libreria.find(x => x.id === v); if (!p) return;
+    const leggiPunti = async u => { if (!u) return null; try { return ((await (await fetch(u, {cache:'no-cache'})).json()).punti) || []; } catch(e) { return null; } };
+    editorFumo = {p, vista: 'nord', punti: {nord: await leggiPunti(p.immagini.comignoli), est: await leggiPunti(p.immagini['est-comignoli'])}, cambiati: {}};
+    disegnaEditorFumo();
+  },
+  fumoVista: v => { if (!editorFumo) return; editorFumo.vista = v; disegnaEditorFumo(); },
+  fumoTrova: async () => {
+    const E = editorFumo; if (!E) return;
+    const est = E.vista === 'est', img = E.p.immagini[est ? 'est-giorno' : 'giorno'];
+    const b = $('#fumoTrova'); if (b){ b.disabled = true; b.textContent = 'Cerco…'; }
+    try { E.punti[E.vista] = await Ai.trovaComignoli({chiavi: imp.chiavi, foto: await (await fetch(img)).blob()}); E.cambiati[E.vista] = true; }
+    catch(e) { avviso(e.message, true); }
+    disegnaEditorFumo();
+  },
+  fumoSalva: async () => {
+    const E = editorFumo; if (!E) return;
+    try {
+      for (const vv of Object.keys(E.cambiati)){ const est = vv === 'est';
+        E.p.immagini[(est ? 'est-' : '') + 'comignoli'] = await caricaComignoli(casa, E.p, est, E.punti[vv] || []) + '?v=' + Date.now().toString(36); }
+      aggiornaInLibreria(E.p); avviso('Comignoli salvati'); E.cambiati = {}; apriPaesaggio(E.p); editorFumo = null;
+    } catch(e) { avviso(e.message, true); }
   },
   animLuce: (v, b) => b.parentNode.querySelectorAll('button').forEach(x => x.setAttribute('aria-pressed', String(x === b))),
   animaVia: async v => {

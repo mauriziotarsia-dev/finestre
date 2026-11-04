@@ -154,6 +154,55 @@ const Ai = {
 
   inBase64(blob){ return new Promise((ok, no) => { const fr = new FileReader(); fr.onload = () => ok(String(fr.result).split(',')[1]); fr.onerror = no; fr.readAsDataURL(blob); }); },
 
+  /* ── dove sono i comignoli (4/11, Maurizio: «l'effetto fumo da comignolo va messo quando possibile, dà un senso
+     di movimento e non di staticità») ─────────────────────────────────────────
+     Una sola domanda all'AI che guarda l'immagine: dove c'è un comignolo (o, sulle case che non lo mostrano, il
+     punto del tetto da cui salirebbe il fumo). Il fumo poi lo disegna la finestra, dal vivo: mai in loop.
+     trovaComignoli({chiavi, foto:Blob}) → [{x, y, w}] in frazioni dell'immagine: x, y la cima del comignolo,
+     w la larghezza del tetto (dà la scala del pennacchio). Prima Google, poi OpenAI; i nomi dei modelli cambiano,
+     si prova il primo che risponde. */
+  async trovaComignoli(o){
+    const ch = o.chiavi || {};
+    if (!ch.google && !ch.openai) throw Object.assign(new Error('Serve una chiave Google o OpenAI nelle Impostazioni.'), {tipo:'chiave'});
+    const bmp = await createImageBitmap(o.foto), k = Math.min(1, 1280 / Math.max(bmp.width, bmp.height));
+    const c = document.createElement('canvas'); c.width = Math.round(bmp.width * k); c.height = Math.round(bmp.height * k);
+    c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
+    const jpg = await new Promise(r => c.toBlob(r, 'image/jpeg', .88)), b64 = await this.inBase64(jpg);
+    const domanda = `This is a painted landscape. Find the places where chimney smoke would rise: every visible chimney on a house, farmhouse, village or castle roof; for houses whose chimney is not visible, the point on the roof ridge where a chimney would be. Only real inhabited buildings (houses, farms, villages), not towers, bell towers, churches, ruins, rocks or trees. At most 6, preferring the most visible ones (near and middle distance); if there are none, return an empty list.
+Answer ONLY with JSON: {"comignoli":[{"x":<0-1000>,"y":<0-1000>,"w":<0-1000>}]} where x,y is the top of the chimney (0,0 = top-left of the image, 1000,1000 = bottom-right) and w is the width of that building's roof in the same units.`;
+    const leggi = t => {
+      const j = JSON.parse(String(t).replace(/^[^{]*/, '').replace(/[^}]*$/, ''));
+      return (j.comignoli || []).filter(q => q && isFinite(q.x) && isFinite(q.y)).slice(0, 6)
+        .map(q => ({x: Math.min(1, Math.max(0, q.x / 1000)), y: Math.min(1, Math.max(0, q.y / 1000)), w: Math.min(.3, Math.max(.008, (+q.w || 30) / 1000))}));
+    };
+    let ultimo = null;
+    if (ch.google){
+      for (const m of ['gemini-3.5-flash', 'gemini-3-flash-preview', 'gemini-2.5-flash']){
+        let r;
+        try { r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent`, {method:'POST', headers:{'Content-Type':'application/json', 'x-goog-api-key':ch.google},
+          body: JSON.stringify({contents:[{parts:[{inline_data:{mime_type:'image/jpeg', data:b64}}, {text:domanda}]}], generationConfig:{responseMimeType:'application/json', temperature:0}})}); }
+        catch(e) { ultimo = this.rete('Google', e); continue; }
+        if (r.status === 404 || r.status === 400){ ultimo = await this.errore(r, 'Google'); continue; }   /* modello che non c'è (più): il prossimo */
+        if (!r.ok){ ultimo = await this.errore(r, 'Google'); if (ultimo.tipo === 'credito' || ultimo.tipo === 'chiave') break; continue; }
+        const d = await r.json(), t = ((((d.candidates || [])[0] || {}).content || {}).parts || []).map(x => x.text || '').join('');
+        try { return leggi(t); } catch(e) { ultimo = new Error('Risposta di Google non leggibile.'); }
+      }
+    }
+    if (ch.openai){
+      for (const m of ['gpt-5-mini', 'gpt-4.1-mini']){
+        let r;
+        try { r = await fetch('https://api.openai.com/v1/chat/completions', {method:'POST', headers:{'Content-Type':'application/json', Authorization:'Bearer ' + ch.openai},
+          body: JSON.stringify({model:m, response_format:{type:'json_object'}, messages:[{role:'user', content:[{type:'text', text:domanda}, {type:'image_url', image_url:{url:'data:image/jpeg;base64,' + b64}}]}]})}); }
+        catch(e) { ultimo = this.rete('OpenAI', e); continue; }
+        if (r.status === 404 || r.status === 400){ ultimo = await this.errore(r, 'OpenAI'); continue; }
+        if (!r.ok){ ultimo = await this.errore(r, 'OpenAI'); break; }
+        const d = await r.json();
+        try { return leggi(((d.choices || [])[0] || {}).message.content); } catch(e) { ultimo = new Error('Risposta di OpenAI non leggibile.'); }
+      }
+    }
+    throw ultimo || new Error('Nessuna risposta.');
+  },
+
   /* ── animazioni con Gemini Omni Flash ────────────────────────────────────── */
   /* anima({chiave, modello, foto:Blob, prompt, fuoco, progresso(p, stato)}) → Blob mp4.
      Si chiede in sottofondo (background) e si chiede a che punto è ogni pochi secondi:

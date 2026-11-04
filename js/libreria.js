@@ -52,7 +52,7 @@ function nomeFile(p, parte, est = 'jpg'){
   const kw = parole.map(x => slug(x, 20)).filter(Boolean).join('.');
   return `${p.id}_${p.tipo}_${slug(p.nome) || 'paesaggio'}${kw ? '@' + kw : ''}_${parte}.${est}`;
 }
-const MODELLO_NOME = /^([a-z0-9]+)_(painterly|inked|classic_oil|foto|video)_([a-z0-9-]+)(?:@([a-z0-9.-]+))?_((?:est-)?(?:giorno|alba|tramonto|notte|profondita|cielo-(?:giorno|alba|tramonto|notte)|fermo-(?:giorno|alba|tramonto|notte)|maschera-(?:giorno|alba|tramonto|notte)|anim-(?:giorno|alba|tramonto|notte))|yt-[0-9a-f]{22})\.(jpg|png|mp4)$/;
+const MODELLO_NOME = /^([a-z0-9]+)_(painterly|inked|classic_oil|foto|video)_([a-z0-9-]+)(?:@([a-z0-9.-]+))?_((?:est-)?(?:giorno|alba|tramonto|notte|profondita|cielo-(?:giorno|alba|tramonto|notte)|fermo-(?:giorno|alba|tramonto|notte)|maschera-(?:giorno|alba|tramonto|notte)|anim-(?:giorno|alba|tramonto|notte)|comignoli)|yt-[0-9a-f]{22})\.(jpg|png|mp4|json)$/;
 /* «est-…»: la vista per il TV (Maurizio, 29/10: TV verso est, orizzontale e in 4K, finestrelle verso nord; ogni paesaggio
    ha due soggetti, uno al centro di ciascuna vista; stessa ora e stesso tempo). est-giorno, est-alba…, est-profondita,
    est-anim-giorno, est-fermo-giorno… accanto a quelli della vista nord, nello stesso paesaggio */
@@ -113,18 +113,20 @@ function filtraLibreria(elenco, testo, tipo){
 
 async function carica(casa, p, parte, blob, est){
   const cartella = await cartellaDi(casa);
-  const tipo = est === 'png' ? 'image/png' : est === 'mp4' ? 'video/mp4' : 'image/jpeg';
+  /* (il deposito accetta solo immagini e video: il piccolo elenco dei comignoli viaggia come «image/png»; chi lo legge
+     usa fetch().json(), che il tipo non lo guarda) */
+  const tipo = est === 'png' || est === 'json' ? 'image/png' : est === 'mp4' ? 'video/mp4' : 'image/jpeg';
   const nome = nomeFile(p, parte, est);
   if (CASA_PRIVATA){
     await Accesso.carica(CASA_PRIVATA, nome, blob, tipo);
-    (p.file || (p.file = [])).push(nome);
+    { const fl = p.file || (p.file = []); if (!fl.includes(nome)) fl.push(nome); }
     Accesso._firme.delete(CASA_PRIVATA + '/' + nome);
     return (await Accesso.firma(CASA_PRIVATA, [nome]))[nome];
   }
   const {error} = await clientDeposito().storage.from(DEPOSITO)
     .upload('finestre/' + cartella + '/' + nome, blob, {upsert:true, contentType:tipo, cacheControl:'31536000'});
   if (error) throw new Error('Caricamento non riuscito: ' + error.message);
-  (p.file || (p.file = [])).push(nome);
+  { const fl = p.file || (p.file = []); if (!fl.includes(nome)) fl.push(nome); }
   return urlPubblico('finestre/' + cartella + '/' + nome);
 }
 const caricaLuce = (casa, p, ora, blob) => carica(casa, p, ora, blob, 'jpg');
@@ -136,6 +138,9 @@ const caricaFermo = (casa, p, ora, blob) => carica(casa, p, 'fermo-' + ora, blob
 const caricaMaschera = (casa, p, ora, blob) => carica(casa, p, 'maschera-' + ora, blob, 'png');
 const caricaAnimazione = (casa, p, ora, blob) => carica(casa, p, 'anim-' + ora, blob, 'mp4');
 /* l'animazione della vista del TV (4/11): …_est-anim-giorno.mp4, …_est-fermo-giorno.jpg, …_est-maschera-giorno.png */
+/* 4/11 · dove sale il fumo: …_comignoli.json (vista nord) e …_est-comignoli.json (TV), {v:1, punti:[{x, y, w}]} in
+   frazioni dell'immagine. Il fumo lo disegna la finestra (js/vista.js) */
+const caricaComignoli = (casa, p, est, punti) => carica(casa, p, (est ? 'est-' : '') + 'comignoli', new Blob([JSON.stringify({v:1, punti})], {type:'image/png'}), 'json');
 const caricaEstAnimazione = (casa, p, ora, blob) => carica(casa, p, 'est-anim-' + ora, blob, 'mp4');
 const caricaEstFermo = (casa, p, ora, blob) => carica(casa, p, 'est-fermo-' + ora, blob, 'jpg');
 const caricaEstMaschera = (casa, p, ora, blob) => carica(casa, p, 'est-maschera-' + ora, blob, 'png');
