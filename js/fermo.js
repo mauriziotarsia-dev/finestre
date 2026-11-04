@@ -14,10 +14,21 @@ const Fermo = {
   async analizza(blob, avanza = () => {}){
     const url = URL.createObjectURL(blob);
     const v = document.createElement('video');
-    v.muted = true; v.playsInline = true; v.preload = 'auto'; v.src = url;
+    v.muted = true; v.defaultMuted = true; v.playsInline = true; v.setAttribute('playsinline', ''); v.setAttribute('muted', ''); v.preload = 'auto';
+    /* ⚠ 4/11 · iPhone, video del TV (1920×1080, 17 MB): «il video non si apre». Safari non carica un video staccato dalla
+       pagina e fermo (ignora preload): restava ad aspettare. Ora sta nella pagina, invisibile, e parte subito (muto) */
+    Object.assign(v.style, {position:'fixed', left:'0', top:'0', width:'2px', height:'2px', opacity:'0', pointerEvents:'none'});
+    document.body.appendChild(v);
+    v.src = url;
     try {
-      await new Promise((ok, no) => { v.onloadeddata = ok; v.onerror = () => no(new Error('il video non si legge')); setTimeout(() => no(new Error('il video non si apre')), 30000); });
-      try { await v.play(); v.pause(); } catch(e) {}                  /* su iPhone prepara i fotogrammi */
+      await new Promise((ok, no) => {
+        const pronto = () => { if (v.readyState >= 2){ clearInterval(t); ok(); } };
+        const t = setInterval(pronto, 250);
+        v.onloadeddata = v.oncanplay = pronto; v.onerror = () => { clearInterval(t); no(new Error('il video non si legge')); };
+        setTimeout(() => { clearInterval(t); no(new Error('il video non si apre')); }, 90000);
+        v.load(); v.play().catch(() => {});
+      });
+      v.pause();
       const D = v.duration, W = v.videoWidth, H = v.videoHeight;
       const vai = t => new Promise(ok => { const fine = () => { v.removeEventListener('seeked', fine); ok(); }; v.addEventListener('seeked', fine); v.currentTime = Math.max(0, Math.min(D - .05, t)); });
       const tela = (w, h) => { const c = document.createElement('canvas'); c.width = w; c.height = h; return [c, c.getContext('2d', {willReadFrequently:true})]; };
@@ -72,7 +83,7 @@ const Fermo = {
       avanza(100);
       let viva = 0; for (let i = 0; i < n; i++) viva += zf[i];
       return {fermo: fermoJpg, maschera: mascheraPng, parteViva: viva / n};
-    } finally { v.removeAttribute('src'); v.load(); URL.revokeObjectURL(url); }
+    } finally { v.removeAttribute("src"); v.load(); v.remove(); URL.revokeObjectURL(url); }
   },
   dilata(a, w, h, r){ const o = new Uint8Array(a.length);
     for (let y = 0; y < h; y++) for (let x = 0; x < w; x++){ let m = 0;
