@@ -365,8 +365,15 @@ void main(){
     float nn = rumore(s) * .62 + rumore(s * 2.3 + vec2(5.3, 1.7)) * .38;
     ombra = smoothstep(.56, .78, nn) * smoothstep(.02, .2, g);
   }
-  float onda = .5 + .5 * sin(uT * .85 - uv.x * 6.5 + rumore(uv * 2.5 + vec2(uT * .04, 0.)) * 3.);
-  float raffica = mix(.35, 1., smoothstep(.35, .95, onda));
+  /* ⚠ 4/11 (Maurizio: «sugli alberi che si muovono è troppo evidente il loop, ogni tot secondi si capisce che
+     ricomincia»): le raffiche erano un'onda regolare, una ogni 7,4 secondi esatti, quasi quanto il giro del video
+     (7 s). Ora sono fronti di vento irregolari: arrivano a distanze diverse, con forza e forma che cambiano, e non si
+     ripetono mai uguali */
+  float g1 = rumore(vec2(uv.x * 2.2 - uT * .31, uv.y * .9 + uT * .053));
+  float g2 = rumore(vec2(uv.x * 4.3 - uT * .47 + 7.3, uv.y * 1.7 + uT * .089 + 3.1));
+  float g3 = rumore(vec2(uT * .021, 1.9));                       /* calme e momenti più ventosi, lenti */
+  float onda = (g1 * .62 + g2 * .38) * mix(.75, 1.2, g3);
+  float raffica = mix(.3, 1., smoothstep(.42, .8, onda));
   vec2 q = uv * vec2(11., 17.);
   float fx = rumore(q + vec2(uT * .8, 0.)) - .5, fy = rumore(q * 1.3 + vec2(3.7, uT * .65)) - .5;
   fx += (rumore(uv * vec2(34., 52.) + vec2(uT * 2.1, 1.3)) - .5) * .35;   /* foglie */
