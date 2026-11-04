@@ -48,6 +48,16 @@ function bardLampiFra(da, a, intensita = .75){
   return out;
 }
 
+/* ⚠ 4/11 · LE REGISTRAZIONI DEL TEMPO, PER TUTTI. Le registrazioni AI di DMaster (ElevenLabs, 22 s in loop per i
+   fondi) stanno anche nel deposito pubblico delle finestre: le usa chiunque, anche senza la stanza privata
+   (le registrazioni della stanza, se ci sono, vengono prima). Il deposito pubblico accetta solo immagini e video:
+   i file sono mp3 caricati come «video/mp4», ma si leggono con decodeAudioData, che guarda il contenuto. */
+const BARD_PUBBLICO = 'https://olcfvghjfzyazogfsjbk.supabase.co/storage/v1/object/public/dmaster-media/finestre/suoni/tempo-';
+const bardRegistrazione = (reg, id) => (reg && reg[id]) || (BARD_TEMPO_IDS.includes(id) ? BARD_PUBBLICO + id + '.mp3' : null);
+const BARD_TEMPO_IDS = ['pioggia', 'temporale', 'vento', 'neve', 'tuono1', 'tuono2', 'tuono3', 'raffica'];
+/* le registrazioni hanno volumi molto diversi (il temporale è 15 dB più forte della pioggia): si pareggiano qui */
+const BARD_GUADAGNO = {pioggia:1.4, temporale:.3, vento:.5, neve:1.4, tuono1:.55, tuono2:.55, tuono3:.8, raffica:1.3};
+
 /* quanto vento c'è con ogni tempo, se il telefono lo lascia «auto» */
 const BARD_VENTO = {sereno:.12, nuvoloso:.28, nebbia:.08, pioggia:.32, temporale:.8, neve:.38};
 
@@ -60,6 +70,7 @@ class LettoreBard {
     this.muto = false;         /* la Serata di DMaster comanda: Bard tace */
     this.ctx = null; this.buffer = new Map(); this.strati = {}; this.quandoCambia = quandoCambia || (() => {});
     this.el = null; this.branoOra = null; this.prossimoTuono = 0; this.prossimaRaffica = 0;
+    this.sintetico = false;   /* true: solo i suoni fatti qui (per le prove) */
     setInterval(() => this._ogniTanto(), 1000);
   }
   /* ── l'audio ─────────────────────────────────────────────────────────────── */
@@ -100,7 +111,7 @@ class LettoreBard {
   }
   _rampa(g, v, s = 1.2){ const x = this.ctx; if (!x) return; const t = x.currentTime; g.gain.cancelScheduledValues(t); g.gain.setValueAtTime(g.gain.value, t); g.gain.linearRampToValueAtTime(v, t + s); }
   /* un suono in loop su un canale: se la chiave è la stessa cambia solo il volume, se no dissolve il vecchio nel nuovo */
-  async _loop(posto, canale, chiave, url, volume, sintetico){
+  async _loop(posto, canale, chiave, url, volume, sintetico, sintetico0 = null){
     const x = this._ctx(); if (!x) return;
     const ora = this.strati[posto];
     if (ora && ora.chiave === chiave){ this._rampa(ora.g, volume, 1.5); return; }
@@ -117,7 +128,12 @@ class LettoreBard {
         s.connect(voce.g); s.start(0, Math.random() * Math.max(0, b.duration - 1)); voce.src = s;
       } else if (sintetico){ voce.src = sintetico(x, voce.g); }
       this._rampa(voce.g, volume, 2.5);
-    } catch(e) { console.warn('[bard]', chiave, e.message); if (this.strati[posto] === voce) delete this.strati[posto]; }
+    } catch(e) {
+      console.warn('[bard]', chiave, e.message);
+      /* registrazione non scaricata (rete?): il suono fatto qui, intanto */
+      if (this.strati[posto] === voce && url && sintetico0){ try { voce.src = sintetico0(x, voce.g); voce.chiave = chiave + ':sint'; this._rampa(voce.g, volume, 2.5); return; } catch(e2) {} }
+      if (this.strati[posto] === voce) delete this.strati[posto];
+    }
   }
   _ferma(posto){ const ora = this.strati[posto]; if (!ora) return; this._rampa(ora.g, 0, 2); const s = ora.src; setTimeout(() => { try { s && s.stop(); } catch(e) {} }, 2200); delete this.strati[posto]; }
   async _colpo(chiave, url, volume = 1, canale = 'effetti', dopo = 0, sintetico){
@@ -155,22 +171,29 @@ class LettoreBard {
     const pioggia = !acceso ? 0 : m === 'pioggia' ? .25 + .75 * k : m === 'temporale' ? Math.max(.8, k) : 0;
     const neve = !acceso ? 0 : m === 'neve' ? .3 + .5 * k : 0;
     /* il vento cresce piano: «Calmo» quasi non si sente, «Forte» si sente bene (4/11: prima era lineare e troppo alto) */
-    const vento = !acceso ? 0 : Math.pow((sc.vento == null ? (BARD_VENTO[m] || .15) : sc.vento) * (m === 'nebbia' ? .6 : 1), 1.7) * .7;
-    const strato = (id, v, sint) => v > .02 ? this._loop('t-' + id, 'tempo', 't:' + id + (reg[id] ? '' : ':sint'), reg[id] || null, v, reg[id] ? null : sint) : this._ferma('t-' + id);
+    /* (col temporale la registrazione ha già le sue raffiche: il vento a parte si tiene più basso) */
+    const vento = !acceso ? 0 : Math.pow((sc.vento == null ? (BARD_VENTO[m] || .15) : sc.vento) * (m === 'nebbia' ? .6 : 1), 1.7) * .7 * (m === 'temporale' ? .5 : 1);
+    const strato = (id, v, sint) => {
+      const url = this.sintetico ? null : bardRegistrazione(reg, id);
+      return v > .02 ? this._loop('t-' + id, 'tempo', 't:' + id + (url ? '' : ':sint'), url, url ? v * (BARD_GUADAGNO[id] || 1) : v, url ? null : sint, sint) : this._ferma('t-' + id);
+    };
     strato(m === 'temporale' ? 'temporale' : 'pioggia', pioggia, sintPioggia);
     this._ferma('t-' + (m === 'temporale' ? 'pioggia' : 'temporale'));
     strato('neve', neve, sintVento);
     strato('vento', vento, sintVento);
+    /* col temporale i tuoni si scaricano prima, così arrivano in tempo dopo il lampo */
+    if (acceso && m === 'temporale' && !this.sintetico && this.ctx) for (const t of ['tuono1', 'tuono2', 'tuono3']){ const u = bardRegistrazione(reg, t); if (u) this._carica('t:' + t, u).catch(() => {}); }
   }
   /** un lampo (dalle finestre o dal telefono): il tuono arriva dopo, più o meno lontano */
   tuono(ritardo, volume){
     if (!this.attivo || !(this.stato.tempo && this.stato.tempo.acceso)) return;
-    const reg = this.stato.registrazioni || {}, quali = ['tuono1', 'tuono2', 'tuono3'].filter(t => reg[t]);
-    const t = quali[Math.floor(Math.random() * quali.length)];
+    const reg = this.stato.registrazioni || {};
     const dopo = ritardo != null ? ritardo : 1 + Math.random() * 1.8;
-    /* lontano: più basso e più cupo (i bassi arrivano, gli schiocchi no) */
+    /* lontano: più basso e più cupo (i bassi arrivano, gli schiocchi no); vicino: lo schiocco o il rombo */
     const vol = volume != null ? volume : .7 + Math.random() * .3;
-    this._colpo('t:' + (t || 'tuono:sint'), t ? reg[t] : null, vol, 'tempo', dopo, t ? null : (x, g, q) => sintTuono(x, g, q, vol < .6));
+    const t = vol < .6 ? 'tuono3' : (dopo < 1.2 && Math.random() < .6 ? 'tuono1' : 'tuono2');
+    const url = this.sintetico ? null : bardRegistrazione(reg, t);
+    this._colpo('t:' + (url ? t : 'tuono:sint'), url, url ? vol * BARD_GUADAGNO[t] : vol, 'tempo', dopo, url ? null : (x, g, q) => sintTuono(x, g, q, vol < .6));
   }
   _ogniTanto(){
     if (!this.attivo || !this.ctx) return;
@@ -181,9 +204,10 @@ class LettoreBard {
       const da = this.ultimoControllo || ora; this.ultimoControllo = ora;
       for (const l of bardLampiFra(da, ora, sc.intensita == null ? .75 : sc.intensita)) this.tuono(l.tuono, l.volTuono);
     } else this.ultimoControllo = 0;
-    if (this.stato.tempo && this.stato.tempo.acceso && sc.acceso !== false && vento > .6 && reg.raffica){
-      if (!this.prossimaRaffica) this.prossimaRaffica = ora + 15e3 + Math.random() * 30e3;
-      else if (ora > this.prossimaRaffica){ this._colpo('t:raffica', reg.raffica, .5 + .4 * Math.random(), 'tempo'); this.prossimaRaffica = 0; }
+    const raffica = this.sintetico ? null : bardRegistrazione(reg, 'raffica');
+    if (this.stato.tempo && this.stato.tempo.acceso && sc.acceso !== false && vento > .6 && raffica){
+      if (!this.prossimaRaffica) this.prossimaRaffica = ora + 15e3 + Math.random() * 40e3;
+      else if (ora > this.prossimaRaffica){ this._colpo('t:raffica', raffica, (.4 + .4 * Math.random()) * BARD_GUADAGNO.raffica, 'tempo'); this.prossimaRaffica = 0; }
     }
   }
   /** un effetto a comando */
