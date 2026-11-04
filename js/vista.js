@@ -661,7 +661,7 @@ class Vista {
     return [rx + c[0] * rw, ry + c[1] * rh, c[2] * rw, c[3] * rh];
   }
 
-  crop(f, aspettoVista, margine = 1.04, fuoco = null){
+  crop(f, aspettoVista, margine = 1.04, fuoco = null, striscia = null, fuocoStriscia = null){
     /* copertura: l'immagine riempie la vista con un filo di margine per la prospettiva;
        dove l'immagine avanza, l'inquadratura scelta (fuoco 0..1, 0.5 = al centro) decide che parte si vede */
     const ai = f.iw / f.ih;
@@ -669,6 +669,14 @@ class Vista {
     if (ai > aspettoVista) sw = aspettoVista / ai; else sh = ai / aspettoVista;
     sw /= margine; sh /= margine;
     const fx = fuoco && fuoco.x != null ? fuoco.x : .5, fy = fuoco && fuoco.y != null ? fuoco.y : .5;
+    /* 4/11 · il trucco della prospettiva: con due finestrelle e un paesaggio largo, il centro del foro guarda
+       l'elemento cardine (l'inquadratura scelta) spostato di striscia.off cm verso il suo lato. Solo per le immagini
+       larghe (16:9): quelle verticali di prima restano come sono */
+    if (striscia && ai > 1.2){
+      const c = fuocoStriscia && fuocoStriscia.x != null ? fuocoStriscia.x : .5;
+      const t = c + striscia.lato * striscia.off * sw / striscia.cmW;    /* panorama largo striscia.cmW / sw cm */
+      return [Math.max(0, Math.min(1 - sw, t - striscia.u * sw)), (1 - sh) * fy, sw, sh];
+    }
     return [(1 - sw) * fx, (1 - sh) * fy, sw, sh];
   }
 
@@ -734,7 +742,7 @@ class Vista {
         gl.bindFramebuffer(gl.FRAMEBUFFER, null);
       }
       /* 1b. il vento sugli alberi (e le ombre delle nuvole), a un quarto di risoluzione */
-      const c0v = f0.ok ? this.crop(v0 ? {iw:f0.video[0].videoWidth || f0.iw, ih:f0.video[0].videoHeight || f0.ih} : f0, foro.aspetto, marg, v0 ? null : f0.fuoco) : [0,0,1,1];
+      const c0v = f0.ok ? this.crop(v0 ? {iw:f0.video[0].videoWidth || f0.iw, ih:f0.video[0].videoHeight || f0.ih} : f0, foro.aspetto, marg, v0 ? null : f0.fuoco, foro.striscia, f0.fuoco) : [0,0,1,1];
       let tv = null;
       if (haImg && mov && this.unita >= 12){
         const m = this.bufferMeteo(i, foro.w, foro.h, this.vento); tv = m.tex;
@@ -757,8 +765,8 @@ class Vista {
       gl.uniform1f(u.uAspetto, foro.aspetto);
       gl.uniform2f(u.uPix, foro.w / foro.map[2], foro.h / foro.map[3]);   /* pixel della vista intera */
       gl.uniform1f(u.uLato, s.prospettiva ? foro.lato : 0);
-      const c0 = f0.ok ? this.crop(v0 ? {iw:f0.video[0].videoWidth || f0.iw, ih:f0.video[0].videoHeight || f0.ih} : f0, foro.aspetto, marg, v0 ? null : f0.fuoco) : [0,0,1,1];
-      const c1 = f1.ok ? this.crop(v1 ? {iw:f1.video[0].videoWidth || f1.iw, ih:f1.video[0].videoHeight || f1.ih} : f1, foro.aspetto, marg, v1 ? null : f1.fuoco) : [0,0,1,1];
+      const c0 = f0.ok ? this.crop(v0 ? {iw:f0.video[0].videoWidth || f0.iw, ih:f0.video[0].videoHeight || f0.ih} : f0, foro.aspetto, marg, v0 ? null : f0.fuoco, foro.striscia, f0.fuoco) : [0,0,1,1];
+      const c1 = f1.ok ? this.crop(v1 ? {iw:f1.video[0].videoWidth || f1.iw, ih:f1.video[0].videoHeight || f1.ih} : f1, foro.aspetto, marg, v1 ? null : f1.fuoco, foro.striscia, f1.fuoco) : [0,0,1,1];
       gl.uniform4fv(u.uCrop0, c0); gl.uniform4fv(u.uCrop1, c1);
       gl.uniform4fv(u.uCropD0, v0 ? this.cropProfondita(f0, c0) : c0); gl.uniform4fv(u.uCropD1, v1 ? this.cropProfondita(f1, c1) : c1);
       gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);

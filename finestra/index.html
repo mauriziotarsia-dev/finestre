@@ -27,7 +27,7 @@
 <script src="../js/canale.js?v=2.2.0"></script>
 <script src="../js/accesso.js?v=8"></script>
 <script src="../js/qrcode.js?v=1"></script>
-<script src="../js/vista.js?v=4.5"></script>
+<script src="../js/vista.js?v=4.6"></script>
 <script src="../js/inseguitore.js?v=1"></script>
 <script src="../js/uccelli.js?v=3"></script>
 <script src="../js/bard.js?v=5"></script>
@@ -73,8 +73,9 @@ const tv = q.get('vista') === 'est' || q.get('lato') === 'tv';
 const mio = tv ? 'tv' : q.get('lato') === 'destra' ? 'destra' : 'sinistra';
 /* il titolo dice chi è (sul Raspberry con due schermi serve a mettere ogni finestra sul suo) */
 if (!anteprima) document.title = tv ? 'Illusionist TV' : 'Illusionist finestra ' + mio;
+const fraCm = v => v == null || v === '' || isNaN(+v) ? -5 : Math.max(-15, Math.min(15, Math.round(+v)));
 function normalizza(a){
-  if (a && a.finestre) return {n: a.n === 2 ? 2 : 1, finestre: a.finestre, staccato: Math.max(0, Math.min(30, +a.staccato || 0))};
+  if (a && a.finestre) return {n: a.n === 2 ? 2 : 1, finestre: a.finestre, staccato: Math.max(0, Math.min(30, +a.staccato || 0)), fra: fraCm(a.fra)};
   if (a && a.fori && a.fori.length === 1) return {n:1, finestre:{sinistra:a.fori[0]}};   /* formato di prima */
   return {n:1, finestre:{}};
 }
@@ -98,6 +99,22 @@ function allarga(f){
   const ex = ((FORO_CM.muroW - FORO_CM.w) / 2 + g * SBIECO) * f.w / FORO_CM.w, ey = ((FORO_CM.muroH - FORO_CM.h) / 2 + g * SBIECO) * f.h / FORO_CM.h;
   const x0 = Math.max(0, f.x - ex), y0 = Math.max(0, f.y - ey), x1 = Math.min(1, f.x + f.w + ex), y1 = Math.min(1, f.y + f.h + ey);
   return {x:x0, y:y0, w:x1 - x0, h:y1 - y0};
+}
+/* 4/11 · IL TRUCCO DELLA PROSPETTIVA (Maurizio, bozza C scelta il 4/11): «l'elemento cardine non deve essere mai al centro:
+   nella finestrella di sinistra spostato a destra, in quella di destra a sinistra; chi guarda tutte e due da lontano non lo
+   vede in tutte e due». Con due finestrelle e un paesaggio largo (16:9) ognuna mostra una striscia diversa dello stesso
+   panorama, alto quanto lo schermo: la sinistra a sinistra dell'elemento, la destra a destra. fra = cm di panorama fra le
+   due strisce viste di fronte (−5: 5 cm in comune). Di fronte dal foro si vede FRONTE cm per parte (il foro di pietra,
+   14 cm, proiettato sullo schermo che sta MURO_PIETRA + staccato cm più indietro, da 2 m). I paesaggi verticali: come prima. */
+const MURO_PIETRA = 19, LONTANO = 200;
+function striscia(f, W, H){
+  if (tv) return null;
+  const fronte = FORO_CM.w / 2 * (LONTANO + MURO_PIETRA + (simulata ? 10 : staccatoCm())) / LONTANO;
+  /* nella stanza simulata il riquadro è l'apertura vista di fronte, e le finestrelle sono sempre due */
+  if (simulata === 'finestra') return {lato: mio === 'destra' ? 1 : -1, u: .5, cmW: 2 * fronte, off: fronte + fraCm(casaFori.fra) / 2};
+  if (simulata || casaFori.n !== 2 || !assetto.buco) return null;
+  const b = assetto.buco, bx = b.x * W, bw = b.w * W;
+  return {lato: mio === 'destra' ? 1 : -1, u: (bx + bw / 2 - f.x) / f.w, cmW: f.w / bw * FORO_CM.w, off: fronte + fraCm(casaFori.fra) / 2};
 }
 const derivato = () => {
   if (tv || simulata) return {modo:'singola', fori:[{x:0, y:0, w:1, h:1}]};
@@ -146,7 +163,7 @@ function impagina(){
     }
     /* ingrandimento e spostamento dal telefono */
     map = [.5 + (map[0] - .5) / zoom + vx, .5 + (map[1] - .5) / zoom, map[2] / zoom, map[3] / zoom];
-    return Object.assign(f, {map, aspetto, lato});
+    return Object.assign(f, {map, aspetto, lato, striscia: assetto.modo === 'singola' ? striscia(f, W, H) : null});
   });
   geom.unione = {x:ux, y:uy, w:uw, h:uh};
   geomGL = geom.map(f => { const x = Math.round((f.x - ux) * k), y = Math.round((f.y - uy) * k);

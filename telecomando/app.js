@@ -9,7 +9,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
 const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 const euro = n => (n < .1 ? n.toFixed(3) : n.toFixed(2)).replace('.', ',') + ' $';
-const VERSIONE = '5.2';
+const VERSIONE = '5.3';
 
 /* ── la casa ──────────────────────────────────────────────────────────────── */
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
@@ -49,8 +49,13 @@ const SCENA_PRED = {acceso:true, yt:'', t:0, immagini:null, animati:null, paesag
   intensita:.75, vento:null, fps:60, prospettivaViva:false, movimento:true, luceGiorno:70, luceNotte:30, prospettiva:true, zoom:1, vx:0};
 let scena = Object.assign({}, SCENA_PRED, leggi('finestre-scena', {}));
 /* le finestre della casa: una o due, ognuna sul suo schermo (sono a due metri l'una dall'altra) */
+/* 4/11 · il trucco della prospettiva (Maurizio, bozza C): con due finestrelle e un paesaggio largo, ognuna ne mostra
+   una striscia diversa, l'elemento cardine fra le due. fra = cm di panorama fra le due strisce viste di fronte:
+   negativo = in comune (−5: l'abbazia entra quasi intera da vicino, dal centro della stanza resta nascosta) */
+const fraCm = v => v == null || v === '' || isNaN(+v) ? -5 : Math.max(-15, Math.min(15, Math.round(+v)));
+const testoFra = v => v < 0 ? -v + ' cm in comune' : v ? v + ' cm nascosti fra le due' : 'si toccano';
 function normalizzaFori(a){
-  if (a && a.finestre) return {n: a.n === 2 ? 2 : 1, finestre: Object.assign({}, a.finestre), staccato: Math.max(0, Math.min(30, +a.staccato || 0))};
+  if (a && a.finestre) return {n: a.n === 2 ? 2 : 1, finestre: Object.assign({}, a.finestre), staccato: Math.max(0, Math.min(30, +a.staccato || 0)), fra: fraCm(a.fra)};
   if (a && a.fori && a.fori.length === 1) return {n:1, finestre:{sinistra:a.fori[0]}};   /* formato di prima */
   return {n:1, finestre:{}};
 }
@@ -66,7 +71,7 @@ let dmasterFino = 0;
 const comandaDM = () => Date.now() < dmasterFino;
 function foroPredefinito(sch){ const H = .9, W = H * sch.h * 2 / 5 / sch.w; return {x:(1 - W) / 2, y:(1 - H) / 2, w:W, h:H}; }
 function assettoOPredefinito(){
-  return {n: assetto.n === 2 ? 2 : 1, staccato: +assetto.staccato || 0, finestre:{
+  return {n: assetto.n === 2 ? 2 : 1, staccato: +assetto.staccato || 0, fra: fraCm(assetto.fra), finestre:{
     sinistra: assetto.finestre.sinistra || foroPredefinito(schermoDi('sinistra')),
     destra: assetto.finestre.destra || foroPredefinito(schermoDi('destra'))}};
 }
@@ -707,6 +712,20 @@ Compose for this narrow vertical frame: the main subject is fully visible and ce
 No people in the foreground, no text, no signature, no watermark, no border, no vignette.
 ${LUCI.giorno}`;
 }
+/* 4/11 · IL TRUCCO DELLA PROSPETTIVA (Maurizio, bozza C): con due finestrelle la vista nord è un panorama largo 16:9,
+   alto quanto lo schermo; ogni finestrella ne mostra una striscia, la sinistra a sinistra dell'elemento cardine, la destra
+   a destra. Per questo l'elemento sta esattamente al centro ed è piccolo (un decimo della larghezza: davanti a una
+   finestrella entra quasi intero, dal centro della stanza resta nascosto), e intorno c'è paesaggio bello da solo */
+function promptLargo(descrizione, stile){
+  const s = STILI.find(x => x.id === stile) || STILI[0];
+  return `${s.prefisso}.
+One wide panoramic landscape picture (16:9) of the land seen from a high window of a medieval house, looking out at: ${descrizione}.
+The picture IS the view itself: no window frame, no walls, no curtains, no sill, nothing of the room in the foreground.
+Composition: the main subject stands EXACTLY at the horizontal centre of the picture, compact and fairly small, about one tenth of the picture width, fully visible and seen from a distance. On both sides of it the land continues for a long way: hills, fields, woods, a river, roads, farmhouses, distant villages, rich and interesting to look at on its own, but with no other dominant landmark. A generous sky in the upper part, the land descending toward the viewer in the lower part; natural eye-level perspective, the horizon level, believable scale and deep atmospheric distance with several layers (near, middle, far).
+No people in the foreground, no text, no signature, no watermark, no border, no vignette.
+${LUCI.giorno}`;
+}
+const largoPerLeFinestrelle = () => assettoOPredefinito().n === 2;
 /* ⚠ 30/10 · DUE VISTE (Maurizio, 29/10: finestrelle verso nord, TV verso est, due soggetti diversi; «mai due soli né
    due lune: al massimo compaiono in una sola delle due viste»). Quando il paesaggio ha anche la vista per il TV, il sole
    sta dove starebbe davvero: all'alba sorge a est (nel TV; a nord se ne vede solo il chiarore, da destra), al tramonto
@@ -767,7 +786,8 @@ async function conLavoro(nome, fn){
   catch(e) { lavoro.errore = e.message; segnala(e); }
   finally { lavoro.finito = true; lavoro.av = null; try { blocco && blocco.release(); } catch(e) {} disegnaLavoro(); setTimeout(profonditaInSottofondo, 3000); }
 }
-const misuraDi = async blob => { const b = await createImageBitmap(blob); return {w:b.width, h:b.height, openai: Math.abs(b.width / b.height - .4) < .03 ? '832x2080' : '1024x1536'}; };
+const misuraDi = async blob => { const b = await createImageBitmap(blob), largo = b.width / b.height > 1.2;
+  return {w:b.width, h:b.height, largo, openai: largo ? 'tv' : Math.abs(b.width / b.height - .4) < .03 ? '832x2080' : '1024x1536'}; };
 
 /* le altre luci: della vista nord (le finestrelle) o, con o.est, della vista est (il TV) */
 async function faiLuci(p, foto, ore, misura, o = {}){
@@ -858,7 +878,9 @@ async function faiAnimazione(p, foto, ora, elementi, tv = false){
   const pre = tv ? 'est-' : '', eti = tv ? 'TV · ' : '';
   const mv = MODELLI_VIDEO.find(m => m.id === imp.video.modello) || MODELLI_VIDEO[0];
   passo(pre + 'anim', 'ora', `${eti}Animazione con ${mv.nome}: in coda…`); lavoro.av = 0;
-  const mp4 = await Ai.anima({chiave:imp.chiavi.google, modello:mv.id, foto, fuoco:p.fuoco, tv, prompt:promptAnima(elementi, imp.video.secondi),
+  /* la vista nord larga (il trucco della prospettiva) si anima intera, orizzontale come quella del TV */
+  const largo = !tv && (await misuraDi(foto)).largo;
+  const mp4 = await Ai.anima({chiave:imp.chiavi.google, modello:mv.id, foto, fuoco:p.fuoco, tv: tv || largo, prompt:promptAnima(elementi, imp.video.secondi),
     progresso:(pc, st) => { lavoro.av = pc; passo(pre + 'anim', 'ora', `${eti}Animazione con ${mv.nome}: ${st === 'invio' ? 'la mando' : st === 'scarico' ? 'la scarico' : 'la sta girando'}… ${Math.round(pc)}%`); }});
   passo(pre + 'anim', 'ora', eti + 'Animazione: la salvo…');
   p.animati[pre + ora] = tv ? await caricaEstAnimazione(casa, p, ora, mp4) : await caricaAnimazione(casa, p, ora, mp4);
@@ -888,13 +910,14 @@ async function crea(){
   await conLavoro('crea', async L => {
     const p = {id: Date.now().toString(36), tipo: imp.stile, nome, parole: paroleChiave(nome, descrizione), immagini:{}, animati:{}, file:[], fuoco:null, creato: Date.now()};
     passo('giorno', 'ora', 'Giorno: lo sto dipingendo con ' + m.nome + '…');
-    const r = await Ai.crea({modello:imp.modello, chiavi:imp.chiavi, qualita:imp.qualita, prompt:promptBase(descrizione, imp.stile),
+    const largo = largoPerLeFinestrelle();
+    const r = await Ai.crea({modello:imp.modello, chiavi:imp.chiavi, qualita:imp.qualita, prompt: largo ? promptLargo(descrizione, imp.stile) : promptBase(descrizione, imp.stile), misura: largo ? 'tv' : undefined,
       bozza: b64 => { L.anteprime.giorno = {url:'data:image/png;base64,' + b64, bozza:true}; disegnaLavoro(); }});
     const jpg = await inJpeg(b64aBlob(r.b64, r.mime));
     p.immagini.giorno = await caricaLuce(casa, p, 'giorno', jpg);
     L.anteprime.giorno = {url:p.immagini.giorno}; passo('giorno', 'fatto', 'Giorno'); L.p = p;
     aggiornaInLibreria(p);
-    const misura = m.fornitore === 'openai' ? r.misura : null;
+    const misura = largo ? 'tv' : m.fornitore === 'openai' ? r.misura : null;
     const conTv = imp.tv !== false, descEst = conTv && $('#creaEst') ? $('#creaEst').value.trim() : '';
     await faiLuci(p, jpg, ['alba','tramonto','notte'].filter(o => imp.luci[o]), misura, {conTv});
     aggiornaInLibreria(p);
@@ -1333,6 +1356,9 @@ function disegnaImpostazioni(){
       <div class="pannello" style="margin-top:10px">
         ${cursore('staccato', 'livelli', 'Schermo staccato dal muro', 0, 10, a.staccato || 0, a.staccato ? a.staccato + ' cm' : 'appoggiato')}
         <p class="nota" style="margin:0 0 6px">Quanti centimetri c'è fra la fine del muro e lo schermo. Staccato, il paesaggio riempie anche lo schermo intorno al foro: spostandoti ne scopri un po' oltre i bordi, come da una finestra vera. Allinea sempre la cornice tratteggiata al foro, guardando di fronte.</p></div>
+      ${a.n === 2 ? `<div class="pannello" style="margin-top:10px">
+        ${cursore('fra', 'bifora', 'Fra le due finestrelle', -15, 15, a.fra, testoFra(a.fra))}
+        <p class="nota" style="margin:0 0 6px">Con i paesaggi larghi ogni finestrella mostra un pezzo diverso dello stesso panorama, con l'elemento principale nel mezzo: dal centro della stanza resta nascosto, avvicinandoti a una finestrella lo scopri. Questo è quanto panorama hanno in comune le due finestrelle viste di fronte (consigliato: 5 cm in comune). I paesaggi verticali di prima restano uguali su tutte e due.</p></div>` : ''}
       ${fori}
       <div class="pannello" style="margin-top:10px">
         ${cursore('zoom', 'lente', 'Ingrandisci', 100, 200, Math.round(scena.zoom * 100), Math.round(scena.zoom * 100) + '%')}
@@ -1356,6 +1382,7 @@ function disegnaImpostazioni(){
   legaCursore('luceGiorno', (v, o) => { o.textContent = v + '%'; cambia({luceGiorno: v}, false); });
   legaCursore('luceNotte', (v, o) => { o.textContent = v + '%'; cambia({luceNotte: v}, false); });
   legaCursore('staccato', (v, o) => { o.textContent = v ? v + ' cm' : 'appoggiato'; assetto = assettoOPredefinito(); assetto.staccato = v; mandaFori(); });
+  if (a.n === 2) legaCursore('fra', (v, o) => { o.textContent = testoFra(v); assetto = assettoOPredefinito(); assetto.fra = v; mandaFori(); });
   legaCursore('zoom', (v, o) => { o.textContent = v + '%'; cambia({zoom: v / 100}, false); });
   legaCursore('vx', (v, o) => { o.textContent = v; cambia({vx: v / 100}, false); });
   let tOcchio = null;
@@ -1465,7 +1492,7 @@ const AZIONI = {
       const manca = cosaManca(p), luci = ['alba','tramonto','notte'].filter(o => manca.includes(o));
       const foto = await (await fetch(p.immagini.giorno)).blob(), mis = await misuraDi(foto);
       /* come quando si crea: con la vista per il TV, all'alba il sole si vede solo nel TV (mai due soli) */
-      if (luci.length){ await faiLuci(p, foto, luci, m.fornitore === 'openai' ? mis.openai : null, {conTv: true}); aggiornaInLibreria(p); }
+      if (luci.length){ await faiLuci(p, foto, luci, m.fornitore === 'openai' ? mis.openai : mis.largo ? 'tv' : null, {conTv: true}); aggiornaInLibreria(p); }
       if (!p.immagini.profondita){ await faiProfondita(p, foto); aggiornaInLibreria(p); }
       if (manca.includes('tv')){ try { await faiVistaEst(p, foto, desc, luci.includes('alba')); aggiornaInLibreria(p); } catch(e) { passo('est-giorno', 'errore', 'TV · vista verso est: ' + e.message); segnala(e); } }
       if (manca.includes('cielo')){ await faiCieli(p); aggiornaInLibreria(p); }
