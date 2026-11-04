@@ -223,12 +223,30 @@ function rumoreBianco(x, sec = 3){
   for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
   return b;
 }
+/* ⚠ 4/11: la pioggia fatta qui era rumore bianco filtrato: un soffio continuo che si scambiava per vento
+   (Maurizio: «il rumore del vento anche al minimo è troppo forte»). Ora: tante gocce che cadono a caso, ognuna
+   un piccolo «tic» smorzato con la sua nota, sopra un fruscio basso e morbido; e molto più piano */
+function pioggiaGocce(x, sec = 8){
+  const n = x.sampleRate * sec, b = x.createBuffer(2, n, x.sampleRate);
+  for (let ch = 0; ch < 2; ch++){
+    const d = b.getChannelData(ch);
+    let v = 0, w = 0;
+    for (let i = 0; i < n; i++){ v = v * .985 + (Math.random() * 2 - 1) * .02; w = w * .6 + v * .4; d[i] = (v - w) * 1.6; }   /* fruscio rosa-marrone, senza i bassi */
+    const gocce = Math.round(sec * 900);
+    for (let k = 0; k < gocce; k++){
+      const i0 = Math.floor(Math.random() * n), amp = Math.pow(Math.random(), 3) * .5, f = 1500 + Math.random() * 5000, dec = .0006 + Math.random() * .0025;
+      const len = Math.floor(dec * 5 * x.sampleRate), om = 2 * Math.PI * f / x.sampleRate;
+      for (let j = 0; j < len; j++){ const ii = (i0 + j) % n; d[ii] += Math.sin(om * j) * amp * Math.exp(-j / (dec * x.sampleRate)); }
+    }
+    for (let i = 0; i < 2000; i++){ const k = i / 2000, j = n - 2000 + i; d[j] = d[j] * (1 - k) + d[i] * k; }
+  }
+  return b;
+}
 function sintPioggia(x, uscita){
-  const s = x.createBufferSource(); s.buffer = rumoreBianco(x); s.loop = true;
-  const hp = x.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 900;
-  const lp = x.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 7000;
-  const g = x.createGain(); g.gain.value = .35;
-  s.connect(hp); hp.connect(lp); lp.connect(g); g.connect(uscita); s.start(); return s;
+  const s = x.createBufferSource(); s.buffer = pioggiaGocce(x); s.loop = true;
+  const lp = x.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 6500;
+  const g = x.createGain(); g.gain.value = .22;
+  s.connect(lp); lp.connect(g); g.connect(uscita); s.start(0, Math.random() * 7); return s;
 }
 /* rumore «marrone» (ogni campione parte dal precedente): il soffio cupo dell'aria, non il fruscio di una radio */
 function rumoreMarrone(x, sec = 6){
