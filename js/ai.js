@@ -161,13 +161,15 @@ const Ai = {
   async anima(o){
     if (!o.chiave) throw new Error('Serve la chiave Google (Gemini): mettila nelle Impostazioni.');
     const mv = MODELLI_VIDEO.find(m => m.id === o.modello) || MODELLI_VIDEO[0];
+    /* o.tv: la vista del TV, orizzontale 16:9 (4/11); se no le finestrelle, verticale 9:16 */
     const lato = mv.risoluzione === '1080p' ? [1080, 1920] : [720, 1280];
-    const rif = await adatta(o.foto, lato[0], lato[1], 'image/jpeg', .92, o.fuoco && o.fuoco.x != null ? o.fuoco.x : .5);   /* già verticale 9:16 */
+    if (o.tv) lato.reverse();
+    const rif = await adatta(o.foto, lato[0], lato[1], 'image/jpeg', .92, o.tv ? .5 : o.fuoco && o.fuoco.x != null ? o.fuoco.x : .5);
     const base = 'https://generativelanguage.googleapis.com/v1beta/interactions';
     const intest = {'Content-Type':'application/json', 'x-goog-api-key':o.chiave};
     const corpo = {model: mv.modello,
       input: [{type:'image', data: await this.inBase64(rif), mime_type:'image/jpeg'}, {type:'text', text:o.prompt}],
-      response_format: {type:'video', aspect_ratio:'9:16', resolution: mv.risoluzione},
+      response_format: {type:'video', aspect_ratio: o.tv ? '16:9' : '9:16', resolution: mv.risoluzione},
       background: true};
     o.progresso && o.progresso(2, 'invio');
     let r;

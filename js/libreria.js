@@ -135,6 +135,10 @@ const caricaCielo = (casa, p, ora, blob) => carica(casa, p, 'cielo-' + ora, blob
 const caricaFermo = (casa, p, ora, blob) => carica(casa, p, 'fermo-' + ora, blob, 'jpg');
 const caricaMaschera = (casa, p, ora, blob) => carica(casa, p, 'maschera-' + ora, blob, 'png');
 const caricaAnimazione = (casa, p, ora, blob) => carica(casa, p, 'anim-' + ora, blob, 'mp4');
+/* l'animazione della vista del TV (4/11): …_est-anim-giorno.mp4, …_est-fermo-giorno.jpg, …_est-maschera-giorno.png */
+const caricaEstAnimazione = (casa, p, ora, blob) => carica(casa, p, 'est-anim-' + ora, blob, 'mp4');
+const caricaEstFermo = (casa, p, ora, blob) => carica(casa, p, 'est-fermo-' + ora, blob, 'jpg');
+const caricaEstMaschera = (casa, p, ora, blob) => carica(casa, p, 'est-maschera-' + ora, blob, 'png');
 /* la vista per il TV: caricaEst(casa, p, 'giorno' | 'alba' | … | 'profondita', blob) → …_est-giorno.jpg */
 const caricaEst = (casa, p, parte, blob) => carica(casa, p, 'est-' + parte, blob, parte === 'profondita' ? 'png' : 'jpg');
 

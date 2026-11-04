@@ -13,6 +13,41 @@
    ═══════════════════════════════════════════════════════════════════════════ */
 const BARD_PRED = {rev:0, dove:'stanza', tempo:{acceso:true, volume:.6}, registrazioni:{}, sottofondo:null, volSottofondo:.6,
   musica:null, volMusica:.5, volEffetti:.8};
+/* ⚠ 4/11 · I LAMPI DEL TEMPORALE (Maurizio: «devono essere più casuali, non ogni X secondi sempre»).
+   Un temporale vero ha fasi: minuti agitati con lampi ravvicinati (a volte due o tre di fila), poi pause
+   lunghe; lampi lontani e deboli col tuono tardi e basso, lampi vicini forti col tuono quasi subito.
+   La sequenza è pseudo-casuale ma dipende solo dall'orologio: TV, finestrelle e telefono calcolano gli
+   stessi lampi negli stessi istanti, senza parlarsi (così il tuono suona una volta sola, giusto). */
+function bardRng(seme){ let s = seme >>> 0; return () => { s = (s + 0x6D2B79F5) >>> 0; let t = s; t = Math.imul(t ^ t >>> 15, t | 1); t ^= t + Math.imul(t ^ t >>> 7, t | 61); return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+const BARD_FINESTRA_LAMPI = 600000;   /* la sequenza si calcola a blocchi di 10 minuti */
+const _bardLampi = new Map();
+function bardLampi(blocco){
+  if (_bardLampi.has(blocco)) return _bardLampi.get(blocco);
+  const r = bardRng(blocco * 2654435761 + 97), inizio = blocco * BARD_FINESTRA_LAMPI, fine = inizio + BARD_FINESTRA_LAMPI, ev = [];
+  let t = inizio + r() * 6000, fase = 0, attivita = r();
+  while (t < fine){
+    if (t > fase){ attivita = Math.pow(r(), .8); fase = t + 50000 + r() * 130000; }      /* ogni 1-3 minuti il temporale cambia umore */
+    const media = 45000 - 37000 * attivita;                                                  /* da un lampo ogni 45 s a uno ogni 8 s, in media */
+    t += Math.max(1500, -Math.log(1 - r()) * media);                                         /* intervalli esponenziali: niente ritmo */
+    if (t >= fine) break;
+    const lontano = r() < .35, forza = lontano ? .25 + r() * .3 : .7 + r() * .5;
+    const lampo = {t: Math.round(t), forza, x: .08 + r() * .84, impulsi: 1 + Math.floor(r() * (lontano ? 2 : 4)), seme: Math.floor(r() * 1e9),
+      tuono: lontano ? 4 + r() * 6 : .4 + r() * 2.6, volTuono: lontano ? .3 + r() * .25 : .7 + r() * .3};
+    ev.push(lampo);
+    if (!lontano && r() < .3){ const t2 = t + 400 + r() * 2200; ev.push(Object.assign({}, lampo, {t: Math.round(t2), forza: forza * (.6 + r() * .5), x: Math.min(.92, Math.max(.08, lampo.x + (r() - .5) * .3)), seme: Math.floor(r() * 1e9), tuono: lampo.tuono + .3, volTuono: lampo.volTuono * .8})); t = t2; }
+  }
+  if (_bardLampi.size > 6) _bardLampi.delete(_bardLampi.keys().next().value);
+  _bardLampi.set(blocco, ev);
+  return ev;
+}
+/** i lampi fra `da` e `a` (ms dell'orologio), con l'intensità del temporale (0..1): meno intenso = se ne saltano un po' */
+function bardLampiFra(da, a, intensita = .75){
+  const out = [];
+  for (let b = Math.floor(da / BARD_FINESTRA_LAMPI); b <= Math.floor(a / BARD_FINESTRA_LAMPI); b++)
+    for (const l of bardLampi(b)) if (l.t > da && l.t <= a && (l.seme % 1000) / 1000 < .45 + .55 * intensita) out.push(l);
+  return out;
+}
+
 /* quanto vento c'è con ogni tempo, se il telefono lo lascia «auto» */
 const BARD_VENTO = {sereno:.12, nuvoloso:.28, nebbia:.08, pioggia:.32, temporale:.8, neve:.38};
 
@@ -119,7 +154,8 @@ class LettoreBard {
     const m = sc.meteo || 'sereno', k = sc.intensita == null ? .75 : sc.intensita;
     const pioggia = !acceso ? 0 : m === 'pioggia' ? .25 + .75 * k : m === 'temporale' ? Math.max(.8, k) : 0;
     const neve = !acceso ? 0 : m === 'neve' ? .3 + .5 * k : 0;
-    const vento = !acceso ? 0 : (sc.vento == null ? (BARD_VENTO[m] || .15) : sc.vento) * (m === 'nebbia' ? .6 : 1);
+    /* il vento cresce piano: «Calmo» quasi non si sente, «Forte» si sente bene (4/11: prima era lineare e troppo alto) */
+    const vento = !acceso ? 0 : Math.pow((sc.vento == null ? (BARD_VENTO[m] || .15) : sc.vento) * (m === 'nebbia' ? .6 : 1), 1.7) * .7;
     const strato = (id, v, sint) => v > .02 ? this._loop('t-' + id, 'tempo', 't:' + id + (reg[id] ? '' : ':sint'), reg[id] || null, v, reg[id] ? null : sint) : this._ferma('t-' + id);
     strato(m === 'temporale' ? 'temporale' : 'pioggia', pioggia, sintPioggia);
     this._ferma('t-' + (m === 'temporale' ? 'pioggia' : 'temporale'));
@@ -127,21 +163,24 @@ class LettoreBard {
     strato('vento', vento, sintVento);
   }
   /** un lampo (dalle finestre o dal telefono): il tuono arriva dopo, più o meno lontano */
-  tuono(ritardo){
+  tuono(ritardo, volume){
     if (!this.attivo || !(this.stato.tempo && this.stato.tempo.acceso)) return;
     const reg = this.stato.registrazioni || {}, quali = ['tuono1', 'tuono2', 'tuono3'].filter(t => reg[t]);
     const t = quali[Math.floor(Math.random() * quali.length)];
     const dopo = ritardo != null ? ritardo : 1 + Math.random() * 1.8;
-    this._colpo('t:' + (t || 'tuono:sint'), t ? reg[t] : null, .7 + Math.random() * .3, 'tempo', dopo, t ? null : sintTuono);
+    /* lontano: più basso e più cupo (i bassi arrivano, gli schiocchi no) */
+    const vol = volume != null ? volume : .7 + Math.random() * .3;
+    this._colpo('t:' + (t || 'tuono:sint'), t ? reg[t] : null, vol, 'tempo', dopo, t ? null : (x, g, q) => sintTuono(x, g, q, vol < .6));
   }
   _ogniTanto(){
     if (!this.attivo || !this.ctx) return;
     const sc = this.scena || {}, ora = Date.now(), reg = this.stato.registrazioni || {};
     const vento = sc.vento == null ? (BARD_VENTO[sc.meteo] || 0) : sc.vento;
+    /* sul telefono (senza finestre) i tuoni seguono gli stessi lampi delle finestre */
     if (this.tuoniDaSoli && sc.meteo === 'temporale' && sc.acceso !== false){
-      if (!this.prossimoTuono) this.prossimoTuono = ora + 4e3 + Math.random() * 11e3;
-      else if (ora > this.prossimoTuono){ this.tuono(); this.prossimoTuono = 0; }
-    }
+      const da = this.ultimoControllo || ora; this.ultimoControllo = ora;
+      for (const l of bardLampiFra(da, ora, sc.intensita == null ? .75 : sc.intensita)) this.tuono(l.tuono, l.volTuono);
+    } else this.ultimoControllo = 0;
     if (this.stato.tempo && this.stato.tempo.acceso && sc.acceso !== false && vento > .6 && reg.raffica){
       if (!this.prossimaRaffica) this.prossimaRaffica = ora + 15e3 + Math.random() * 30e3;
       else if (ora > this.prossimaRaffica){ this._colpo('t:raffica', reg.raffica, .5 + .4 * Math.random(), 'tempo'); this.prossimaRaffica = 0; }
@@ -191,22 +230,51 @@ function sintPioggia(x, uscita){
   const g = x.createGain(); g.gain.value = .35;
   s.connect(hp); hp.connect(lp); lp.connect(g); g.connect(uscita); s.start(); return s;
 }
-function sintVento(x, uscita){
-  const s = x.createBufferSource(); s.buffer = rumoreBianco(x, 4); s.loop = true;
-  const bp = x.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 420; bp.Q.value = .8;
-  const lfo = x.createOscillator(), prof = x.createGain(); lfo.frequency.value = .09; prof.gain.value = 260;
-  lfo.connect(prof); prof.connect(bp.frequency); lfo.start();
-  const g = x.createGain(); g.gain.value = .5;
-  s.connect(bp); bp.connect(g); g.connect(uscita); s.start();
-  const stop = s.stop.bind(s); s.stop = t => { stop(t); try { lfo.stop(t); } catch(e) {} };
-  return s;
+/* rumore «marrone» (ogni campione parte dal precedente): il soffio cupo dell'aria, non il fruscio di una radio */
+function rumoreMarrone(x, sec = 6){
+  const b = x.createBuffer(1, x.sampleRate * sec, x.sampleRate), d = b.getChannelData(0);
+  let v = 0;
+  for (let i = 0; i < d.length; i++){ v = (v + (Math.random() * 2 - 1) * .02) * .998; d[i] = v * 3.2; }
+  /* il giro si chiude senza scatto: le ultime 2000 si sfumano nelle prime */
+  for (let i = 0; i < 2000; i++){ const k = i / 2000, j = d.length - 2000 + i; d[j] = d[j] * (1 - k) + d[i] * k; }
+  return b;
 }
-function sintTuono(x, uscita, quando){
-  const s = x.createBufferSource(); s.buffer = rumoreBianco(x, 5);
-  const lp = x.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 160;
-  const g = x.createGain(); g.gain.setValueAtTime(0, quando); g.gain.linearRampToValueAtTime(1.4, quando + .08);
-  g.gain.exponentialRampToValueAtTime(.4, quando + .9); g.gain.exponentialRampToValueAtTime(.001, quando + 4.5);
-  s.connect(lp); lp.connect(g); g.connect(uscita); s.start(quando); s.stop(quando + 5);
+/* ⚠ 4/11 · IL VENTO (Maurizio: «anche al minimo è troppo forte e comunque poco realistico»). Prima: rumore bianco
+   filtrato con un'onda lenta sempre uguale — un fruscio. Ora: un soffio cupo (rumore marrone) che sale e scende a
+   raffiche irregolari, e solo nelle raffiche più forti un ululato leggero che cambia nota; molto più basso. */
+function sintVento(x, uscita){
+  const s = x.createBufferSource(); s.buffer = rumoreMarrone(x); s.loop = true;
+  const lp = x.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 380; lp.Q.value = .5;
+  const corpo = x.createGain(); corpo.gain.value = .25;
+  const bp = x.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 520; bp.Q.value = 7;
+  const ulu = x.createGain(); ulu.gain.value = 0;
+  s.connect(lp); lp.connect(corpo); corpo.connect(uscita);
+  s.connect(bp); bp.connect(ulu); ulu.connect(uscita);
+  s.start(0, Math.random() * 5);
+  /* le raffiche: ogni 1,5-5 s un nuovo «quanto soffia», raggiunto piano; ogni tanto una raffica vera */
+  let raffica = .4;
+  const giro = () => {
+    const t = x.currentTime, r = Math.random();
+    raffica = Math.max(.12, Math.min(1, raffica * .55 + (r < .12 ? .85 + Math.random() * .15 : Math.random() * .6) * .45 + .1));
+    const dur = 1.5 + Math.random() * 3.5, tc = dur / 3;
+    corpo.gain.setTargetAtTime(.1 + .3 * raffica, t, tc);
+    lp.frequency.setTargetAtTime(220 + 420 * raffica, t, tc);
+    ulu.gain.setTargetAtTime(raffica > .7 ? (raffica - .7) * .35 : 0, t, tc);
+    bp.frequency.setTargetAtTime(380 + 520 * raffica + Math.random() * 120, t, tc * 1.4);
+    voce.prossimo = setTimeout(giro, dur * 1000);
+  };
+  const voce = {prossimo: 0, stop(t){ clearTimeout(voce.prossimo); try { s.stop(t); } catch(e) {} }};
+  giro();
+  return voce;
+}
+function sintTuono(x, uscita, quando, lontano = false){
+  const s = x.createBufferSource(); s.buffer = rumoreBianco(x, 7);
+  const lp = x.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = lontano ? 90 : 170;
+  const g = x.createGain(), dur = lontano ? 6.5 : 4.5;
+  /* vicino: lo schiocco e poi il rotolare; lontano: solo un brontolio che sale piano */
+  g.gain.setValueAtTime(0, quando); g.gain.linearRampToValueAtTime(lontano ? .7 : 1.4, quando + (lontano ? .9 : .08));
+  g.gain.exponentialRampToValueAtTime(lontano ? .35 : .4, quando + (lontano ? 2.2 : .9)); g.gain.exponentialRampToValueAtTime(.001, quando + dur);
+  s.connect(lp); lp.connect(g); g.connect(uscita); s.start(quando); s.stop(quando + dur + .5);
 }
 
 /* ── la libreria di Bard nel deposito della stanza: tutto nel nome del file ──

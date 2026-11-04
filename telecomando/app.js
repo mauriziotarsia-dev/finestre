@@ -850,21 +850,22 @@ async function faiVistaEst(p, fotoNord, descrizione, conSole){
   aggiornaInLibreria(p);
   await faiProfondita(p, jpg, true);
 }
-async function faiAnimazione(p, foto, ora, elementi){
+async function faiAnimazione(p, foto, ora, elementi, tv = false){
+  const pre = tv ? 'est-' : '', eti = tv ? 'TV · ' : '';
   const mv = MODELLI_VIDEO.find(m => m.id === imp.video.modello) || MODELLI_VIDEO[0];
-  passo('anim', 'ora', `Animazione con ${mv.nome}: in coda…`); lavoro.av = 0;
-  const mp4 = await Ai.anima({chiave:imp.chiavi.google, modello:mv.id, foto, fuoco:p.fuoco, prompt:promptAnima(elementi, imp.video.secondi),
-    progresso:(pc, st) => { lavoro.av = pc; passo('anim', 'ora', `Animazione con ${mv.nome}: ${st === 'invio' ? 'la mando' : st === 'scarico' ? 'la scarico' : 'la sta girando'}… ${Math.round(pc)}%`); }});
+  passo('anim', 'ora', `${eti}Animazione con ${mv.nome}: in coda…`); lavoro.av = 0;
+  const mp4 = await Ai.anima({chiave:imp.chiavi.google, modello:mv.id, foto, fuoco:p.fuoco, tv, prompt:promptAnima(elementi, imp.video.secondi),
+    progresso:(pc, st) => { lavoro.av = pc; passo('anim', 'ora', `${eti}Animazione con ${mv.nome}: ${st === 'invio' ? 'la mando' : st === 'scarico' ? 'la scarico' : 'la sta girando'}… ${Math.round(pc)}%`); }});
   passo('anim', 'ora', 'Animazione: la salvo…');
-  p.animati[ora] = await caricaAnimazione(casa, p, ora, mp4);
+  p.animati[pre + ora] = tv ? await caricaEstAnimazione(casa, p, ora, mp4) : await caricaAnimazione(casa, p, ora, mp4);
   lavoro.av = null; passo('anim', 'fatto', 'Animazione (' + imp.video.secondi + ' s, in loop)');
   /* subito: che cosa resta fermo e che cosa si muove (così le finestre non tremano mai); il video a piena
      qualità lo rifà poi il Raspberry, con calma */
   passo('fermo', 'ora', 'Animazione: separo quello che si muove da quello che sta fermo…');
   try {
     const r = await Fermo.analizza(mp4, pc => passo('fermo', 'ora', `Animazione: separo quello che si muove da quello che sta fermo… ${Math.round(pc)}%`));
-    p.immagini['fermo-' + ora] = await caricaFermo(casa, p, ora, r.fermo);
-    p.immagini['maschera-' + ora] = await caricaMaschera(casa, p, ora, r.maschera);
+    p.immagini[pre + 'fermo-' + ora] = tv ? await caricaEstFermo(casa, p, ora, r.fermo) : await caricaFermo(casa, p, ora, r.fermo);
+    p.immagini[pre + 'maschera-' + ora] = tv ? await caricaEstMaschera(casa, p, ora, r.maschera) : await caricaMaschera(casa, p, ora, r.maschera);
     passo('fermo', 'fatto', `Paesaggio fermo, ${r.parteViva > .01 ? 'vivo dove si muove davvero (' + Math.round(r.parteViva * 100) + '%)' : 'nessuna parte viva oltre al cielo'}`);
   } catch(e) { passo('fermo', 'errore', 'Separazione non riuscita (la farà il Raspberry): ' + e.message); }
 }
@@ -1480,6 +1481,7 @@ const AZIONI = {
     apriFoglio(`<h3 style="font:500 16px var(--display);letter-spacing:.12em;text-transform:uppercase;margin:4px 0 4px">Anima «${esc(p.nome)}»</h3>
       <p class="nota" style="margin-top:0">${esc(mv.nome)} gira un breve video dall'immagine, con la camera ferma; le finestre lo ripetono in loop sfumando la fine nell'inizio.</p>
       ${titolo('nuvola', 'Che cosa si muove')}<div class="pillole" id="animEl">${ELEMENTI.map(([e, ic, t]) => `<button class="pillola" data-fai="elemento" data-v="${e}" aria-pressed="${imp.elementi.includes(e)}">${icona(ic, 15)}${t}</button>`).join('')}</div><p class="nota">${ELEMENTI_FINESTRA}</p>
+      ${p.immagini['est-giorno'] ? `<div class="sezione">${titolo('tv', 'Quale vista')}<div class="segmenti" id="animVista"><button data-fai="animLuce" data-v="nord" aria-pressed="true">Finestrelle</button><button data-fai="animLuce" data-v="tv" aria-pressed="false">TV</button></div></div>` : ''}
       <div class="sezione">${titolo('orologio', 'Quale luce')}<div class="segmenti" id="animLuce">${luci.map((o, i) => `<button data-fai="animLuce" data-v="${o}" aria-pressed="${i === 0}">${NOME_ORA[o]}</button>`).join('')}</div></div>
       <button class="btn oro piena" style="margin-top:14px" data-fai="animaVia" data-v="${p.id}">${icona('anima', 18)}Anima · ${imp.video.secondi} s · ≈ ${euro(mv.euroSecondo * imp.video.secondi)}</button>
       <p class="nota">Modello e durata si cambiano nelle Impostazioni. Ci vogliono alcuni minuti: tieni il telefono acceso.</p>
@@ -1491,10 +1493,14 @@ const AZIONI = {
     const p = libreria.find(x => x.id === v); if (!p) return;
     if (!imp.chiavi.google){ avviso('Serve la chiave Google (Gemini) nelle Impostazioni.', true); return; }
     const ora = ($('#animLuce [aria-pressed="true"]') || {}).dataset?.v || 'giorno';
+    /* la vista del TV (4/11: «non vedo il movimento degli alberi nel TV»): un video orizzontale dalla sua immagine */
+    const tv = (($('#animVista [aria-pressed="true"]') || {}).dataset?.v) === 'tv';
+    const img = tv ? (p.immagini['est-' + ora] || p.immagini['est-giorno']) : p.immagini[ora];
+    const oraV = tv && !p.immagini['est-' + ora] ? 'giorno' : ora;
     await conLavoro('anima', async L => {
-      L.p = p; L.anteprime[ora] = {url:p.immagini[ora]};
-      const foto = await (await fetch(p.immagini[ora])).blob();
-      await faiAnimazione(p, foto, ora, imp.elementi); aggiornaInLibreria(p);
+      L.p = p; L.anteprime[oraV] = {url:img};
+      const foto = await (await fetch(img)).blob();
+      await faiAnimazione(p, foto, oraV, imp.elementi, tv); aggiornaInLibreria(p);
     });
   },
   elemento: (v, b) => { const i = imp.elementi.indexOf(v); if (i >= 0) imp.elementi.splice(i, 1); else imp.elementi.push(v); salvaImp(); b.setAttribute('aria-pressed', String(i < 0)); },

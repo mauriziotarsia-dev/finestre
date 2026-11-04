@@ -165,13 +165,15 @@ vec3 paesaggio(sampler2D img, sampler2D dep, vec4 crop, vec4 cropD, float haDep,
        conto suo. Ora il vento passa a raffiche che attraversano il paesaggio come onde, le chiome si piegano
        insieme a gruppi (rami) e le foglie tremano fini; i vicini si muovono di più dei lontani: da 1-2 pixel
        da 2-4 pixel col sereno a 8-9 col temporale (su un foro alto 1000). Solo dove c'è verde, mai nel cielo. */
-    float vicino = smoothstep(.1, .4, n);
+    /* 4/11 (Maurizio: «non vedo il movimento degli alberi nel paesaggio TV»): sul TV gli alberi sono quasi tutti a
+       media distanza; prima si muovevano solo i vicinissimi. Ora anche quelli a metà strada, un po' di più */
+    float vicino = smoothstep(.05, .32, n);
     vec4 vt = uHaVento > .5 ? texture2D(uVentoT, vec2(vUv.x, 1. - vUv.y)) : vec4(.5, .5, 0., 0.);
     if (vicino > .01 && vt.b > .01){
       float verde = fogliame(c) * vicino;   /* anche gli ulivi grigio-verdi e i cipressi scuri; non la pietra, non la nebbia */
       /* ⚠ 30/10: il vento (raffiche e rami) arriva già calcolato a un quarto di risoluzione: sul Raspberry
          calcolarlo per ogni pixel costava un terzo delle immagini al secondo */
-      float px = (3.5 + 8.5 * n) * (.55 + uVento * 1.4) * vt.b;
+      float px = (4.8 + 8.5 * n) * (.6 + uVento * 1.4) * vt.b;
       vec2 d = vec2((vt.r - .5) * 2.2, (vt.g - .5) * .8) * px * (uPix.y / 1000.) / uPix;
       vec3 mosso = haF > .5 ? texture2D(fer, clamp(crop.xy + (p + d) * crop.zw, .0005, .9995)).rgb : fotoG(img, crop, p + d, gx, gy);
       /* la chioma si sposta davvero, anche oltre il suo contorno: dove adesso c'è un ramo spostato lo si disegna
@@ -300,12 +302,25 @@ void main(){
   }
 
   /* lampo: le nuvole si accendono da dentro (si vede la loro forma), poi il paesaggio ne prende il riflesso */
+  /* ⚠ 4/11 (Maurizio: «coi lampi sopra l'orizzonte si vedono dei puntini»): prima la luce del lampo moltiplicava
+     tutto, anche il crinale lontano dove cielo e alberi si mescolano, e ne esaltava la grana. Ora il cielo si
+     schiarisce per conto suo (bagliore dentro le nuvole, a velo) e la terra prende solo un riflesso moderato */
   if (uLampo > .001){
     float vicino = exp(-pow((uv.x - uLampoX) * 2.4, 2.)) * smoothstep(.75, .0, uv.y);
     float nub = .55 + .9 * texture2D(uMeteo, vUv).g;
-    float luce = uLampo * (.22 + .55 * sky * nub + .45 * vicino * sky * nub);
-    col = col * (1. + luce * 1.6) + vec3(.70, .76, .95) * luce * .16;
-    alfa = max(alfa, clamp(luce * .8, 0., 1.));
+    /* il cielo per il lampo dalla profondità sfocata (una riduzione 16 volte più piccola): il bordo segue il
+       crinale con una sfumatura larga invece di sgranarsi pixel per pixel */
+    float cieloL = sky;
+    if (uHaDep0 > .5){ float nb = texture2D(uDep0, clamp(uCropD0.xy + uv * uCropD0.zw, .0005, .9995), 2.5).r;
+      cieloL = smoothstep(.05, .012, nb) * smoothstep(.85, .45, uv.y); }
+    /* torri, alberi e crinali scuri restano sagome contro il cielo che si accende */
+    float lp = dot(col, vec3(.299, .587, .114));
+    float sagoma = smoothstep(.13, .27, lp);
+    float terra = uLampo * (.16 + .24 * vicino) * (1. - cieloL);
+    float bagliore = uLampo * cieloL * nub * (.5 + .6 * vicino) * sagoma;
+    col = col * (1. + terra * 1.2) + vec3(.62, .68, .86) * terra * .05;
+    col = mix(col, vec3(.86, .9, 1.) * (.62 + .45 * nub), clamp(bagliore * .62, 0., .75));
+    alfa = max(alfa, clamp((terra + bagliore) * .8, 0., 1.));
   }
 
   /* (pioggia e neve sono disegnate dopo, goccia per goccia e fiocco per fiocco: vedi PART_VERT) */
