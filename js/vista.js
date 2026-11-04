@@ -173,7 +173,8 @@ vec3 paesaggio(sampler2D img, sampler2D dep, vec4 crop, vec4 cropD, float haDep,
       float verde = fogliame(c) * vicino;   /* anche gli ulivi grigio-verdi e i cipressi scuri; non la pietra, non la nebbia */
       /* ⚠ 30/10: il vento (raffiche e rami) arriva già calcolato a un quarto di risoluzione: sul Raspberry
          calcolarlo per ogni pixel costava un terzo delle immagini al secondo */
-      float px = (4.8 + 8.5 * n) * (.6 + uVento * 1.4) * vt.b;
+      /* quanto si piegano (pixel su un foro alto 1000): calma 2-5, sereno 3-9, temporale 8-23 */
+      float px = (4.8 + 8.5 * n) * (.45 + uVento * 1.9) * vt.b;
       vec2 d = vec2((vt.r - .5) * 2.2, (vt.g - .5) * .8) * px * (uPix.y / 1000.) / uPix;
       vec3 mosso = haF > .5 ? texture2D(fer, clamp(crop.xy + (p + d) * crop.zw, .0005, .9995)).rgb : fotoG(img, crop, p + d, gx, gy);
       /* la chioma si sposta davvero, anche oltre il suo contorno: dove adesso c'è un ramo spostato lo si disegna
@@ -343,7 +344,7 @@ const VENTO_FRAG = `
 precision highp float;
 varying vec2 vUv;
 uniform vec4 uMap, uCropD, uCieloM;
-uniform float uT, uCieloX;
+uniform float uT, uCieloX, uVento;
 uniform sampler2D uAlberi, uCielo;
 float h1(vec2 p){ vec3 p3 = fract(vec3(p.xyx) * .1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
 float rumore(vec2 p){ vec2 i = floor(p), f = fract(p); f = f*f*(3.-2.*f);
@@ -373,10 +374,13 @@ void main(){
   float g2 = rumore(vec2(uv.x * 4.3 - uT * .47 + 7.3, uv.y * 1.7 + uT * .089 + 3.1));
   float g3 = rumore(vec2(uT * .021, 1.9));                       /* calme e momenti più ventosi, lenti */
   float onda = (g1 * .62 + g2 * .38) * mix(.75, 1.2, g3);
-  float raffica = mix(.3, 1., smoothstep(.42, .8, onda));
+  /* 4/11 (Maurizio: «anche senza vento gli alberi un poco si devono muovere, se no sembra una foto; col vento di più»):
+     anche nella calma piatta una brezza leggera; col vento i rami vanno più svelti e le foglie tremano di più */
+  float raffica = mix(.5, 1., smoothstep(.42, .8, onda));
+  float sv = .7 + uVento * 1.1;
   vec2 q = uv * vec2(11., 17.);
-  float fx = rumore(q + vec2(uT * .8, 0.)) - .5, fy = rumore(q * 1.3 + vec2(3.7, uT * .65)) - .5;
-  fx += (rumore(uv * vec2(34., 52.) + vec2(uT * 2.1, 1.3)) - .5) * .35;   /* foglie */
+  float fx = rumore(q + vec2(uT * .8 * sv, 0.)) - .5, fy = rumore(q * 1.3 + vec2(3.7, uT * .65 * sv)) - .5;
+  fx += (rumore(uv * vec2(34., 52.) + vec2(uT * 2.1 * sv, 1.3)) - .5) * (.3 + uVento * .3);   /* foglie */
   gl_FragColor = vec4(clamp(fx * .9 + .5, 0., 1.), clamp(fy * .9 + .5, 0., 1.), raffica * alberi, ombra);
 }`;
 
@@ -526,7 +530,7 @@ class Vista {
     this.pm = programma(VERT, METEO_FRAG, ['aPos']);
     this.um = posizioni(this.pm, ['uMap','uT','uVento']);
     this.pv = programma(VERT, VENTO_FRAG, ['aPos']);
-    this.uv = posizioni(this.pv, ['uMap','uT','uCropD','uCieloM','uCieloX','uAlberi','uCielo']);
+    this.uv = posizioni(this.pv, ['uMap','uT','uCropD','uCieloM','uCieloX','uAlberi','uCielo','uVento']);
     gl.useProgram(this.pv); gl.uniform1i(this.uv.uAlberi, 11); gl.uniform1i(this.uv.uCielo, 6);
     this.bianca = this.texture(); this.carica(this.bianca, new Uint8Array([255, 255, 255, 255]), 1, 1);
     this.vento = [];
@@ -763,7 +767,7 @@ class Vista {
         gl.bindFramebuffer(gl.FRAMEBUFFER, m.fb); gl.disable(gl.SCISSOR_TEST); gl.viewport(0, 0, m.w, m.h);
         lega(11, f0.aTex || this.bianca); lega(6, f0.cTex);
         gl.useProgram(this.pv);
-        gl.uniform4fv(this.uv.uMap, foro.map); gl.uniform1f(this.uv.uT, s.t);
+        gl.uniform4fv(this.uv.uMap, foro.map); gl.uniform1f(this.uv.uT, s.t); gl.uniform1f(this.uv.uVento, Math.max(0, Math.min(1, s.vento || 0)));
         gl.uniform4fv(this.uv.uCropD, v0 ? this.cropProfondita(f0, c0v) : c0v);
         gl.uniform4fv(this.uv.uCieloM, f0.cTex && !sp.has('cielo') ? f0.cm : [0,0,0,0]); gl.uniform1f(this.uv.uCieloX, s.cieloX || 0);
         gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
