@@ -173,9 +173,14 @@ vec3 paesaggio(sampler2D img, sampler2D dep, vec4 crop, vec4 cropD, float haDep,
       float verde = fogliame(c) * vicino;   /* anche gli ulivi grigio-verdi e i cipressi scuri; non la pietra, non la nebbia */
       /* ⚠ 30/10: il vento (raffiche e rami) arriva già calcolato a un quarto di risoluzione: sul Raspberry
          calcolarlo per ogni pixel costava un terzo delle immagini al secondo */
-      /* quanto si piegano (pixel su un foro alto 1000): calma 2-5, sereno 3-9, temporale 8-23 */
-      float px = (4.8 + 8.5 * n) * (.45 + uVento * 1.9) * vt.b;
-      vec2 d = vec2((vt.r - .5) * 2.2, (vt.g - .5) * .8) * px * (uPix.y / 1000.) / uPix;
+      /* quanto si muovono (pixel su un foro alto 1000). Due parti, alla stessa velocità con ogni vento:
+         · l'ondeggiare intorno alla posizione: 2-5 px nella calma, fino a 4-11 col vento forte;
+         · la spinta sottovento (verso dove vanno le nuvole): niente nella calma, fino a 10-24 px col vento forte,
+           più forte quando passa una raffica e meno fra una e l'altra: le chiome si piegano e tornano */
+      float amp = (4.8 + 8.5 * n) * vt.b;
+      vec2 osc = vec2((vt.r - .5) * 2.2, (vt.g - .5) * .8) * amp * (.45 + uVento * .55);
+      float spinta = amp * uVento * uVento * 2.;
+      vec2 d = (osc + vec2(spinta, spinta * .12)) * (uPix.y / 1000.) / uPix;
       vec3 mosso = haF > .5 ? texture2D(fer, clamp(crop.xy + (p + d) * crop.zw, .0005, .9995)).rgb : fotoG(img, crop, p + d, gx, gy);
       /* la chioma si sposta davvero, anche oltre il suo contorno: dove adesso c'è un ramo spostato lo si disegna
          (anche contro il cielo); dove la chioma se n'è andata si vede quello che c'era accanto, ma mai il cielo
@@ -374,13 +379,13 @@ void main(){
   float g2 = rumore(vec2(uv.x * 4.3 - uT * .47 + 7.3, uv.y * 1.7 + uT * .089 + 3.1));
   float g3 = rumore(vec2(uT * .021, 1.9));                       /* calme e momenti più ventosi, lenti */
   float onda = (g1 * .62 + g2 * .38) * mix(.75, 1.2, g3);
-  /* 4/11 (Maurizio: «anche senza vento gli alberi un poco si devono muovere, se no sembra una foto; col vento di più»):
-     anche nella calma piatta una brezza leggera; col vento i rami vanno più svelti e le foglie tremano di più */
+  /* 4/11 (Maurizio: «anche senza vento gli alberi un poco si devono muovere»; poi: «col vento forte devono piegarsi di
+     più, non andare più veloci»): la velocità dell'ondeggiare è sempre la stessa; il vento decide quanto si piegano
+     (nel disegno: la spinta sottovento più l'ondeggiare). Anche nella calma piatta resta una brezza leggera */
   float raffica = mix(.5, 1., smoothstep(.42, .8, onda));
-  float sv = .7 + uVento * 1.1;
   vec2 q = uv * vec2(11., 17.);
-  float fx = rumore(q + vec2(uT * .8 * sv, 0.)) - .5, fy = rumore(q * 1.3 + vec2(3.7, uT * .65 * sv)) - .5;
-  fx += (rumore(uv * vec2(34., 52.) + vec2(uT * 2.1 * sv, 1.3)) - .5) * (.3 + uVento * .3);   /* foglie */
+  float fx = rumore(q + vec2(uT * .8, 0.)) - .5, fy = rumore(q * 1.3 + vec2(3.7, uT * .65)) - .5;
+  fx += (rumore(uv * vec2(34., 52.) + vec2(uT * 2.1, 1.3)) - .5) * (.3 + uVento * .15);   /* foglie */
   gl_FragColor = vec4(clamp(fx * .9 + .5, 0., 1.), clamp(fy * .9 + .5, 0., 1.), raffica * alberi, ombra);
 }`;
 
@@ -610,6 +615,11 @@ class Vista {
       } catch(e) { /* nessun cielo panoramico per questo paesaggio */ }
     }
     if (video){ try { f.video = await apriVideo(video); f.vtex = this.texture(); } catch(e) { f.video = null; } }
+    /* cucito? cuci-animazione.py lascia accanto il file dell'AI, «…-originale.mp4» */
+    if (f.video){
+      try { const r = await fetch(video.split('?')[0].replace(/\.mp4$/, '-originale.mp4'), {method:'HEAD', cache:'no-store'}); f.cucito = r.ok; }
+      catch(e) { f.cucito = false; }
+    }
     /* fermo + maschera in una texture sola (rgb + a); se non ci sono, il video è già cucito */
     if (f.video && fermo && maschera && this.unita >= 10){
       try {
@@ -654,7 +664,11 @@ class Vista {
        (prima: un secondo e mezzo di dissolvenza, con due video da decodificare insieme sul Raspberry,
        e uccelli e nebbia che comparivano e sparivano). */
     /* video non ancora cucito: il giro sfuma più a lungo (solo nella nebbia e nel fumo, il resto è fermo) */
-    const [a, b] = f.video, D = a.duration || 0, coda = f.fTex ? Math.min(1, D * .15) : Math.min(.25, D * .05);
+    /* ⚠ 4/11 (Maurizio: «si capisce che c'è un loop per gli alberi, si percepisce lo stacco»): anche i video cuciti
+       hanno ora il loro fermo e la loro maschera (li rifà cuci-animazione.py), e qui si prendevano per video non
+       cuciti: un secondo di dissolvenza fra la fine e l'inizio, cioè due momenti diversi sovrapposti, e poi lo
+       scatto. Un video cucito si chiude già da sé: basta un passaggio di pochi fotogrammi */
+    const [a, b] = f.video, D = a.duration || 0, coda = f.cucito ? Math.min(.1, D * .02) : f.fTex ? Math.min(1, D * .15) : Math.min(.25, D * .05);
     if (D > 2 && a.currentTime > D - coda && b.paused){ b.currentTime = 0; b.play().catch(() => {}); }
     if (!b.paused){
       const k = Math.min(1, Math.max(0, (a.currentTime - (D - coda)) / coda));
