@@ -760,7 +760,12 @@ class Vista {
        hanno ora il loro fermo e la loro maschera (li rifà cuci-animazione.py), e qui si prendevano per video non
        cuciti: un secondo di dissolvenza fra la fine e l'inizio, cioè due momenti diversi sovrapposti, e poi lo
        scatto. Un video cucito si chiude già da sé: basta un passaggio di pochi fotogrammi */
-    const [a, b] = f.video, D = a.duration || 0, coda = f.cucito ? Math.min(.1, D * .02) : f.fTex ? Math.min(1, D * .15) : Math.min(.25, D * .05);
+    /* ⚠ 5/11 (Maurizio: «nelle finestrelle ogni circa 6 secondi è come se l'animazione ripartisse»): misurato, il video
+       cucito NON si chiude da sé: dall'ultimo al primo fotogramma la nebbia salta 10 volte più di un passo normale
+       (finestrelle abbazia 0,78 contro 0,08; TV 0,49 contro 0,07). Con 3 fotogrammi di passaggio il salto si vedeva.
+       Ora mezzo secondo (15 fotogrammi): il salto diventa più piccolo del movimento normale. Nel video cucito si
+       muovono solo nebbia, acqua e fumo (alberi e case sono fermi), quindi la sovrapposizione non si nota. */
+    const [a, b] = f.video, D = a.duration || 0, coda = f.cucito ? Math.min(.5, D * .08) : f.fTex ? Math.min(1, D * .15) : Math.min(.25, D * .05);
     if (D > 2 && a.currentTime > D - coda && b.paused){ b.currentTime = 0; b.play().catch(() => {}); }
     if (!b.paused){
       const k = Math.min(1, Math.max(0, (a.currentTime - (D - coda)) / coda));
