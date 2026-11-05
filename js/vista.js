@@ -124,6 +124,7 @@ vec3 paesaggio(sampler2D img, sampler2D imgB, float vk, sampler2D dep, vec4 crop
   /* video non ancora cucito: fermo dappertutto, video solo dove si muove davvero e solo dove è chiaro e poco
      colorato (nebbia, fumo, acqua che luccica: i cipressi scuri dentro un banco di nebbia restano fermi);
      il cielo dal video, se non c'è il panorama */
+  float vivoV = 0.;   /* quanto di questo punto viene dal video (con il fermo): serve alla nebbiolina */
   if (haF > .5){
     vec4 fb = texture2D(fer, clamp(crop.xy + p * crop.zw, .0005, .9995));
     float mx = max(fb.r, max(fb.g, fb.b)), mn = min(fb.r, min(fb.g, fb.b));
@@ -134,6 +135,7 @@ vec3 paesaggio(sampler2D img, sampler2D imgB, float vk, sampler2D dep, vec4 crop
        l'acqua e la nebbia vicine. */
     float vivo = max(fb.a * chiaro * smoothstep(.3, .45, n), cm.x > 0. ? 0. : sky);   /* 5/11: misurato, i salti del giro stanno fra 0,04 e 0,23 di profondità */
     c = mix(fb.rgb, c, vivo);
+    vivoV = vivo;
   }
   /* cielo che scorre: al posto del cielo dipinto, il panorama alla stessa scala dell'immagine, che si ripete
      ai lati e scorre all'infinito; verso l'orizzonte torna piano il cielo vero (la foschia sopra le colline) */
@@ -207,7 +209,7 @@ vec3 paesaggio(sampler2D img, sampler2D imgB, float vk, sampler2D dep, vec4 crop
        attraversano. Con la calma respira appena; col vento scorre di più verso dove vanno le nuvole (più strada,
        non più agitata). Vale per tutte le luci e per tutti i paesaggi, anche senza video. */
     float lm = dot(c, vec3(.299, .587, .114)), mxm = max(c.r, max(c.g, c.b));
-    float satm = (mxm - min(c.r, min(c.g, c.b))) / max(mxm, .01), sogliaM = mix(.4, .15, uNotte) - .14 * smoothstep(.05, .3, n);   /* 5/11: la nebbia vicina, in ombra, è più scura (grigio-azzurro ~0,35): prima restava fuori */
+    float satm = (mxm - min(c.r, min(c.g, c.b))) / max(mxm, .01), sogliaM = mix(.4, .15, uNotte) - .2 * smoothstep(.05, .3, n);   /* 5/11: la nebbia vicina, in ombra, è più scura (grigio-azzurro ~0,35): prima restava fuori */
     /* la nebbia è azzurrina o grigia (blu almeno quanto il rosso): la pietra chiara del castello, calda, resta ferma */
     float neb = smoothstep(sogliaM, sogliaM + .14, lm) * (1. - smoothstep(.13, .28, satm)) * smoothstep(-.03, .02, c.b - c.r) * (1. - smoothstep(.75, .95, n)) * (1. - sky) * uNebV;   /* 5/11: anche la nebbia in primo piano (Maurizio: «sotto l'abbazia sembra immobile») */
     if (neb > .01){
@@ -221,7 +223,9 @@ vec3 paesaggio(sampler2D img, sampler2D imgB, float vk, sampler2D dep, vec4 crop
       float f1 = fbm(q + vec2(0., uT * .07)), f2 = fbm(q * 1.7 + vec2(5.2, 1.3 - uT * .055));
       /* la nebbia si sposta davvero di qualche pixel (cambia forma ai bordi); si prende solo nebbia, mai un cipresso */
       vec2 dm = vec2((f1 - .5) * (11. + 8. * uVento) * (1. + 1.5 * vicinaM), (f2 - .5) * 3.6 * (1. + vicinaM)) * (uPix.y / 1000.) / uPix;
-      vec3 sm = haF > .5 ? texture2D(fer, clamp(crop.xy + (p + dm) * crop.zw, .0005, .9995)).rgb : fotoG(img, crop, p + dm, gx, gy);
+      /* ⚠ 5/11: dove la nebbia viene dal video si sposta il video, non il dipinto fermo (prima, sotto l'abbazia, la
+         nebbiolina copriva la nebbia mossa del video con una quasi ferma: misurato, il movimento calava di un terzo) */
+      vec3 sm = haF > .5 ? mix(texture2D(fer, clamp(crop.xy + (p + dm) * crop.zw, .0005, .9995)).rgb, fotoG(img, crop, p + dm, gx, gy), vivoV) : fotoG(img, crop, p + dm, gx, gy);
       float ls = dot(sm, vec3(.299, .587, .114)), mxs = max(sm.r, max(sm.g, sm.b)), sats = (mxs - min(sm.r, min(sm.g, sm.b))) / max(mxs, .01);
       float nebS = smoothstep(sogliaM, sogliaM + .14, ls) * (1. - smoothstep(.13, .28, sats));
       c = mix(c, sm, neb * nebS);
@@ -229,7 +233,7 @@ vec3 paesaggio(sampler2D img, sampler2D imgB, float vk, sampler2D dep, vec4 crop
       float velo = fbm(vec2(ti.x * mix(3.3, 2.2, vicinaM) - uT * va * 1.6, ti.y * mix(15., 8., vicinaM) + uT * .08)) * .65 + f2 * .35;
       float wv = smoothstep(.42, .75, velo);
       vec3 bianco = vec3(max(lm, ls)) * vec3(.97, .99, 1.03) * 1.2 + .03 * (1. - uNotte);
-      c = mix(c, bianco, neb * wv * .85);
+      c = mix(c, bianco, neb * wv * mix(.85, 1., vicinaM));
       c *= 1. - neb * (1. - wv) * (.14 + .12 * vicinaM);   /* fra un velo e l'altro la nebbia si dirada un poco: respira */
     }
   }
