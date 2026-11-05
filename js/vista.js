@@ -207,15 +207,15 @@ vec3 paesaggio(sampler2D img, sampler2D imgB, float vk, sampler2D dep, vec4 crop
        attraversano. Con la calma respira appena; col vento scorre di più verso dove vanno le nuvole (più strada,
        non più agitata). Vale per tutte le luci e per tutti i paesaggi, anche senza video. */
     float lm = dot(c, vec3(.299, .587, .114)), mxm = max(c.r, max(c.g, c.b));
-    float satm = (mxm - min(c.r, min(c.g, c.b))) / max(mxm, .01), sogliaM = mix(.4, .15, uNotte);
+    float satm = (mxm - min(c.r, min(c.g, c.b))) / max(mxm, .01), sogliaM = mix(.4, .15, uNotte) - .14 * smoothstep(.05, .3, n);   /* 5/11: la nebbia vicina, in ombra, è più scura (grigio-azzurro ~0,35): prima restava fuori */
     /* la nebbia è azzurrina o grigia (blu almeno quanto il rosso): la pietra chiara del castello, calda, resta ferma */
-    float neb = smoothstep(sogliaM, sogliaM + .18, lm) * (1. - smoothstep(.13, .28, satm)) * smoothstep(-.03, .02, c.b - c.r) * (1. - smoothstep(.75, .95, n)) * (1. - sky) * uNebV;   /* 5/11: anche la nebbia in primo piano (Maurizio: «sotto l'abbazia sembra immobile») */
+    float neb = smoothstep(sogliaM, sogliaM + .14, lm) * (1. - smoothstep(.13, .28, satm)) * smoothstep(-.03, .02, c.b - c.r) * (1. - smoothstep(.75, .95, n)) * (1. - sky) * uNebV;   /* 5/11: anche la nebbia in primo piano (Maurizio: «sotto l'abbazia sembra immobile») */
     if (neb > .01){
       vec2 ti = cropD.xy + p * cropD.zw;   /* coordinate dell'immagine intera: la nebbia non dipende dal taglio */
       float va = .022 + .04 * uVento;      /* quanto scorre la trama (sue unità al secondo): un banco attraversa sé stesso in 12-25 s (5/11: più viva) */
       /* 5/11 (Maurizio: «quella sotto è ancora poco viva»): la nebbia vicina scorre più svelta (come dal vero: più è
          vicina, più strada fa sullo schermo) e ha banchi più grandi e più contrastati */
-      float vicinaM = smoothstep(.2, .7, n);
+      float vicinaM = smoothstep(.1, .35, n);
       va *= 1. + 2.2 * vicinaM;
       vec2 q = vec2(ti.x * mix(2.4, 1.6, vicinaM) - uT * va, ti.y * mix(10., 6., vicinaM));
       float f1 = fbm(q + vec2(0., uT * .07)), f2 = fbm(q * 1.7 + vec2(5.2, 1.3 - uT * .055));
@@ -223,7 +223,7 @@ vec3 paesaggio(sampler2D img, sampler2D imgB, float vk, sampler2D dep, vec4 crop
       vec2 dm = vec2((f1 - .5) * (11. + 8. * uVento) * (1. + 1.5 * vicinaM), (f2 - .5) * 3.6 * (1. + vicinaM)) * (uPix.y / 1000.) / uPix;
       vec3 sm = haF > .5 ? texture2D(fer, clamp(crop.xy + (p + dm) * crop.zw, .0005, .9995)).rgb : fotoG(img, crop, p + dm, gx, gy);
       float ls = dot(sm, vec3(.299, .587, .114)), mxs = max(sm.r, max(sm.g, sm.b)), sats = (mxs - min(sm.r, min(sm.g, sm.b))) / max(mxs, .01);
-      float nebS = smoothstep(sogliaM, sogliaM + .18, ls) * (1. - smoothstep(.13, .28, sats));
+      float nebS = smoothstep(sogliaM, sogliaM + .14, ls) * (1. - smoothstep(.13, .28, sats));
       c = mix(c, sm, neb * nebS);
       /* veli: banchi più chiari, lunghi e bassi, che passano e si disfano */
       float velo = fbm(vec2(ti.x * mix(3.3, 2.2, vicinaM) - uT * va * 1.6, ti.y * mix(15., 8., vicinaM) + uT * .08)) * .65 + f2 * .35;
