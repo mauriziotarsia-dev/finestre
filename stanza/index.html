@@ -29,6 +29,10 @@ main{flex:1;min-height:0;display:flex;gap:28px;padding:20px;align-items:center;j
 iframe{position:absolute;inset:0;width:100%;height:100%;border:0;display:block}
 .avviso{padding:10px 20px;font-size:13.5px;color:var(--tenue);border-top:1px solid var(--bordo)}
 .avviso b{color:var(--crema);font-weight:500}
+/* 5/11 · ?solo=finestre: solo le due finestrelle, a tutto schermo e un po' separate (il Raspberry attaccato a un TV) */
+body.solo header,body.solo .avviso,body.solo .parete:first-child,body.solo .parete small{display:none}
+body.solo main{padding:2vh}
+body.solo .feritoia{height:94vh;height:94dvh}
 </style>
 </head>
 <body>
@@ -54,12 +58,14 @@ iframe{position:absolute;inset:0;width:100%;height:100%;border:0;display:block}
 const q = new URLSearchParams(location.search);
 const casa = q.get('casa') ? '&casa=' + encodeURIComponent(q.get('casa')) : '';
 const base = '../finestra/?';
+const solo = q.get('solo') === 'finestre';
+if (solo) document.body.classList.add('solo');
 /* prima il TV (entra nella stanza o mostra il QR), poi le finestrelle: trovano la stessa sessione già pronta */
-document.getElementById('tv').src = base + 'vista=est&sim=tv' + casa;
+if (!solo) document.getElementById('tv').src = base + 'vista=est&sim=tv' + casa;
 setTimeout(() => {
   document.getElementById('sx').src = base + 'lato=sinistra&sim=finestra' + casa;
   document.getElementById('dx').src = base + 'lato=destra&sim=finestra' + casa;
-}, 3500);
+}, solo ? 0 : 3500);
 const b = document.getElementById('suono');
 b.onclick = () => {
   for (const id of ['tv', 'sx', 'dx']) { const f = document.getElementById(id); try { f.contentWindow.postMessage({tipo: 'bardSblocca'}, location.origin); } catch(e) {} }
