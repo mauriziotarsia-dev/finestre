@@ -9,7 +9,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
 const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 const euro = n => (n < .1 ? n.toFixed(3) : n.toFixed(2)).replace('.', ',') + ' $';
-const VERSIONE = '5.6';
+const VERSIONE = '5.7';
 
 /* ── la casa ──────────────────────────────────────────────────────────────── */
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
@@ -35,8 +35,9 @@ history.replaceState(null, '', location.pathname + (casa || q.get('code') ? '?' 
 
 /* ── impostazioni ─────────────────────────────────────────────────────────── */
 const IMP_PRED = {modello:'openai:gpt-image-2', qualita:'alta', chiavi:{openai:'', google:'', pexels:'', elevenlabs:''},
-  video:{modello:'omni-720p', secondi:8}, stile:'painterly', luci:{alba:true, tramonto:true, notte:true}, anima:false, elementi:['alberi','acqua','fumo'], cielo:true, tv:true};
+  video:{modello:'omni-720p', secondi:8}, stile:'painterly', luci:{alba:true, tramonto:true, notte:true}, anima:false, elementi:['alberi','acqua'], cielo:true, tv:true};
 const imp = Object.assign({}, IMP_PRED, leggi('finestre-impostazioni', {}));
+imp.elementi = (imp.elementi || []).filter(e => e !== 'fumo');   /* 5/11: il fumo lo disegna la finestra */
 imp.chiavi = Object.assign({}, IMP_PRED.chiavi, imp.chiavi || {});
 imp.video = Object.assign({}, IMP_PRED.video, imp.video || {});
 if (!MODELLI_VIDEO.find(m => m.id === imp.video.modello)) imp.video.modello = 'omni-720p';
@@ -740,8 +741,10 @@ const LUCI = {
   notte:'Change only the time of day to night: a clear night lit by moonlight, deep blue tones, stars visible, very dark but readable shapes; if there are buildings, a few windows glow with warm candlelight.'
 };
 const ELEMENTI = [['nuvole','nuvola','Nuvole','clouds slowly drifting across the sky'], ['alberi','albero','Alberi','tree leaves and branches swaying softly in a light breeze'],
-  ['acqua','onda','Acqua','the river and water flowing and glittering naturally'], ['fumo','fiamma','Fumo','thin smoke rising slowly from the chimneys'],
+  ['acqua','onda','Acqua','the river and water flowing and glittering naturally'],
 ];
+/* ⚠ 5/11 · il fumo non si chiede più all'AI (Maurizio: ok): lo disegna la finestra dai comignoli, mai in loop e
+   piegato dal vento; nel video l'AI lo faceva uscire anche dal campanile e al giro saltava */
 /* ⚠ 30/10: nebbia e uccelli non si chiedono più all'AI. Nel video la nebbia nasce a metà e al giro sparisce,
    e gli uccelli compaiono in mezzo al cielo dal nulla (Maurizio: «compaiono e scompaiono dal nulla»).
    Li disegna la finestra: gli uccelli entrano da un bordo ed escono dall'altro, la nebbia è quella del meteo. */
@@ -797,7 +800,7 @@ ${LUCI_EST.giorno}`;
    Per questo il cielo è un'immagine panoramica a parte, che si ripete senza cuciture e la finestra fa scorrere
    all'infinito dietro torri e colline (anche da una trifora all'altra). Niente sole né luna: scorrerebbero. */
 const promptCielo = `Paint ONLY the sky of this image, as one very wide panoramic strip of sky. Same painting style, same light, same colors and the same kind of clouds as the sky in the image. No ground, no hills, no mountains, no buildings, no trees, no horizon line, no sun, no moon, no stars, no birds, no text, no frame, no border. Clouds spread across the whole width, varied in size and shape, with open sky between them. The bottom of the strip is the pale, hazy sky just above the horizon, the same color as the image right above the hills; the top is the deeper color of the top of the image's sky. Even lighting across the whole width, so the strip can repeat side by side.`;
-const promptAnima = (el, sec) => `[# Sources <FIRST_FRAME>@Image1 <LAST_FRAME>@Image1] A single continuous, unbroken shot of about ${sec} seconds, no scene cuts, of exactly this landscape. Locked-off static camera on a tripod: the camera does not move at all (no pan, no tilt, no zoom, no dolly, no shake). Gentle, natural, real-time motion only: ${el.map(e => (ELEMENTI.find(x => x[0] === e) || [])[3]).filter(Boolean).join('; ')}. Buildings, towers, rocks, mountains, fields and the ground stay perfectly still and identical in every frame, with no shimmering. Everything that moves keeps the same slow speed and direction for the whole clip. No birds, no mist or fog appearing, growing or fading, no new clouds popping in, no light change. Same framing, light and colors as the image for the whole clip. No people, no animals, no text, no dialogue, no music. Use this image as the first frame and the last frame.`;
+const promptAnima = (el, sec) => `[# Sources <FIRST_FRAME>@Image1 <LAST_FRAME>@Image1] A single continuous, unbroken shot of about ${sec} seconds, no scene cuts, of exactly this landscape. Locked-off static camera on a tripod: the camera does not move at all (no pan, no tilt, no zoom, no dolly, no shake). Gentle, natural, real-time motion only: ${el.map(e => (ELEMENTI.find(x => x[0] === e) || [])[3]).filter(Boolean).join('; ')}. Buildings, towers, rocks, mountains, fields and the ground stay perfectly still and identical in every frame, with no shimmering. Everything that moves keeps the same slow speed and direction for the whole clip. No birds, no smoke from chimneys, towers or anywhere, no mist or fog appearing, growing or fading, no new clouds popping in, no light change. Same framing, light and colors as the image for the whole clip. No people, no animals, no text, no dialogue, no music. Use this image as the first frame and the last frame.`;
 
 /* un lavoro lungo alla volta (creare, animare, aggiungere luci): i passi si vedono dove serve */
 let lavoro = null;
