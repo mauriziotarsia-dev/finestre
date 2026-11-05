@@ -224,28 +224,27 @@ vec3 paesaggio(sampler2D img, sampler2D imgB, float vk, sampler2D dep, vec4 crop
        non più agitata). Vale per tutte le luci e per tutti i paesaggi, anche senza video. */
     /* ⚠ 5/11: si decide dov'è la nebbia guardando l'immagine sfocata (livello ridotto della mipmap): sui prati e sui
        cespugli grigi l'immagine nitida dava una maschera a puntini, e i veli diventavano granelli che sfarfallavano */
-    vec3 cbm = haF > .5 ? fotoL(fer, crop, p, 4.) : fotoL(img, crop, p, 4.);
-    float nB = haDep > .5 ? fotoL(dep, cropD, p, 4.).r : n;   /* anche la profondità sfocata: quella nitida è granulosa e la soglia saltava da un pixel all'altro */
+    vec3 cbm = haF > .5 ? fotoL(fer, crop, p, 2.) : fotoL(img, crop, p, 2.);
+    float nB = haDep > .5 ? fotoL(dep, cropD, p, 1.).r : n;   /* anche la profondità sfocata: quella nitida è granulosa e la soglia saltava da un pixel all'altro */
     float lm = dot(cbm, vec3(.299, .587, .114)), mxm = max(cbm.r, max(cbm.g, cbm.b));
     float satm = (mxm - min(cbm.r, min(cbm.g, cbm.b))) / max(mxm, .01), sogliaM = mix(.4, .15, uNotte) - .2 * smoothstep(.05, .3, nB);   /* 5/11: la nebbia vicina, in ombra, è più scura (grigio-azzurro ~0,35): prima restava fuori */
     /* la nebbia è azzurrina o grigia (blu almeno quanto il rosso): la pietra chiara del castello, calda, resta ferma */
     float neb = smoothstep(sogliaM - .06, sogliaM + .22, lm) * (1. - smoothstep(.1, .34, satm)) * smoothstep(-.05, .03, cbm.b - cbm.r) * (1. - smoothstep(.75, .95, nB)) * (1. - (haDep > .5 ? smoothstep(.03, .006, nB) * smoothstep(.85, .45, p.y) : sky)) * uNebV;   /* cielo anche lui dalla profondità sfocata: sulle colline lontane quella nitida faceva fiocchi */   /* 5/11: anche la nebbia in primo piano (Maurizio: «sotto l'abbazia sembra immobile») */
     neb = min(1., neb * 1.5);   /* 5/11 (Maurizio: «le nebbioline mi sembrano ferme davanti e dietro»): più decisa */
+    /* ⚠ 5/11: la maschera sfocata «sborda» di qualche pixel sugli oggetti scuri e caldi (cipressi, alberi, pietra) e i
+       veli facevano un alone intorno alle sagome: si spegne dove il pixel nitido è scuro o caldo */
+    float lS = dot(c, vec3(.299, .587, .114));
+    neb *= smoothstep(.1, .26, lS) * smoothstep(-.09, -.01, c.b - c.r);
     if (neb > .01){
       vec2 ti = cropD.xy + p * cropD.zw;   /* coordinate dell'immagine intera: la nebbia non dipende dal taglio */
       float va = .05 + .06 * uVento;   /* ⚠ 5/11: una velocità sola per tutti i punti: moltiplicare il tempo per un valore diverso punto per punto, dopo qualche minuto, dava righe e puntini (G10) */      /* quanto scorre la trama (sue unità al secondo): un banco attraversa sé stesso in 12-25 s (5/11: più viva) */
       /* 5/11 (Maurizio: «quella sotto è ancora poco viva»): la nebbia vicina scorre più svelta (come dal vero: più è
          vicina, più strada fa sullo schermo) e ha banchi più grandi e più contrastati */
       float vicinaM = smoothstep(.1, .35, nB);
-      vec2 q = vec2(ti.x * mix(2.4, 1.6, vicinaM) - tP(uT * va), ti.y * mix(10., 6., vicinaM));
-      float f1 = fbmP(q + vec2(0., tP(uT * .07))), f2 = fbmP(vec2(ti.x * mix(2.4, 1.6, vicinaM) * 1.7 - tP(uT * va * 1.7) + 5.2, ti.y * mix(10., 6., vicinaM) * 1.7 + 1.3 - tP(uT * .055)));
-      /* la nebbia si sposta davvero di qualche pixel (cambia forma ai bordi); si prende solo nebbia, mai un cipresso */
-      vec2 dm = vec2((f1 - .5) * (12. + 8. * uVento), (f2 - .5) * 3.) * (uPix.y / 1000.) / uPix;
-      /* ⚠ 5/11: dove la nebbia viene dal video si sposta il video, non il dipinto fermo (prima, sotto l'abbazia, la
-         nebbiolina copriva la nebbia mossa del video con una quasi ferma: misurato, il movimento calava di un terzo) */
-      vec3 sm = haF > .5 ? mix(fotoG(fer, crop, p + dm, gx, gy), fotoG(img, crop, p + dm, gx, gy), vivoV) : fotoG(img, crop, p + dm, gx, gy);
-      float nebS = 1.;   /* (5/11: niente più seconda lettura sfocata qui dentro) */
-      c = mix(c, sm, neb * nebS * (1. - smoothstep(0., .6, vicinaM)));   /* vicino sotto la nebbia c'è il prato: spostarlo fa granelli; lì bastano veli e filamenti */
+      float f2 = fbmP(vec2(ti.x * mix(2.4, 1.6, vicinaM) * 1.7 - tP(uT * va * 1.7) + 5.2, ti.y * mix(10., 6., vicinaM) * 1.7 + 1.3 - tP(uT * .055)));
+      /* ⚠ 5/11 (Maurizio: «è fake e va intorno alle sagome degli oggetti»): niente più spostamento dell'immagine dentro la
+         nebbia: spostava anche i bordi di alberi e cipressi e lasciava sagome doppie ondeggianti. La nebbia si muove
+         con i veli e i filamenti che passano sopra */
       /* veli: banchi più chiari, lunghi e bassi, che passano e si disfano */
       float velo = fbmP(vec2(ti.x * mix(3.3, 2.2, vicinaM) - tP(uT * va * 1.6), ti.y * mix(15., 8., vicinaM) + tP(uT * .08))) * .65 + f2 * .35;
       float wv = smoothstep(.38, .7, velo);
