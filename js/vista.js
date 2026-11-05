@@ -187,7 +187,7 @@ vec3 paesaggio(sampler2D img, sampler2D imgB, float vk, sampler2D dep, vec4 crop
          · l'ondeggiare intorno alla posizione: 2-5 px nella calma, fino a 4-11 col vento forte;
          · la spinta sottovento (verso dove vanno le nuvole): niente nella calma, fino a 10-24 px col vento forte,
            più forte quando passa una raffica e meno fra una e l'altra: le chiome si piegano e tornano */
-      float amp = (6. + 10.5 * n) * vt.b;   /* 5/11: un po' di più (Maurizio: «di poco in più») */
+      float amp = (7.5 + 12.5 * n) * vt.b;   /* 5/11: un po' di più, due volte (Maurizio: «di poco in più», «leggermente più visibile ancora») */
       vec2 osc = vec2((vt.r - .5) * 2.2, (vt.g - .5) * .8) * amp * (.45 + uVento * .55);
       float spinta = amp * uVento * uVento * 2.;
       vec2 d = (osc + vec2(spinta, spinta * .12)) * (uPix.y / 1000.) / uPix;
