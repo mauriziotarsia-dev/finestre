@@ -108,7 +108,7 @@ float fogliame(vec3 c){
 }
 
 /* un'immagine del paesaggio, già col suo movimento */
-vec3 paesaggio(sampler2D img, sampler2D dep, vec4 crop, vec4 cropD, float haDep, float mov, sampler2D cie, vec4 cm, sampler2D fer, float haF, vec2 uv, out float n, out float sky){
+vec3 paesaggio(sampler2D img, sampler2D imgB, float vk, sampler2D dep, vec4 crop, vec4 cropD, float haDep, float mov, sampler2D cie, vec4 cm, sampler2D fer, float haF, vec2 uv, out float n, out float sky){
   n = prof(dep, cropD, uv, haDep);
   /* prospettiva: le cose vicine si spostano di più fra una finestra e l'altra */
   vec2 p = uv; p.x += uLato * .012 * (n - .35);
@@ -117,6 +117,9 @@ vec3 paesaggio(sampler2D img, sampler2D dep, vec4 crop, vec4 cropD, float haDep,
   p.x += uOcchio.x * .065 * (1. - .7 * n);
   p = .5 + (p - .5) * (1. + uOcchio.z * .07);
   vec3 c = foto(img, crop, p);
+  /* ⚠ 5/11 · il passaggio al giro del video sfuma SOLO il video (prima si sfumava verso un secondo paesaggio disegnato
+     senza vento e senza nebbiolina: a ogni giro i cipressi tornavano dritti e i veli sparivano, «si vede il loop») */
+  if (vk > .001) c = mix(c, foto(imgB, crop, p), vk);
   sky = cielo(c, n, p.y, haDep);
   /* video non ancora cucito: fermo dappertutto, video solo dove si muove davvero e solo dove è chiaro e poco
      colorato (nebbia, fumo, acqua che luccica: i cipressi scuri dentro un banco di nebbia restano fermi);
@@ -300,10 +303,9 @@ void main(){
   vec3 col = vec3(0.); float n = .5, sky = 0., alfa = 1.;
   float l0 = 0.; vec3 stelle = vec3(0.);
   if (uHaImg > .5){
-    float n0, s0; vec3 c0 = paesaggio(uImg0, uDep0, uCrop0, uCropD0, uHaDep0, uMovimento0, uCielo0, uCieloM0, uFermo0, uHaFermo0, uv, n0, s0);
-    if (uVmix > .001){ float nb, sb; c0 = mix(c0, paesaggio(uImg0b, uDep0, uCrop0, uCropD0, uHaDep0, 0., uCielo0, uCieloM0, uFermo0, uHaFermo0, uv, nb, sb), uVmix); }
+    float n0, s0; vec3 c0 = paesaggio(uImg0, uImg0b, uVmix, uDep0, uCrop0, uCropD0, uHaDep0, uMovimento0, uCielo0, uCieloM0, uFermo0, uHaFermo0, uv, n0, s0);
     if (uMix > .001){
-      float n1, s1; vec3 c1 = paesaggio(uImg1, uDep1, uCrop1, uCropD1, uHaDep1, uMovimento1, uCielo1, uCieloM1, uFermo1, uHaFermo1, uv, n1, s1);
+      float n1, s1; vec3 c1 = paesaggio(uImg1, uImg1, 0., uDep1, uCrop1, uCropD1, uHaDep1, uMovimento1, uCielo1, uCieloM1, uFermo1, uHaFermo1, uv, n1, s1);
       col = mix(c0, c1, uMix); n = mix(n0, n1, uMix); sky = mix(s0, s1, uMix);
     } else { col = c0; n = n0; sky = s0; }
     float scP = max(1., uPix.y / 1000.);
