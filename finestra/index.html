@@ -704,6 +704,7 @@ async function statoRemoto(d, schedaVideo){
   const st = {chi: mio, quando: new Date().toISOString(), gl: schedaVideo(), schermo: {w: innerWidth, h: innerHeight, dpr: devicePixelRatio, visibile: document.visibilityState},
     tela: {w: c.width, h: c.height, css: c.style.cssText}, geomGL, scala, qualita, coperto, inCambio, scuro, scuroVerso, paesaggioInVista,
     fonteOk: vista.fonti[0].ok, fonteUrl: vista.fonti[0].url, inArrivo: vista.inArrivo, fonteAttesa: f,
+    video: (() => { const f0 = vista.fonti[0], v = f0.video && f0.video[0]; return {c: !!v, fermo: !!f0.fTex, cucito: !!f0.cucito, unita: vista.unita, durata: v ? v.duration : null, t: v ? v.currentTime : null, w: v ? v.videoWidth : null, pronti: f0.video ? f0.video.map(x => x.readyState) : null}; })(),
     scena: {acceso: scena.acceso, paesaggio: scena.paesaggio, ora: scena.ora, meteo: scena.meteo, yt: scena.yt, haImmagini: !!scena.immagini},
     pixel: (() => { try { if (!ultimoParam) return null; vista.disegna(geomGL, ultimoParam); const g = vista.gl, out = {}, b = new Uint8Array(4);
       for (const [n, x, y] of [['centro', .5, .5], ['alto', .5, .15], ['basso', .5, .85]]){ g.readPixels(Math.floor(c.width * x), Math.floor(c.height * y), 1, 1, g.RGBA, g.UNSIGNED_BYTE, b); out[n] = Array.from(b); }
