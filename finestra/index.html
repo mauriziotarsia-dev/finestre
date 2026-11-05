@@ -129,6 +129,17 @@ const c = document.getElementById('c');
 let vista = null;
 try { vista = new Vista(c); } catch(e) { document.body.innerHTML = '<p style="color:#d4af37;font:20px system-ui;padding:40px">Questa finestra non riesce a usare la grafica (WebGL): ' + e.message + '</p>'; throw e; }
 
+/* ⚠ 5/11 · SCHEDA VIDEO PERSA (Raspberry sul TV: «tutto nero»). Se la scheda video butta via il disegno (memoria finita,
+   reset), la pagina non lo ritrova da sola e resta nera: si ricarica dopo 3 s. Al massimo 4 volte in 10 minuti, poi
+   resta com'è (così non gira all'infinito se la scheda proprio non regge). */
+c.addEventListener('webglcontextlost', e => {
+  e.preventDefault();
+  let r = []; try { r = JSON.parse(sessionStorage.getItem('finestre-riprese') || '[]').filter(t => Date.now() - t < 600000); } catch(x) {}
+  if (r.length >= 4) return;
+  r.push(Date.now()); try { sessionStorage.setItem('finestre-riprese', JSON.stringify(r)); } catch(x) {}
+  setTimeout(() => location.reload(), 3000);
+});
+
 let geom = [];      /* i fori in pixel, con la loro mappa */
 let geomGL = [];    /* gli stessi, in pixel del disegno (che può essere più piccolo dello schermo) */
 /* risoluzione dinamica: se il computer fatica, il disegno si fa più piccolo e lo schermo lo ingrandisce;
