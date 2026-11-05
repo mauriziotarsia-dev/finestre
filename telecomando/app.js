@@ -9,7 +9,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
 const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 const euro = n => (n < .1 ? n.toFixed(3) : n.toFixed(2)).replace('.', ',') + ' $';
-const VERSIONE = '5.7';
+const VERSIONE = '5.8';
 
 /* ── la casa ──────────────────────────────────────────────────────────────── */
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
@@ -636,6 +636,8 @@ function apriPaesaggio(p){
       </div>
     </div>
     <button class="btn oro piena" style="margin-top:14px" data-fai="mostra" data-v="${p.id}">${icona('play', 18)}Mostra alle finestre</button>
+    ${p.yt ? '' : `<button class="btn piena" id="rifaiLargo" hidden style="margin-top:8px" data-fai="rifaiLargo" data-v="${p.id}">${icona('scintilla', 18)}Rifai largo per le finestrelle · ≈ ${euro(costoRifaiLargo(p))}</button>
+      <p class="nota" id="rifaiLargoNota" hidden style="margin-top:6px">Il panorama largo per il trucco della prospettiva: stesso posto e stile, soggetto al centro. Rifà le luci, la profondità, il fumo e il cielo delle finestrelle; le loro animazioni vanno rifatte. Il TV resta com'è.</p>`}
     ${manca.length ? `<button class="btn piena" style="margin-top:8px" data-fai="completa" data-v="${p.id}">${icona('scintilla', 18)}Completa con l'AI · ≈ ${euro(costoCompleta(manca, p))}</button>
       <p class="nota" style="margin-top:6px">Manca: ${esc(elencoManca.join(', '))}.</p>` : ''}
     <details class="gruppo" style="margin-top:12px"><summary>${icona('manopole', 18)}<span>Altro</span></summary><div class="dentro-gruppo">
@@ -652,6 +654,8 @@ function apriPaesaggio(p){
     <button class="btn pericolo piena" style="margin-top:12px" data-fai="elimina" data-v="${p.id}">${icona('cestino', 18)}Elimina questo paesaggio</button>
     <div id="lavoroFoglio"></div>`, el => {
       let tFuoco = null;
+      if (!p.yt && p.immagini.giorno){ const prova = new Image(); prova.onload = () => { const stretta = prova.naturalWidth / prova.naturalHeight < 1.2;
+        if (stretta && foglioAperto === p.id){ const b = $('#rifaiLargo'), n = $('#rifaiLargoNota'); if (b) b.hidden = false; if (n) n.hidden = false; } }; prova.src = p.immagini.giorno; }
       legaCursore('inquadra', (v, o) => {
         o.textContent = v === 50 ? 'centro' : v + '%';
         el.querySelectorAll('.grande img, .luci img').forEach(i => i.style.objectPosition = v + '% 50%');
@@ -772,6 +776,41 @@ No people in the foreground, no text, no signature, no watermark, no border, no 
 ${LUCI.giorno}`;
 }
 const largoPerLeFinestrelle = () => assettoOPredefinito().n === 2;
+/* 5/11 · RIFAI LARGO (Maurizio: «rifai per tutti i paesaggi», da zero). I paesaggi fatti prima del trucco hanno la vista
+   nord stretta (2:5): si ridipinge il panorama largo guardando quello vecchio (stesso posto, stesso stile, stessi
+   colori), col soggetto più piccolo ed esattamente al centro. Poi le altre luci, la profondità, il fumo e il cielo
+   che scorre; le animazioni delle finestrelle si tolgono (erano dell'immagine vecchia). Il TV non si tocca. */
+function promptRifaiLargo(p){
+  const parole = (Array.isArray(p.parole) ? p.parole : []).filter(x => !/^fx\d+$/.test(x));
+  return promptLargo(p.nome + (parole.length ? ' (' + parole.join(', ') + ')' : ''), p.tipo)
+    + '\nThe attached picture shows this same place in a narrow vertical frame: use it only as a reference for the place, the main subject, the painting style and the colours, and repaint it as this wide panorama, with the main subject smaller and exactly at the horizontal centre.';
+}
+const costoRifaiLargo = p => { const m = Ai.modello(imp.modello), c = m.costo[imp.qualita] || m.costo.alta, nLuci = ['alba','tramonto','notte'].filter(o => p.immagini[o]).length;
+  return c * (1 + 1.15 * nLuci) + (p.immagini['cielo-giorno'] ? c * (1 + nLuci) : 0) + .01; };
+async function rifaiLargo(p){
+  const m = Ai.modello(imp.modello);
+  if (!imp.chiavi[m.fornitore]){ avviso('Serve la chiave ' + (m.fornitore === 'google' ? 'Google' : 'OpenAI') + ' nelle Impostazioni → AI e chiavi.', true); return; }
+  await conLavoro('largo', async L => {
+    L.p = p; L.anteprime.giorno = {url:p.immagini.giorno};
+    passo('giorno', 'ora', 'Finestrelle · panorama largo: lo dipingo con ' + m.nome + '…');
+    const ref = await (await fetch(p.immagini.giorno)).blob();
+    const r = await Ai.modifica({modello:imp.modello, chiavi:imp.chiavi, qualita:imp.qualita, prompt:promptRifaiLargo(p), foto:ref, misura:'tv',
+      bozza: b64 => { L.anteprime.giorno = {url:'data:image/png;base64,' + b64, bozza:true}; disegnaLavoro(); }});
+    const jpg = await inJpeg(b64aBlob(r.b64, r.mime));
+    /* le animazioni delle finestrelle erano dell'immagine stretta: via (quelle del TV restano) */
+    const vecchi = p.file.filter(n => /_(?:anim|fermo|maschera)-(?:giorno|alba|tramonto|notte)(?:-originale)?\.\w+$/.test(n));
+    try { await togliFile(casa, p, vecchi); } catch(e) { passo('via', 'errore', 'Animazioni vecchie non tolte: ' + e.message); }
+    for (const k of Object.keys(p.animati)) if (!k.startsWith('est-')) delete p.animati[k];
+    for (const k of Object.keys(p.immagini)) if (/^(?:fermo|maschera)-/.test(k)) delete p.immagini[k];
+    p.immagini.giorno = await caricaLuce(casa, p, 'giorno', jpg);
+    L.anteprime.giorno = {url:p.immagini.giorno}; passo('giorno', 'fatto', 'Finestrelle · panorama largo');
+    aggiornaInLibreria(p);
+    await faiLuci(p, jpg, ['alba','tramonto','notte'].filter(o => p.immagini[o]), 'tv', {conTv: true}); aggiornaInLibreria(p);
+    await faiProfondita(p, jpg); aggiornaInLibreria(p);
+    await faiComignoli(p, jpg); aggiornaInLibreria(p);
+    if (p.immagini['cielo-giorno'] && imp.cielo !== false){ await faiCieli(p); aggiornaInLibreria(p); }
+  });
+}
 /* ⚠ 30/10 · DUE VISTE (Maurizio, 29/10: finestrelle verso nord, TV verso est, due soggetti diversi; «mai due soli né
    due lune: al massimo compaiono in una sola delle due viste»). Quando il paesaggio ha anche la vista per il TV, il sole
    sta dove starebbe davvero: all'alba sorge a est (nel TV; a nord se ne vede solo il chiarore, da destra), al tramonto
@@ -1564,6 +1603,13 @@ const AZIONI = {
     b.disabled = true; b.innerHTML = icona('cestino', 18) + 'Elimino…';
     try { await togliPaesaggio(casa, p); libreria = libreria.filter(x => x.id !== p.id); chiudiFoglio(); disegnaPaesaggi(); avviso('Eliminato'); }
     catch(e) { b.disabled = false; b.dataset.conferma = ''; b.innerHTML = icona('cestino', 18) + 'Elimina questo paesaggio'; avviso(e.message, true); }
+  },
+  rifaiLargo: async (v, b) => {
+    const p = libreria.find(x => x.id === v); if (!p) return;
+    if (b.dataset.conferma !== '1'){ b.dataset.conferma = '1'; b.innerHTML = icona('avviso', 18) + 'Le animazioni delle finestrelle si perdono: tocca ancora';
+      setTimeout(() => { if (b.isConnected && b.dataset.conferma === '1'){ b.dataset.conferma = ''; b.innerHTML = icona('scintilla', 18) + 'Rifai largo per le finestrelle · ≈ ' + euro(costoRifaiLargo(p)); } }, 5000); return; }
+    b.hidden = true; await rifaiLargo(p);
+    if (scena.paesaggio === p.id){ Object.assign(scena, scenaDi(p)); mandaScena(); }
   },
   completa: async v => {
     const p = libreria.find(x => x.id === v); if (!p) return;

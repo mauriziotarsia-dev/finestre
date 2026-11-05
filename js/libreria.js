@@ -190,6 +190,16 @@ async function togliPaesaggio(casa, p){
   if (error) throw new Error('Non sono riuscito a toglierlo: ' + error.message);
 }
 
+/* 5/11 · togliere solo alcuni file di un paesaggio (es. le animazioni delle finestrelle quando si rifà il panorama) */
+async function togliFile(casa, p, nomi){
+  if (!nomi.length) return;
+  const cartella = await cartellaDi(casa);
+  if (CASA_PRIVATA) await Accesso.togli(CASA_PRIVATA, nomi);
+  else { const {error} = await clientDeposito().storage.from(DEPOSITO).remove(nomi.map(f => 'finestre/' + cartella + '/' + f));
+    if (error) throw new Error('Non sono riuscito a toglierli: ' + error.message); }
+  p.file = p.file.filter(f => !nomi.includes(f));
+}
+
 /* la scena che serve alle finestre per mostrare un paesaggio */
 function scenaDi(p){
   if (p.yt) return {yt:p.yt, t:0, immagini:null, animati:null, paesaggio:p.id, fuoco:null};
