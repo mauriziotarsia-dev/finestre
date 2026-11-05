@@ -213,20 +213,24 @@ vec3 paesaggio(sampler2D img, sampler2D imgB, float vk, sampler2D dep, vec4 crop
     if (neb > .01){
       vec2 ti = cropD.xy + p * cropD.zw;   /* coordinate dell'immagine intera: la nebbia non dipende dal taglio */
       float va = .022 + .04 * uVento;      /* quanto scorre la trama (sue unità al secondo): un banco attraversa sé stesso in 12-25 s (5/11: più viva) */
-      vec2 q = vec2(ti.x * 2.4 - uT * va, ti.y * 10.);
+      /* 5/11 (Maurizio: «quella sotto è ancora poco viva»): la nebbia vicina scorre più svelta (come dal vero: più è
+         vicina, più strada fa sullo schermo) e ha banchi più grandi e più contrastati */
+      float vicinaM = smoothstep(.2, .7, n);
+      va *= 1. + 2.2 * vicinaM;
+      vec2 q = vec2(ti.x * mix(2.4, 1.6, vicinaM) - uT * va, ti.y * mix(10., 6., vicinaM));
       float f1 = fbm(q + vec2(0., uT * .07)), f2 = fbm(q * 1.7 + vec2(5.2, 1.3 - uT * .055));
       /* la nebbia si sposta davvero di qualche pixel (cambia forma ai bordi); si prende solo nebbia, mai un cipresso */
-      vec2 dm = vec2((f1 - .5) * (11. + 8. * uVento), (f2 - .5) * 3.6) * (uPix.y / 1000.) / uPix;
+      vec2 dm = vec2((f1 - .5) * (11. + 8. * uVento) * (1. + 1.5 * vicinaM), (f2 - .5) * 3.6 * (1. + vicinaM)) * (uPix.y / 1000.) / uPix;
       vec3 sm = haF > .5 ? texture2D(fer, clamp(crop.xy + (p + dm) * crop.zw, .0005, .9995)).rgb : fotoG(img, crop, p + dm, gx, gy);
       float ls = dot(sm, vec3(.299, .587, .114)), mxs = max(sm.r, max(sm.g, sm.b)), sats = (mxs - min(sm.r, min(sm.g, sm.b))) / max(mxs, .01);
       float nebS = smoothstep(sogliaM, sogliaM + .18, ls) * (1. - smoothstep(.13, .28, sats));
       c = mix(c, sm, neb * nebS);
       /* veli: banchi più chiari, lunghi e bassi, che passano e si disfano */
-      float velo = fbm(vec2(ti.x * 3.3 - uT * va * 1.6, ti.y * 15. + uT * .08)) * .65 + f2 * .35;
+      float velo = fbm(vec2(ti.x * mix(3.3, 2.2, vicinaM) - uT * va * 1.6, ti.y * mix(15., 8., vicinaM) + uT * .08)) * .65 + f2 * .35;
       float wv = smoothstep(.42, .75, velo);
       vec3 bianco = vec3(max(lm, ls)) * vec3(.97, .99, 1.03) * 1.2 + .03 * (1. - uNotte);
       c = mix(c, bianco, neb * wv * .85);
-      c *= 1. - neb * (1. - wv) * .14;   /* fra un velo e l'altro la nebbia si dirada un poco: respira */
+      c *= 1. - neb * (1. - wv) * (.14 + .12 * vicinaM);   /* fra un velo e l'altro la nebbia si dirada un poco: respira */
     }
   }
   return c;
