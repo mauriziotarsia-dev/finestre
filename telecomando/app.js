@@ -9,7 +9,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
 const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 const euro = n => (n < .1 ? n.toFixed(3) : n.toFixed(2)).replace('.', ',') + ' $';
-const VERSIONE = '5.5';
+const VERSIONE = '5.6';
 
 /* ── la casa ──────────────────────────────────────────────────────────────── */
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
@@ -529,14 +529,17 @@ async function caricaLibreria(){
   catch(e) { libreriaStato = e.message; }
   if (scheda === 'paesaggi') disegnaPaesaggi(); if (scheda === 'finestre') aggiornaFinestre();
 }
+/* 5/11 · la data in cui è stato creato (l'id è l'istante di creazione in base 36): distingue i doppioni con lo stesso nome */
+const dataPaesaggio = p => { const t = p.creato || parseInt(p.id, 36); if (!t || t < 1.6e12 || t > 2.2e12) return '';
+  return new Date(t).toLocaleDateString('it-IT', {day:'numeric', month:'short'}) + ' ' + new Date(t).toLocaleTimeString('it-IT', {hour:'2-digit', minute:'2-digit'}); };
 const cartaPaesaggio = p => {
   const inOnda = scena.paesaggio === p.id;
   const img = p.yt ? `https://i.ytimg.com/vi/${encodeURIComponent(p.yt)}/hqdefault.jpg` : p.immagini.giorno;
   const pos = p.fuoco ? `object-position:${Math.round(p.fuoco.x * 100)}% 50%` : '';
-  const segni = [p.yt ? icona('scena', 12) : '', Object.keys(p.animati).length ? icona('anima', 12) : '', ['alba','tramonto','notte'].every(o => p.immagini[o]) ? icona('luna', 12) : ''].join('');
+  const segni = [p.yt ? icona('scena', 12) : '', p.immagini['est-giorno'] ? icona('tv', 12) : '', Object.keys(p.animati).length ? icona('anima', 12) : '', ['alba','tramonto','notte'].every(o => p.immagini[o]) ? icona('luna', 12) : ''].join('');
   return `<button class="carta" data-fai="apri" data-v="${p.id}" aria-pressed="${inOnda}">
     <img loading="lazy" alt="" src="${esc(img)}" style="${pos}">${inOnda ? '<span class="inonda"><i></i>IN ONDA</span>' : ''}
-    <span class="su"><b>${esc(p.nome)}</b><small>${segni}${esc(TIPI[p.tipo] || '')}</small></span></button>`;
+    <span class="su"><b>${esc(p.nome)}</b><small>${segni}${esc(dataPaesaggio(p) || TIPI[p.tipo] || '')}</small></span></button>`;
 };
 function disegnaPaesaggi(){
   if (libreriaStato === 'da caricare') caricaLibreria();
@@ -626,7 +629,7 @@ function apriPaesaggio(p){
       <div class="grande"><img id="dettImg" alt="" src="${esc(img)}" style="object-position:${Math.round(fx * 100)}% 50%"></div>
       <div class="info">
         <h3>${esc(p.nome)}</h3>
-        <p class="nota" style="margin:0">${esc(TIPI[p.tipo] || '')}${Object.keys(p.animati).length ? ' · animato' : ''}</p>
+        <p class="nota" style="margin:0">${esc(TIPI[p.tipo] || '')}${Object.keys(p.animati).length ? ' · animato' : ''}${dataPaesaggio(p) ? ' · creato il ' + esc(dataPaesaggio(p)) : ''}</p>
         ${p.yt ? '' : `<div class="luci">${ora.map(o => p.immagini[o] ? `<button data-fai="vediLuce" data-v="${o}" aria-pressed="${o === 'giorno'}"><img alt="" src="${esc(p.immagini[o])}" style="object-position:${Math.round(fx * 100)}% 50%"><span>${NOME_ORA[o].toUpperCase()}</span></button>` : `<span class="manca" title="manca">${icona(o === 'notte' ? 'luna' : o === 'giorno' ? 'sole' : o, 16)}</span>`).join('')}</div>`}
         ${p.immagini['est-giorno'] ? `<button class="tv-mini" data-fai="vediLuce" data-v="est-giorno"><img alt="" src="${esc(p.immagini['est-giorno'])}"><span>${icona('tv', 13)}TV</span></button>` : ''}
       </div>
@@ -644,8 +647,8 @@ function apriPaesaggio(p){
         ${p.yt || !MODELLI_VIDEO.length ? '' : `<button class="btn" data-fai="anima" data-v="${p.id}">${icona('anima', 18)}Anima</button>`}
         ${p.yt ? '' : `<button class="btn" data-fai="fumo" data-v="${p.id}">${icona('fiamma', 18)}Fumo dai comignoli</button>`}
         <button class="btn" data-fai="modifica" data-v="${p.id}">${icona('matita', 18)}Rinomina</button>
-        <button class="btn pericolo" data-fai="elimina" data-v="${p.id}">${icona('cestino', 18)}Elimina</button>
       </div></div></details>
+    <button class="btn pericolo piena" style="margin-top:12px" data-fai="elimina" data-v="${p.id}">${icona('cestino', 18)}Elimina questo paesaggio</button>
     <div id="lavoroFoglio"></div>`, el => {
       let tFuoco = null;
       legaCursore('inquadra', (v, o) => {
@@ -1553,9 +1556,11 @@ const AZIONI = {
   },
   elimina: async (v, b) => {
     const p = libreria.find(x => x.id === v); if (!p) return;
-    if (b.dataset.conferma !== '1'){ b.dataset.conferma = '1'; b.innerHTML = icona('avviso', 18) + 'Sicuro? Tocca ancora'; return; }
+    if (b.dataset.conferma !== '1'){ b.dataset.conferma = '1'; b.innerHTML = icona('avviso', 18) + 'Non si recupera più: tocca ancora per eliminarlo';
+      setTimeout(() => { if (b.isConnected && b.dataset.conferma === '1'){ b.dataset.conferma = ''; b.innerHTML = icona('cestino', 18) + 'Elimina questo paesaggio'; } }, 5000); return; }
+    b.disabled = true; b.innerHTML = icona('cestino', 18) + 'Elimino…';
     try { await togliPaesaggio(casa, p); libreria = libreria.filter(x => x.id !== p.id); chiudiFoglio(); disegnaPaesaggi(); avviso('Eliminato'); }
-    catch(e) { avviso(e.message, true); }
+    catch(e) { b.disabled = false; b.dataset.conferma = ''; b.innerHTML = icona('cestino', 18) + 'Elimina questo paesaggio'; avviso(e.message, true); }
   },
   completa: async v => {
     const p = libreria.find(x => x.id === v); if (!p) return;
