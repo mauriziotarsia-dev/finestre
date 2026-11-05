@@ -162,6 +162,12 @@ let geomGL = [];    /* gli stessi, in pixel del disegno (che può essere più pi
 /* risoluzione dinamica: se il computer fatica, il disegno si fa più piccolo e lo schermo lo ingrandisce;
    quando torna fluido, risale. Su un Raspberry con due schermi da 24" fa la differenza */
 let scala = 1, scalaFissa = 0;   /* scalaFissa: solo per le prove da lontano */
+/* ⚠ 5/11 · RISOLUZIONE FISSA DEL DISEGNO (Maurizio: «non si spengono effetti, abbassiamo la risoluzione; quando cambieremo
+   device saremo già pronti alzandola»). &disegno=576: ogni finestrella si disegna alta 576 punti, qualunque sia lo
+   schermo (sul TV di prova come sui 27" verticali), e lo schermo la ingrandisce; niente scala automatica. Pi 4, banco
+   del 4/11: 576 (0,3 di un Full HD verticale) tiene le due finestrelle a 30 al secondo. Apparecchio nuovo: &disegno=1920
+   (o toglierlo: torna la scala automatica). */
+const disegnoUrl = Math.max(0, Math.min(4320, +q.get('disegno') || 0));
 function impagina(){
   const W = Math.round(innerWidth), H = Math.round(innerHeight);
   const px = assetto.fori.map(f => ({x:Math.round(f.x * W), y:Math.round(f.y * H), w:Math.max(2, Math.round(f.w * W)), h:Math.max(2, Math.round(f.h * H))}));
@@ -171,6 +177,8 @@ function impagina(){
      dimezzata) costava più del paesaggio: 25 immagini al secondo, uccelli a scatti */
   /* ⚠ 30/10 · TV 4K: su Windows lo schermo 4K è «ingrandito» (150-300%) e la pagina vede 1280-2560 pixel di larghezza
      invece di 3840: il disegno va fatto in pixel veri dello schermo, non in quelli della pagina */
+  if (disegnoUrl){ const hMax = Math.max(...px.map(f => f.h)) * Math.min(4, devicePixelRatio || 1);
+    scala = scalaFissa = Math.max(.1, Math.min(1, disegnoUrl / Math.max(1, hMax))); }
   const k = scala * Math.min(anteprima ? 2 : 4, devicePixelRatio || 1);
   const CW = Math.max(2, Math.round(uw * k)), CH = Math.max(2, Math.round(uh * k));
   if (c.width !== CW || c.height !== CH){ c.width = CW; c.height = CH; }
@@ -745,7 +753,7 @@ function giro(ora){
   fluido = dt * 1000 < passo * 1.07 ? fluido + dt : 0;
   if (!scalaFissa && fluido > 8 && intervalloSchermo < passo * 1.08 && scala < tetto && ora - ultimoCalo > attesaSalita){ scala = Math.min(tetto, Math.round((scala + .1) * 10) / 10); fluido = 0; ultimaSalita = ora; impagina(); }   /* risalita: se il passo in su fallisce entro un minuto, la prossima prova aspetta il doppio (fino a 30 min) */
   lento = lento * .97 + (dt * 1000 > passo * 1.56 ? 1 : 0) * .03;
-  if (lento > .6 && qualita && scala <= Math.max(scalaMin, .5)) qualita = 0; else if (lento < .1 && !qualita) qualita = 1;
+  if (lento > .6 && qualita && !disegnoUrl && scala <= Math.max(scalaMin, .5)) qualita = 0; else if (lento < .1 && !qualita) qualita = 1;   /* con &disegno fisso nessun effetto si spegne (5/11) */
   const k = 1 - Math.exp(-dt * .45);
   const o = oraDi(scena), tgt = METEO[scena.meteo] || METEO.sereno, intens = scena.intensita == null ? .75 : scena.intensita;
   for (const key in tgt){
