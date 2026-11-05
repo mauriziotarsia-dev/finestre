@@ -149,7 +149,18 @@ try { vista = new Vista(c); } catch(e) { document.body.innerHTML = '<p style="co
 /* ⚠ 5/11 · SCHEDA VIDEO PERSA (Raspberry sul TV: «tutto nero»). Se la scheda video butta via il disegno (memoria finita,
    reset), la pagina non lo ritrova da sola e resta nera: si ricarica dopo 3 s. Al massimo 4 volte in 10 minuti, poi
    resta com'è (così non gira all'infinito se la scheda proprio non regge). */
+/* ⚠ 5/11 · sul Raspberry il processo grafico di Chromium si chiudeva per errore subito dopo «Ricarica» (due volte su
+   due): si lascia andare prima la grafica e i video, poi si ricarica */
+let inRicarica = false;
+function ricaricaPulita(){
+  if (inRicarica) return; inRicarica = true;
+  try { const vv = [...document.querySelectorAll('video')]; (vista ? vista.fonti : []).forEach(f => (f.video || []).forEach(v => vv.push(v)));
+    vv.forEach(v => { try { v.pause(); v.removeAttribute('src'); v.load(); } catch(x) {} }); } catch(x) {}
+  try { const ext = vista && vista.gl && vista.gl.getExtension('WEBGL_lose_context'); if (ext) ext.loseContext(); } catch(x) {}
+  setTimeout(() => location.reload(), 400);
+}
 c.addEventListener('webglcontextlost', e => {
+  if (inRicarica) return;
   e.preventDefault();
   let r = []; try { r = JSON.parse(sessionStorage.getItem('finestre-riprese') || '[]').filter(t => Date.now() - t < 600000); } catch(x) {}
   if (r.length >= 4) return;
@@ -548,7 +559,7 @@ if (anteprima){
       else if (evento === 'lampo') scocca();
       else if (evento === 'tv'){ if (daDM) suTv(dati, rispondi); }
       else if (evento === 'fori') calibra(dati);
-      else if (evento === 'ricarica') location.reload();
+      else if (evento === 'ricarica') ricaricaPulita();
       /* prova delle prestazioni da lontano: spegne per un po' alcune parti del disegno (poi si ricarica e torna tutto) */
       else if (evento === 'prova'){ if (Array.isArray(dati.spegni)) vista.spegni = new Set(dati.spegni); if (dati.scala){ scalaFissa = +dati.scala; scala = scalaFissa; impagina(); } }
       else if (evento === 'occhio') daTelefono(dati.x, dati.z);
