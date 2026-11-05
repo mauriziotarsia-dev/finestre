@@ -112,11 +112,28 @@ function striscia(f, W, H){
   const fronte = FORO_CM.w / 2 * (LONTANO + MURO_PIETRA + (simulata ? 10 : staccatoCm())) / LONTANO;
   /* nella stanza simulata il riquadro è l'apertura vista di fronte, e le finestrelle sono sempre due */
   if (simulata === 'finestra') return {lato: mio === 'destra' ? 1 : -1, u: .5, cmW: 2 * fronte, off: fronte + fraCm(casaFori.fra) / 2};
+  /* ?doppia=1: le due finestrelle nello stesso disegno (f.lato già deciso), come nella stanza simulata */
+  if (doppiaUrl) return {lato: f.lato, u: .5, cmW: 2 * fronte, off: fronte + fraCm(casaFori.fra) / 2};
   if (simulata || casaFori.n !== 2 || !assetto.buco) return null;
   const b = assetto.buco, bx = b.x * W, bw = b.w * W;
   return {lato: mio === 'destra' ? 1 : -1, u: (bx + bw / 2 - f.x) / f.w, cmW: f.w / bw * FORO_CM.w, off: fronte + fraCm(casaFori.fra) / 2};
 }
+/* ⚠ 5/11 · ?doppia=1 (Maurizio: «il Pi non deve mandare due immagini diverse alle due finestre: è una sola immagine
+   con due porzioni diverse»). Una pagina sola, un disegno solo, le immagini e il video caricati una volta: le due
+   finestrelle sono due fori dello stesso disegno, ognuno con la sua striscia del panorama. Con un solo schermo (il Pi
+   attaccato al TV) stanno affiancate e un po' separate; con i due schermi veri la finestra del browser li copre entrambi. */
+const doppiaUrl = q.get('doppia') === '1' && !tv;
+function foriDoppia(){
+  const W = innerWidth || 1, H = innerHeight || 1;
+  if (W / H > 1.15){   /* un solo schermo largo: due feritoie 2:5 alte quasi tutto, separate */
+    const h = .94, w = h * H * .4 / W, gap = Math.min(.06, (1 - 2 * w) / 3);
+    const x0 = .5 - gap / 2 - w;
+    return [{x:x0, y:.03, w, h}, {x:.5 + gap / 2, y:.03, w, h}];
+  }
+  return [{x:0, y:0, w:.5, h:1}, {x:.5, y:0, w:.5, h:1}];   /* due schermi verticali affiancati: metà per uno */
+}
 const derivato = () => {
+  if (doppiaUrl) return {modo:'doppia', fori: foriDoppia()};
   if (tv || simulata) return {modo:'singola', fori:[{x:0, y:0, w:1, h:1}]};
   const buco = (casaFori.finestre || {})[mio] || foroPredefinito();
   return {modo:'singola', fori:[allarga(buco)], buco};
@@ -174,14 +191,14 @@ function impagina(){
     }
     /* ingrandimento e spostamento dal telefono */
     map = [.5 + (map[0] - .5) / zoom + vx, .5 + (map[1] - .5) / zoom, map[2] / zoom, map[3] / zoom];
-    return Object.assign(f, {map, aspetto, lato, striscia: assetto.modo === 'singola' ? striscia(f, W, H) : null});
+    return Object.assign(f, {map, aspetto, lato, striscia: assetto.modo === 'singola' ? striscia(f, W, H) : doppiaUrl ? striscia(Object.assign({}, f, {lato}), W, H) : null});
   });
   geom.unione = {x:ux, y:uy, w:uw, h:uh};
   geomGL = geom.map(f => { const x = Math.round((f.x - ux) * k), y = Math.round((f.y - uy) * k);
     return Object.assign({}, f, {x, y, w:Math.max(2, Math.round((f.x - ux + f.w) * k) - x), h:Math.max(2, Math.round((f.y - uy + f.h) * k) - y)}); });
   disegnaBordi(); impaginaVideo();
 }
-addEventListener('resize', impagina);
+addEventListener('resize', () => { if (doppiaUrl) assetto = derivato(); impagina(); });
 
 function disegnaBordi(){
   document.querySelectorAll('.bordo').forEach(e => e.remove());
