@@ -103,13 +103,9 @@ vec3 fotoG(sampler2D t, vec4 crop, vec2 uv, vec2 gx, vec2 gy){
 }
 /* ⚠ 5/11 · lettura a un livello fisso della mipmap (sfocata): dentro gli «if» la scheda non sa che livello usare e,
    sul G10, sceglieva a caso per gruppi di 4 pixel: puntini scuri ai bordi della foschia (Maurizio: «strani puntini») */
-vec3 fotoL(sampler2D t, vec4 crop, vec2 uv, float lod){
-#if __VERSION__ >= 300
-  return textureLod(t, clamp(crop.xy + uv * crop.zw, .0005, .9995), lod).rgb;
-#else
-  return texture2D(t, clamp(crop.xy + uv * crop.zw, .0005, .9995)).rgb;
-#endif
-}
+/* (5/11: con textureLod il processo grafico del Raspberry si chiudeva all'avvio: si usa la lettura con «bias», sempre
+   fuori dagli «if» che cambiano da pixel a pixel) */
+vec3 fotoL(sampler2D t, vec4 crop, vec2 uv, float lod){ return texture2D(t, clamp(crop.xy + uv * crop.zw, .0005, .9995), lod).rgb; }
 float profG(sampler2D d, vec4 crop, vec2 uv, float ha, vec2 gx, vec2 gy){
   if (ha < .5) return pow(clamp((uv.y - .38) / .62, 0., 1.), 1.4);
 #if __VERSION__ >= 300
@@ -248,9 +244,7 @@ vec3 paesaggio(sampler2D img, sampler2D imgB, float vk, sampler2D dep, vec4 crop
       /* ⚠ 5/11: dove la nebbia viene dal video si sposta il video, non il dipinto fermo (prima, sotto l'abbazia, la
          nebbiolina copriva la nebbia mossa del video con una quasi ferma: misurato, il movimento calava di un terzo) */
       vec3 sm = haF > .5 ? mix(fotoG(fer, crop, p + dm, gx, gy), fotoG(img, crop, p + dm, gx, gy), vivoV) : fotoG(img, crop, p + dm, gx, gy);
-      vec3 smb = haF > .5 ? fotoL(fer, crop, p + dm, 4.) : fotoL(img, crop, p + dm, 4.);
-      float ls = dot(smb, vec3(.299, .587, .114)), mxs = max(smb.r, max(smb.g, smb.b)), sats = (mxs - min(smb.r, min(smb.g, smb.b))) / max(mxs, .01);
-      float nebS = smoothstep(sogliaM - .06, sogliaM + .22, ls) * (1. - smoothstep(.1, .34, sats));
+      float nebS = 1.;   /* (5/11: niente più seconda lettura sfocata qui dentro) */
       c = mix(c, sm, neb * nebS * (1. - smoothstep(0., .6, vicinaM)));   /* vicino sotto la nebbia c'è il prato: spostarlo fa granelli; lì bastano veli e filamenti */
       /* veli: banchi più chiari, lunghi e bassi, che passano e si disfano */
       float velo = fbmP(vec2(ti.x * mix(3.3, 2.2, vicinaM) - tP(uT * va * 1.6), ti.y * mix(15., 8., vicinaM) + tP(uT * .08))) * .65 + f2 * .35;
