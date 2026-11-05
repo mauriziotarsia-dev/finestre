@@ -61,6 +61,7 @@ uniform float uMeteoraK;      /* a che punto è (0 = nessuna) */
 uniform float uHaVento;   /* (il passaggio a bassa risoluzione scrive dal basso: si legge capovolto) */
 uniform vec4 uFumo[6];        /* fumo dai comignoli: (x, y nella vista, larghezza del tetto in larghezze della vista, profondità) */
 uniform float uNFumo, uFumoA; /* quanti, e quanto si vedono (sfumano col paesaggio) */
+uniform float uNebV;          /* la nebbiolina viva (0 spenta) */
 
 /* hash senza seno: sulle schede dei Raspberry il seno costa caro */
 float h1(vec2 p){ vec3 p3 = fract(vec3(p.xyx) * .1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
@@ -191,6 +192,34 @@ vec3 paesaggio(sampler2D img, sampler2D dep, vec4 crop, vec4 cropD, float haDep,
       float nS = profG(dep, cropD, p + d, haDep, gx, gy), cieloS = haDep > .5 ? smoothstep(.022, .004, nS) * smoothstep(.85, .45, p.y + d.y) : sky;
       float w = max(verdeS * smoothstep(.1, .4, nS), verde * (1. - cieloS));
       c = mix(c, mosso, w);
+    }
+    /* ⚠ 5/11 · NEBBIOLINA VIVA (Maurizio: «nell'abbazia c'è poco movimento della nebbiolina, quasi non si muove più»).
+       I video cuciti prendono dal video solo quello che si muove davvero, e nel video dell'AI la nebbia lontana si
+       muove appena: restava ferma. Ora la muove la pagina, mai in loop: la nebbia dipinta (chiara, grigia, poco
+       colorata, sotto l'orizzonte, da metà distanza in là) scivola piano e cambia forma, e veli più chiari la
+       attraversano. Con la calma respira appena; col vento scorre di più verso dove vanno le nuvole (più strada,
+       non più agitata). Vale per tutte le luci e per tutti i paesaggi, anche senza video. */
+    float lm = dot(c, vec3(.299, .587, .114)), mxm = max(c.r, max(c.g, c.b));
+    float satm = (mxm - min(c.r, min(c.g, c.b))) / max(mxm, .01), sogliaM = mix(.4, .15, uNotte);
+    /* la nebbia è azzurrina o grigia (blu almeno quanto il rosso): la pietra chiara del castello, calda, resta ferma */
+    float neb = smoothstep(sogliaM, sogliaM + .18, lm) * (1. - smoothstep(.13, .28, satm)) * smoothstep(-.03, .02, c.b - c.r) * (1. - smoothstep(.2, .5, n)) * (1. - sky) * uNebV;
+    if (neb > .01){
+      vec2 ti = cropD.xy + p * cropD.zw;   /* coordinate dell'immagine intera: la nebbia non dipende dal taglio */
+      float va = .012 + .03 * uVento;      /* quanto scorre la trama (sue unità al secondo): un banco attraversa sé stesso in 20-40 s */
+      vec2 q = vec2(ti.x * 2.4 - uT * va, ti.y * 10.);
+      float f1 = fbm(q + vec2(0., uT * .04)), f2 = fbm(q * 1.7 + vec2(5.2, 1.3 - uT * .033));
+      /* la nebbia si sposta davvero di qualche pixel (cambia forma ai bordi); si prende solo nebbia, mai un cipresso */
+      vec2 dm = vec2((f1 - .5) * (7. + 6. * uVento), (f2 - .5) * 2.6) * (uPix.y / 1000.) / uPix;
+      vec3 sm = haF > .5 ? texture2D(fer, clamp(crop.xy + (p + dm) * crop.zw, .0005, .9995)).rgb : fotoG(img, crop, p + dm, gx, gy);
+      float ls = dot(sm, vec3(.299, .587, .114)), mxs = max(sm.r, max(sm.g, sm.b)), sats = (mxs - min(sm.r, min(sm.g, sm.b))) / max(mxs, .01);
+      float nebS = smoothstep(sogliaM, sogliaM + .18, ls) * (1. - smoothstep(.13, .28, sats));
+      c = mix(c, sm, neb * nebS);
+      /* veli: banchi più chiari, lunghi e bassi, che passano e si disfano */
+      float velo = fbm(vec2(ti.x * 3.3 - uT * va * 1.6, ti.y * 15. + uT * .05)) * .65 + f2 * .35;
+      float wv = smoothstep(.42, .75, velo);
+      vec3 bianco = vec3(max(lm, ls)) * vec3(.97, .99, 1.03) * 1.2 + .03 * (1. - uNotte);
+      c = mix(c, bianco, neb * wv * .7);
+      c *= 1. - neb * (1. - wv) * .1;   /* fra un velo e l'altro la nebbia si dirada un poco: respira */
     }
   }
   return c;
@@ -567,7 +596,7 @@ class Vista {
     /* il programma principale: paesaggio, cielo, nebbia, lampo, luce */
     this.p = programma(VERT, FRAG, ['aPos']);
     this.fumoDati = new Float32Array(24);
-    this.u = posizioni(this.p, ['uOcchio','uImg0b','uVmix','uImg0','uImg1','uDep0','uDep1','uMap','uCrop0','uCrop1','uCropD0','uCropD1','uUccelli','uCielo0','uCielo1','uCieloM0','uCieloM1','uCieloX','uFermo0','uFermo1','uHaFermo0','uHaFermo1','uVentoT','uHaVento','uU','uNU','uUBox','uFumo','uNFumo','uFumoA','uNotte','uOmbre','uMeteora','uMeteoraK','uMix','uHaImg','uHaDep0','uHaDep1','uMovimento0','uMovimento1',
+    this.u = posizioni(this.p, ['uOcchio','uImg0b','uVmix','uImg0','uImg1','uDep0','uDep1','uMap','uCrop0','uCrop1','uCropD0','uCropD1','uUccelli','uCielo0','uCielo1','uCieloM0','uCieloM1','uCieloX','uFermo0','uFermo1','uHaFermo0','uHaFermo1','uVentoT','uHaVento','uU','uNU','uUBox','uFumo','uNFumo','uFumoA','uNebV','uNotte','uOmbre','uMeteora','uMeteoraK','uMix','uHaImg','uHaDep0','uHaDep1','uMovimento0','uMovimento1',
       'uLato','uT','uAspetto','uPix','uCoperto','uNebbia','uPioggia','uNeve','uTempesta','uVento','uLampo','uLampoX',
       'uNotteFinta','uLuce','uBuio','uQualita','uColNebbia','uMeteo']);
     gl.useProgram(this.p);
@@ -806,6 +835,7 @@ class Vista {
     gl.uniform1f(u.uMovimento0, mov ? (v0 || f0.cTex ? .5 : 1) : 0); gl.uniform1f(u.uMovimento1, mov ? (v1 || f1.cTex ? .5 : 1) : 0);
     gl.uniform4fv(u.uCieloM0, haImg && f0.cTex && s.movimento && !sp.has('cielo') ? f0.cm : [0,0,0,0]); gl.uniform4fv(u.uCieloM1, haImg && f1.cTex && s.movimento ? f1.cm : [0,0,0,0]);
     gl.uniform1f(u.uCieloX, s.cieloX || 0);
+    gl.uniform1f(u.uNebV, s.movimento && !sp.has('nebbiolina') ? 1 : 0);
     gl.uniform1f(u.uHaFermo0, haImg && v0 && f0.fTex ? 1 : 0); gl.uniform1f(u.uHaFermo1, haImg && v1 && f1.fTex ? 1 : 0);
     gl.uniform1f(u.uT, s.t);
     for (const k2 of ['Coperto','Nebbia','Pioggia','Neve','Tempesta','Vento','Lampo','LampoX','NotteFinta','Luce','Buio','Qualita'])
