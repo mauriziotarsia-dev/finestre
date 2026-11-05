@@ -46,7 +46,7 @@ uniform float uLato, uT, uAspetto;
 uniform vec3 uOcchio;         /* dov'è chi guarda: x a destra-sinistra (-1..1), z vicinanza (-1 lontano .. 1 vicino) */   /* aspetto = larghezza/altezza della vista */
 uniform vec2 uPix;           /* dimensione del foro in pixel */
 uniform float uCoperto, uNebbia, uPioggia, uNeve, uTempesta, uVento;
-uniform float uLampo, uLampoX;
+uniform float uLampo, uLampoX, uLampoS, uLampoB;   /* S: seme della forma del fulmine, B: 1 se il fulmine si vede */
 uniform float uNotteFinta, uLuce, uBuio, uQualita;
 uniform vec3 uColNebbia;
 uniform sampler2D uMeteo;     /* nebbia e nuvole, calcolate a bassa risoluzione (r: banchi di nebbia, g: nuvole, b: velo) */
@@ -416,20 +416,41 @@ void main(){
      tutto, anche il crinale lontano dove cielo e alberi si mescolano, e ne esaltava la grana. Ora il cielo si
      schiarisce per conto suo (bagliore dentro le nuvole, a velo) e la terra prende solo un riflesso moderato */
   if (uLampo > .001){
+    /* ⚠ 5/11 (Maurizio: «rivedi gli effetti dei lampi, poco realistici o peggio di prima»). Come dal vero: un lampo
+       vicino accende il cielo da dentro le nuvole (si vede la loro forma, i bordi più chiari) e illumina la terra di
+       luce fredda per un istante; a volte si vede il fulmine stesso, frastagliato, con un ramo, che scende dietro
+       le colline. I lampi lontani schiariscono solo il cielo, piano. */
     float vicino = exp(-pow((uv.x - uLampoX) * 2.4, 2.)) * smoothstep(.75, .0, uv.y);
     float nub = .55 + .9 * texture2D(uMeteo, vUv).g;
-    /* il cielo per il lampo dalla profondità sfocata (una riduzione 16 volte più piccola): il bordo segue il
-       crinale con una sfumatura larga invece di sgranarsi pixel per pixel */
+    /* il cielo per il lampo dalla profondità sfocata: il bordo segue il crinale con una sfumatura invece di sgranarsi */
     float cieloL = sky;
     if (uHaDep0 > .5){ float nb = texture2D(uDep0, clamp(uCropD0.xy + uv * uCropD0.zw, .0005, .9995), 2.5).r;
       cieloL = smoothstep(.05, .012, nb) * smoothstep(.85, .45, uv.y); }
-    /* torri, alberi e crinali scuri restano sagome contro il cielo che si accende */
     float lp = dot(col, vec3(.299, .587, .114));
-    float sagoma = smoothstep(.13, .27, lp);
-    float terra = uLampo * (.16 + .24 * vicino) * (1. - cieloL);
-    float bagliore = uLampo * cieloL * nub * (.5 + .6 * vicino) * sagoma;
-    col = col * (1. + terra * 1.2) + vec3(.62, .68, .86) * terra * .05;
-    col = mix(col, vec3(.86, .9, 1.) * (.62 + .45 * nub), clamp(bagliore * .62, 0., .75));
+    float sagoma = smoothstep(.1, .25, lp);   /* torri, alberi e crinali scuri restano sagome contro il cielo acceso */
+    float notteK = 1. + uNotte * .7;          /* di notte il lampo conta di più */
+    float terra = uLampo * (.22 + .38 * vicino) * (1. - cieloL) * notteK;
+    float bagliore = uLampo * cieloL * nub * (.45 + .75 * vicino) * sagoma * notteK;
+    /* la terra: luce fredda che schiarisce quello che c'è (le ombre restano ombre) */
+    col = col * (1. + terra * 2.) + vec3(.5, .58, .85) * terra * .1;
+    /* il cielo: si accendono le nuvole, di più dove sono più chiare (si vede la loro forma, non un velo piatto) */
+    col += vec3(.72, .78, 1.) * bagliore * (.3 + .95 * lp) * .85;
+    /* il fulmine: solo nei colpi (non nella coda), solo dove c'è cielo */
+    if (uLampoB > .5 && uLampo > .25){
+      float ss = uLampoS, w = max(1., uPix.y / 650.);
+      float xf = uLampoX + (rumore(vec2(uv.y * 4.5, ss)) - .5) * .17 + (rumore(vec2(uv.y * 17., ss + 7.1)) - .5) * .055 + (rumore(vec2(uv.y * 58., ss + 3.3)) - .5) * .014;
+      float dx = (uv.x - xf) * uPix.x;
+      float tronco = exp(-dx * dx / (w * w)) + exp(-abs(dx) / (w * 12.)) * .3;
+      /* un ramo che si stacca a un terzo dell'altezza e si spegne scendendo */
+      float yb = .2 + .18 * h1(vec2(ss, 1.7)), dir = h1(vec2(ss, 4.2)) > .5 ? 1. : -1.;
+      float xb0 = uLampoX + (rumore(vec2(yb * 4.5, ss)) - .5) * .17 + (rumore(vec2(yb * 17., ss + 7.1)) - .5) * .055;
+      float xr = xb0 + dir * (uv.y - yb) * .55 + (rumore(vec2(uv.y * 40., ss + 9.)) - .5) * .02;
+      float dr = (uv.x - xr) * uPix.x, lr = smoothstep(yb, yb + .02, uv.y) * smoothstep(yb + .22, yb + .05, uv.y);
+      float ramo = (exp(-dr * dr / (w * w * .5)) * .7 + exp(-abs(dr) / (w * 8.)) * .15) * lr;
+      float f = (tronco + ramo) * smoothstep(.25, .6, uLampo) * cieloL * smoothstep(-.02, .06, uv.y);
+      col += vec3(.86, .89, 1.) * f * 1.5;
+      alfa = max(alfa, clamp(f, 0., 1.));
+    }
     alfa = max(alfa, clamp((terra + bagliore) * .8, 0., 1.));
   }
 
@@ -630,7 +651,7 @@ class Vista {
     this.p = programma(VERT, FRAG, ['aPos']);
     this.fumoDati = new Float32Array(24);
     this.u = posizioni(this.p, ['uOcchio','uImg0b','uVmix','uImg0','uImg1','uDep0','uDep1','uMap','uCrop0','uCrop1','uCropD0','uCropD1','uUccelli','uCielo0','uCielo1','uCieloM0','uCieloM1','uCieloX','uFermo0','uFermo1','uHaFermo0','uHaFermo1','uVentoT','uHaVento','uU','uNU','uUBox','uFumo','uNFumo','uFumoA','uNebV','uNotte','uOmbre','uMeteora','uMeteoraK','uMix','uHaImg','uHaDep0','uHaDep1','uMovimento0','uMovimento1',
-      'uLato','uT','uAspetto','uPix','uCoperto','uNebbia','uPioggia','uNeve','uTempesta','uVento','uLampo','uLampoX',
+      'uLato','uT','uAspetto','uPix','uCoperto','uNebbia','uPioggia','uNeve','uTempesta','uVento','uLampo','uLampoX','uLampoS','uLampoB',
       'uNotteFinta','uLuce','uBuio','uQualita','uColNebbia','uMeteo']);
     gl.useProgram(this.p);
     gl.uniform1i(this.u.uImg0, 0); gl.uniform1i(this.u.uImg1, 1); gl.uniform1i(this.u.uDep0, 2); gl.uniform1i(this.u.uDep1, 3); gl.uniform1i(this.u.uImg0b, 4); gl.uniform1i(this.u.uMeteo, 5); gl.uniform1i(this.u.uCielo0, 6); gl.uniform1i(this.u.uCielo1, 7); gl.uniform1i(this.u.uFermo0, 8); gl.uniform1i(this.u.uFermo1, 9); gl.uniform1i(this.u.uVentoT, 10);
@@ -876,7 +897,7 @@ class Vista {
     gl.uniform1f(u.uNebV, s.movimento && !sp.has('nebbiolina') ? 1 : 0);
     gl.uniform1f(u.uHaFermo0, haImg && v0 && f0.fTex ? 1 : 0); gl.uniform1f(u.uHaFermo1, haImg && v1 && f1.fTex ? 1 : 0);
     gl.uniform1f(u.uT, s.t);
-    for (const k2 of ['Coperto','Nebbia','Pioggia','Neve','Tempesta','Vento','Lampo','LampoX','NotteFinta','Luce','Buio','Qualita'])
+    for (const k2 of ['Coperto','Nebbia','Pioggia','Neve','Tempesta','Vento','Lampo','LampoX','LampoS','LampoB','NotteFinta','Luce','Buio','Qualita'])
       gl.uniform1f(u['u' + k2], s[k2.charAt(0).toLowerCase() + k2.slice(1)] || 0);
     gl.uniform3fv(u.uColNebbia, s.colNebbia);
     gl.uniform1f(u.uUccelli, haImg && !sp.has('uccelli') ? (s.uccelli || 0) : 0);

@@ -27,7 +27,7 @@
 <script src="../js/canale.js?v=2.2.0"></script>
 <script src="../js/accesso.js?v=8"></script>
 <script src="../js/qrcode.js?v=1"></script>
-<script src="../js/vista.js?v=5.15"></script>
+<script src="../js/vista.js?v=5.16"></script>
 <script src="../js/inseguitore.js?v=1"></script>
 <script src="../js/uccelli.js?v=3"></script>
 <script src="../js/bard.js?v=5"></script>
@@ -406,7 +406,9 @@ function scocca(l){
   const r = bardRng(l.seme), imp = [];
   let t = 0;
   for (let i = 0; i < l.impulsi; i++){ const d = 35 + r() * 75; imp.push({da: t, a: t + d, k: i ? .35 + r() * .65 : 1}); t += d + 40 + r() * 160; }
-  lampo = {t: performance.now(), forza: l.forza, imp, coda: t, durCoda: 500 + r() * 900};
+  /* 5/11: la coda dura poco (un lampo vero si spegne in due-tre decimi); il fulmine si vede in poco più di metà dei
+     lampi forti (gli altri sono dietro le nuvole) */
+  lampo = {t: performance.now(), forza: l.forza, imp, coda: t, durCoda: 250 + r() * 450, seme: (l.seme % 997) + r(), fulmine: l.forza > .6 && r() < .55};
   lampoX = l.x;
   if (bard) bard.tuono(l.tuono, l.volTuono);
 }
@@ -454,7 +456,8 @@ function intensitaLampo(ora){
   }
   if (dt > lampo.coda + lampo.durCoda){ lampo = null; return 0; }
   /* gli impulsi del lampo, con un filo di luce fra uno e l'altro, poi la coda che si spegne */
-  let k = dt < lampo.coda ? .1 : .4 * (1 - (dt - lampo.coda) / lampo.durCoda);
+  const x = (dt - lampo.coda) / lampo.durCoda;
+  let k = dt < lampo.coda ? .06 : .3 * (1 - x) * (1 - x);
   for (const i of lampo.imp) if (dt >= i.da && dt < i.a) k = Math.max(k, i.k);
   return Math.max(0, k) * lampo.forza;
 }
@@ -827,7 +830,7 @@ function giro(ora){
   const param = {
     t: (ora / 1000) % 3588, trasparente: !!scena.yt, movimento: scena.movimento !== false, prospettiva: scena.prospettiva !== false,
     coperto: met.coperto, nebbia: met.nebbia, pioggia: met.pioggia, neve: met.neve, tempesta: met.tempesta, vento: met.vento,
-    lampo: intensitaLampo(ora), lampoX, uccelli, stormi: stormi.dati(), notte, ombre, meteora, cieloX, notteFinta, luce, buio: scuro, qualita, colNebbia: nebCol, occhio, margine
+    lampo: intensitaLampo(ora), lampoX, lampoS: lampo ? lampo.seme || 0 : 0, lampoB: lampo && lampo.fulmine ? 1 : 0, uccelli, stormi: stormi.dati(), notte, ombre, meteora, cieloX, notteFinta, luce, buio: scuro, qualita, colNebbia: nebCol, occhio, margine
   };
   ultimoParam = param;
   /* sotto un'immagine della Serata il paesaggio non si vede: non si disegna (il G10 respira); durante il banco di prova neanche */
