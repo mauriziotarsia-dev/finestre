@@ -7,7 +7,7 @@
        (il gettone cambia, il file no); al massimo 400 voci, si buttano le più vecchie;
      · le richieste a pezzi (video e musica in streaming, «Range») passano e basta.
    Niente comandi né accessi: il canale e l'account vanno sempre in rete. */
-const VERSIONE = 'atm-1';
+const VERSIONE = 'atm-2';
 const PAGINE = VERSIONE + '-pagine', DEPOSITO = VERSIONE + '-deposito', MAX_DEPOSITO = 400;
 
 /* pagina e programmi delle finestre e del TV: si tengono subito, così anche il primo riavvio senza rete riparte */
@@ -43,7 +43,9 @@ self.addEventListener('fetch', e => {
     const cache = await caches.open(deposito ? DEPOSITO : PAGINE);
     const chiave = deposito ? chiaveDeposito(u) : r;
     try {
-      const risposta = await fetch(r);
+      /* 5/11: pagine e programmi sempre ricontrollati col server (la cache del browser di GitHub Pages dura 10 minuti:
+         il Raspberry ripartito subito dopo una modifica prendeva ancora la versione vecchia) */
+      const risposta = deposito ? await fetch(r) : await fetch(r.url, {cache: 'no-cache', credentials: 'same-origin'});
       if (risposta.ok && risposta.status === 200 && (risposta.type === 'basic' || risposta.type === 'cors')){
         const copia = risposta.clone();
         e.waitUntil(cache.put(chiave, copia).then(() => deposito && potaDeposito(cache)).catch(() => {}));
