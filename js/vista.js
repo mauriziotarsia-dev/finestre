@@ -129,7 +129,7 @@ vec3 paesaggio(sampler2D img, sampler2D dep, vec4 crop, vec4 cropD, float haDep,
        va da una parte per 7 secondi e poi torna indietro, e nessun passaggio lo nasconde. Lontano (profondità sotto
        ~0,2) si tiene il dipinto fermo: la foschia la muove la nebbiolina viva, che non ha giro. Il video resta per
        l'acqua e la nebbia vicine. */
-    float vivo = max(fb.a * chiaro * smoothstep(.12, .3, n), cm.x > 0. ? 0. : sky);
+    float vivo = max(fb.a * chiaro * smoothstep(.3, .45, n), cm.x > 0. ? 0. : sky);   /* 5/11: misurato, i salti del giro stanno fra 0,04 e 0,23 di profondità */
     c = mix(fb.rgb, c, vivo);
   }
   /* cielo che scorre: al posto del cielo dipinto, il panorama alla stessa scala dell'immagine, che si ripete
