@@ -9,7 +9,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
 const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 const euro = n => (n < .1 ? n.toFixed(3) : n.toFixed(2)).replace('.', ',') + ' $';
-const VERSIONE = '5.8';
+const VERSIONE = '5.9';
 
 /* ── la casa ──────────────────────────────────────────────────────────────── */
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
@@ -70,7 +70,7 @@ let collegate = 0, mostraBordi = false, rimanda = false;
    Quando DMaster si chiude, o tace, il comando torna da solo a questo telefono. */
 let dmasterFino = 0;
 const comandaDM = () => Date.now() < dmasterFino;
-function foroPredefinito(sch){ const H = .9, W = H * sch.h * 2 / 5 / sch.w; return {x:(1 - W) / 2, y:(1 - H) / 2, w:W, h:H}; }
+function foroPredefinito(sch){ const H = .9, W = H * sch.h * 15 / 44 / sch.w;   /* 7/11: foro 15 × 44 cm */ return {x:(1 - W) / 2, y:(1 - H) / 2, w:W, h:H}; }
 function assettoOPredefinito(){
   return {n: assetto.n === 2 ? 2 : 1, staccato: +assetto.staccato || 0, fra: fraCm(assetto.fra), finestre:{
     sinistra: assetto.finestre.sinistra || foroPredefinito(schermoDi('sinistra')),
