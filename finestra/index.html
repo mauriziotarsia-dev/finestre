@@ -91,11 +91,10 @@ const simulata = q.get('sim') || '';
 /* 2/11 · la cornice di pietra del traforo lascia un'apertura di circa 14 cm (il foro nel muro dietro è 18): la cornice
    tratteggiata si allinea all'apertura di pietra, quella che si vede di fronte; il paesaggio deve arrivare fino al foro
    del muro (2 cm in più per lato) e oltre, di N × 0,7 cm. Apertura di pietra alta circa 40 cm (Maurizio, 2/11). */
-/* ⚠ 7/11 · MISURE NUOVE (Maurizio): apertura di pietra 16 × 44 cm verso la stanza, muro profondo 16 cm, e in fondo (dove
-   sta lo schermo) la pietra è appena 1 cm più stretta: 15 cm. Quindi il passaggio più stretto è in fondo, sul piano
-   dello schermo: di fronte e di sbieco si vede sempre e solo quel rettangolo (niente più «foro del muro» più largo
-   dietro). Con lo schermo staccato di N cm, di sbieco si vede anche un po' intorno (N × 0,7 per lato). */
-const PIETRA = {w:16, h:44, fondoW:15, fondoH:44};
+/* ⚠ 7/11 · MISURE NUOVE (Maurizio, corrette la sera stessa): il foro nel muro è 16 × 44 cm, il muro è profondo 16 cm;
+   davanti, nella stanza medievale, la pietra del triforo è 1 cm più stretta: 15 cm. In fondo, dove sta lo schermo, il
+   foro è 16: il disegno deve coprire 16 × 44 (più N × 0,7 per lato con lo schermo staccato di N cm). */
+const PIETRA = {w:15, h:44, fondoW:16, fondoH:44};
 const FORO_CM = {w:PIETRA.fondoW, h:PIETRA.fondoH, muroW:PIETRA.fondoW, muroH:PIETRA.fondoH}, SBIECO = .7;
 const staccatoCm = () => tv || simulata ? 0 : Math.max(0, Math.min(30, q.get('staccato') != null ? +q.get('staccato') || 0 : +casaFori.staccato || 0));
 const radarQui = () => !!(tv || simulata) || !staccatoCm();
@@ -115,7 +114,7 @@ const MURO_PIETRA = 16, LONTANO = 200;   /* 7/11: profondità del muro di pietra
 function striscia(f, W, H){
   if (tv) return null;
   /* quanto panorama si vede di fronte (mezza larghezza, in cm sul piano dello schermo): lo decide il più stretto fra
-     l'apertura davanti (16, a 2 m) e quella in fondo (15, a 2 m + 16), proiettati sullo schermo */
+     l'apertura davanti (15, la pietra del triforo, a 2 m) e il foro in fondo (16, a 2 m + 16), proiettati sullo schermo */
   const dS = LONTANO + MURO_PIETRA + (simulata ? 10 : staccatoCm());
   const fronte = Math.min(PIETRA.w / 2 * dS / LONTANO, PIETRA.fondoW / 2 * dS / (LONTANO + MURO_PIETRA));
   /* nella stanza simulata il riquadro è l'apertura vista di fronte, e le finestrelle sono sempre due */
@@ -133,7 +132,7 @@ function striscia(f, W, H){
 const doppiaUrl = q.get('doppia') === '1' && !tv;
 function foriDoppia(){
   const W = innerWidth || 1, H = innerHeight || 1;
-  if (W / H > 1.15){   /* un solo schermo largo: due feritoie (15:44, 7/11) alte quasi tutto, separate */
+  if (W / H > 1.15){   /* un solo schermo largo: due feritoie (16:44, 7/11) alte quasi tutto, separate */
     const h = .94, w = h * H * (FORO_CM.w / FORO_CM.h) / W, gap = Math.min(.06, (1 - 2 * w) / 3);
     const x0 = .5 - gap / 2 - w;
     return [{x:x0, y:.03, w, h}, {x:.5 + gap / 2, y:.03, w, h}];
