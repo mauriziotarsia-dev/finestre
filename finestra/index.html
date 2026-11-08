@@ -401,12 +401,12 @@ async function mettiProiezione(d, rispondi){
 
 /* ── tempo atmosferico, lampi, luce ────────────────────────────────────────── */
 const METEO = {
-  sereno:   {coperto:0,   nebbia:0,   pioggia:0, neve:0, tempesta:0, vento:.2},
-  nuvoloso: {coperto:.55, nebbia:.08, pioggia:0, neve:0, tempesta:0, vento:.35},
-  nebbia:   {coperto:.4,  nebbia:.85, pioggia:0, neve:0, tempesta:0, vento:.05},
-  pioggia:  {coperto:.85, nebbia:.22, pioggia:.8, neve:0, tempesta:.15, vento:.45},
-  temporale:{coperto:1,   nebbia:.18, pioggia:1, neve:0, tempesta:1, vento:.9},
-  neve:     {coperto:.75, nebbia:.3,  pioggia:0, neve:.9, tempesta:0, vento:.2}
+  sereno:   {coperto:0,   nebbia:0,   pioggia:0, neve:0, tempesta:0, vento:.1},   /* 8/11 (Maurizio): calmo con sereno e nebbia, brezza con nuvoloso, pioggia e neve, forte col temporale */
+  nuvoloso: {coperto:.55, nebbia:.08, pioggia:0, neve:0, tempesta:0, vento:.4},
+  nebbia:   {coperto:.4,  nebbia:.85, pioggia:0, neve:0, tempesta:0, vento:.1},
+  pioggia:  {coperto:.85, nebbia:.22, pioggia:.8, neve:0, tempesta:.15, vento:.4},
+  temporale:{coperto:1,   nebbia:.18, pioggia:1, neve:0, tempesta:1, vento:.8},
+  neve:     {coperto:.75, nebbia:.3,  pioggia:0, neve:.9, tempesta:0, vento:.4}
 };
 const NEBBIA_ORA = {alba:[.86,.74,.68], giorno:[.74,.77,.8], tramonto:[.78,.6,.52], notte:[.09,.11,.16]};
 const met = Object.assign({}, METEO.sereno), nebCol = [...NEBBIA_ORA.giorno];
