@@ -27,7 +27,7 @@
 <script src="../js/canale.js?v=2.2.0"></script>
 <script src="../js/accesso.js?v=8"></script>
 <script src="../js/qrcode.js?v=1"></script>
-<script src="../js/vista.js?v=5.18"></script>
+<script src="../js/vista.js?v=5.19"></script>
 <script src="../js/inseguitore.js?v=1"></script>
 <script src="../js/uccelli.js?v=3"></script>
 <script src="../js/bard.js?v=5"></script>
@@ -292,7 +292,9 @@ function fonteDi(s){
   s = Object.assign({}, s, {immagini: im, animati: an});
   const o = oraDi(s), url = s.immagini[o] || s.immagini.giorno;
   if (!url) return null;
-  const video = an[o] || (!s.immagini[o] || o === 'giorno' ? an.giorno : null) || null;
+  let video = an[o] || (!s.immagini[o] || o === 'giorno' ? an.giorno : null) || null, ricolora = false;
+  /* 8/11 · «risparmio»: una luce con la sua immagine ma senza video suo prende il video del giorno, ricolorato (js/vista.js) */
+  if (!video && an.giorno && s.immagini[o] && o !== 'giorno' && s.ricolora !== false && q.get('ricolora') !== '0' && vista.unita >= 13){ video = an.giorno; ricolora = true; }
   /* il cielo che scorre: quello della luce che si vede; se la scena non lo porta (da DMaster, per esempio)
      si prova il file con lo stesso nome (…_alba.jpg → …_cielo-alba.jpg): se non c'è, niente */
   const oraUsata = s.immagini[o] ? o : 'giorno';
@@ -309,7 +311,7 @@ function fonteDi(s){
   }
   /* dove sale il fumo (4/11): lo stesso per tutte le luci; se la scena non lo porta (DMaster) si prova il file col nome */
   const comignoli = s.immagini.comignoli || (/_(?:est-)?(giorno|alba|tramonto|notte)\.jpg$/.test(url.split('?')[0]) ? url.split('?')[0].replace(/_((?:est-)?)(giorno|alba|tramonto|notte)\.jpg$/, '_$1comignoli.json') : null);
-  return {url, profondita: s.immagini.profondita || null, video, fuoco: s.fuoco || null, cielo: s.immagini.profondita ? cielo : null, fermo, maschera, comignoli, alberi: s.immagini.giorno || null};   /* 8/11: dove sono gli alberi lo dice sempre l'immagine del giorno (di notte i colori non bastano) */
+  return {url, profondita: s.immagini.profondita || null, video, fuoco: s.fuoco || null, cielo: s.immagini.profondita ? cielo : null, fermo, maschera, comignoli, alberi: s.immagini.giorno || null, ricolora};   /* 8/11: dove sono gli alberi lo dice sempre l'immagine del giorno (di notte i colori non bastano) */
 }
 function chiaveFonte(f){ return f ? f.url + '|' + (f.video || '') : null; }
 function paesaggioDi(s){ return s.yt ? 'yt:' + s.yt + ':' + (s.t || 0) : s.immagini ? 'img:' + (s.paesaggio || s.immagini.giorno) : 'niente'; }

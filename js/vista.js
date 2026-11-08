@@ -40,6 +40,8 @@ uniform vec4 uCieloM0, uCieloM1;      /* x: dove finisce il cielo nell'immagine 
 uniform float uCieloX;                /* quanto è scorso (in larghezze del panorama) */
 uniform sampler2D uFermo0, uFermo1;   /* video non ancora cucito: rgb il paesaggio fermo, a dove si muove davvero */
 uniform float uHaFermo0, uHaFermo1;
+uniform sampler2D uRap0;      /* 8/11 · «risparmio»: video del giorno ricolorato per un'altra luce (rapporto luce/giorno, /4) */
+uniform float uHaRap0;
 uniform float uMix;          /* 0 = immagine 0, 1 = immagine 1 (dissolvenza) */
 uniform float uHaImg, uHaDep0, uHaDep1, uMovimento0, uMovimento1;
 uniform float uLato, uT, uAspetto;
@@ -122,7 +124,7 @@ float fogliame(vec3 c){
 }
 
 /* un'immagine del paesaggio, già col suo movimento */
-vec3 paesaggio(sampler2D img, sampler2D imgB, float vk, sampler2D dep, vec4 crop, vec4 cropD, float haDep, float mov, sampler2D cie, vec4 cm, sampler2D fer, float haF, vec2 uv, out float n, out float sky){
+vec3 paesaggio(sampler2D img, sampler2D imgB, float vk, sampler2D dep, vec4 crop, vec4 cropD, float haDep, float mov, sampler2D cie, vec4 cm, sampler2D fer, float haF, sampler2D rap, float haR, vec2 uv, out float n, out float sky){
   n = prof(dep, cropD, uv, haDep);
   /* prospettiva: le cose vicine si spostano di più fra una finestra e l'altra */
   vec2 p = uv; p.x += uLato * .012 * (n - .35);
@@ -147,7 +149,10 @@ vec3 paesaggio(sampler2D img, sampler2D imgB, float vk, sampler2D dep, vec4 crop
        va da una parte per 7 secondi e poi torna indietro, e nessun passaggio lo nasconde. Lontano (profondità sotto
        ~0,2) si tiene il dipinto fermo: la foschia la muove la nebbiolina viva, che non ha giro. Il video resta per
        l'acqua e la nebbia vicine. */
-    float vivo = max(fb.a * chiaro * smoothstep(.3, .45, n), cm.x > 0. ? 0. : sky);   /* 5/11: misurato, i salti del giro stanno fra 0,04 e 0,23 di profondità */
+    float vivo = max(fb.a * chiaro * smoothstep(.3, .45, n), cm.x > 0. || haR > .5 ? 0. : sky);   /* 5/11: misurato, i salti del giro stanno fra 0,04 e 0,23 di profondità */
+    /* ⚠ 8/11 · «RISPARMIO»: alba, tramonto e notte senza un video loro usano quello del giorno. Il fermo porta già i colori
+       di quella luce; il video (giorno) si ricolora col rapporto luce/giorno, sfocato, punto per punto. Il cielo resta il dipinto */
+    if (haR > .5) c *= texture2D(rap, clamp(crop.xy + p * crop.zw, .0005, .9995)).rgb * 4.;
     c = mix(fb.rgb, c, vivo);
     vivoV = vivo;
   }
@@ -180,7 +185,7 @@ vec3 paesaggio(sampler2D img, sampler2D imgB, float vk, sampler2D dep, vec4 crop
       float f1 = fract(ph), f2 = fract(ph + .5);
       vec2 dir = vec2(.012 + .02 * uVento, .0015);
       vec2 pa = p - dir * (f1 - .5), pb = p - dir * (f2 - .5);
-      vec3 a = fotoG(img, crop, pa, gx, gy), b = fotoG(img, crop, pb, gx, gy);
+      vec3 a = haR > .5 ? fotoG(fer, crop, pa, gx, gy) : fotoG(img, crop, pa, gx, gy), b = haR > .5 ? fotoG(fer, crop, pb, gx, gy) : fotoG(img, crop, pb, gx, gy);   /* ricolorato: le nuvole sono quelle dipinte di questa luce (nel fermo), non quelle del video */
       /* si prende solo cielo: un pezzo di monte o di castello spostato dentro il cielo darebbe il contorno doppio */
       float sa = cielo(a, profG(dep, cropD, pa, haDep, gx, gy), pa.y, haDep), sb = cielo(b, profG(dep, cropD, pb, haDep, gx, gy), pb.y, haDep);
       float w = abs(f1 - .5) * 2., wa = (1. - w) * sa, wb = w * sb, tot = wa + wb;
@@ -334,9 +339,9 @@ void main(){
   vec3 col = vec3(0.); float n = .5, sky = 0., alfa = 1.;
   float l0 = 0.; vec3 stelle = vec3(0.);
   if (uHaImg > .5){
-    float n0, s0; vec3 c0 = paesaggio(uImg0, uImg0b, uVmix, uDep0, uCrop0, uCropD0, uHaDep0, uMovimento0, uCielo0, uCieloM0, uFermo0, uHaFermo0, uv, n0, s0);
+    float n0, s0; vec3 c0 = paesaggio(uImg0, uImg0b, uVmix, uDep0, uCrop0, uCropD0, uHaDep0, uMovimento0, uCielo0, uCieloM0, uFermo0, uHaFermo0, uRap0, uHaRap0, uv, n0, s0);
     if (uMix > .001){
-      float n1, s1; vec3 c1 = paesaggio(uImg1, uImg1, 0., uDep1, uCrop1, uCropD1, uHaDep1, uMovimento1, uCielo1, uCieloM1, uFermo1, uHaFermo1, uv, n1, s1);
+      float n1, s1; vec3 c1 = paesaggio(uImg1, uImg1, 0., uDep1, uCrop1, uCropD1, uHaDep1, uMovimento1, uCielo1, uCieloM1, uFermo1, uHaFermo1, uRap0, 0., uv, n1, s1);
       col = mix(c0, c1, uMix); n = mix(n0, n1, uMix); sky = mix(s0, s1, uMix);
     } else { col = c0; n = n0; sky = s0; }
     float scP = max(1., uPix.y / 1000.);
@@ -654,11 +659,11 @@ class Vista {
     /* il programma principale: paesaggio, cielo, nebbia, lampo, luce */
     this.p = programma(VERT, FRAG, ['aPos']);
     this.fumoDati = new Float32Array(24);
-    this.u = posizioni(this.p, ['uOcchio','uImg0b','uVmix','uImg0','uImg1','uDep0','uDep1','uMap','uCrop0','uCrop1','uCropD0','uCropD1','uUccelli','uCielo0','uCielo1','uCieloM0','uCieloM1','uCieloX','uFermo0','uFermo1','uHaFermo0','uHaFermo1','uVentoT','uHaVento','uU','uNU','uUBox','uFumo','uNFumo','uFumoA','uNebV','uNotte','uOmbre','uMeteora','uMeteoraK','uMix','uHaImg','uHaDep0','uHaDep1','uMovimento0','uMovimento1',
+    this.u = posizioni(this.p, ['uOcchio','uImg0b','uVmix','uImg0','uImg1','uDep0','uDep1','uMap','uCrop0','uCrop1','uCropD0','uCropD1','uUccelli','uCielo0','uCielo1','uCieloM0','uCieloM1','uCieloX','uFermo0','uFermo1','uHaFermo0','uHaFermo1','uRap0','uHaRap0','uVentoT','uHaVento','uU','uNU','uUBox','uFumo','uNFumo','uFumoA','uNebV','uNotte','uOmbre','uMeteora','uMeteoraK','uMix','uHaImg','uHaDep0','uHaDep1','uMovimento0','uMovimento1',
       'uLato','uT','uAspetto','uPix','uCoperto','uNebbia','uPioggia','uNeve','uTempesta','uVento','uLampo','uLampoX','uLampoS','uLampoB',
       'uNotteFinta','uLuce','uBuio','uQualita','uColNebbia','uMeteo']);
     gl.useProgram(this.p);
-    gl.uniform1i(this.u.uImg0, 0); gl.uniform1i(this.u.uImg1, 1); gl.uniform1i(this.u.uDep0, 2); gl.uniform1i(this.u.uDep1, 3); gl.uniform1i(this.u.uImg0b, 4); gl.uniform1i(this.u.uMeteo, 5); gl.uniform1i(this.u.uCielo0, 6); gl.uniform1i(this.u.uCielo1, 7); gl.uniform1i(this.u.uFermo0, 8); gl.uniform1i(this.u.uFermo1, 9); gl.uniform1i(this.u.uVentoT, 10);
+    gl.uniform1i(this.u.uImg0, 0); gl.uniform1i(this.u.uImg1, 1); gl.uniform1i(this.u.uDep0, 2); gl.uniform1i(this.u.uDep1, 3); gl.uniform1i(this.u.uImg0b, 4); gl.uniform1i(this.u.uMeteo, 5); gl.uniform1i(this.u.uCielo0, 6); gl.uniform1i(this.u.uCielo1, 7); gl.uniform1i(this.u.uFermo0, 8); gl.uniform1i(this.u.uFermo1, 9); gl.uniform1i(this.u.uVentoT, 10); if (this.u.uRap0) gl.uniform1i(this.u.uRap0, 12);
     this.unita = gl.getParameter(gl.MAX_TEXTURE_IMAGE_UNITS) || 8;   /* il fermo vuole 10 unità (il Raspberry 4 ne ha 16) */
     this.maxTex = gl.getParameter(gl.MAX_TEXTURE_SIZE) || 4096;       /* Raspberry 4 e telefoni vecchi: 4096; il G10 16384 */
     /* nebbia e nuvole a bassa risoluzione */
@@ -722,16 +727,17 @@ class Vista {
   fonteVuota(){ return {fumi:[], fumiUrl:null, dimg:null, img:null, tex:null, dep:null, depTex:null, video:null, cTex:null, cm:[0,0,0,0], fTex:null, iw:1, ih:1, url:null, ok:false}; }
 
   /* nuova immagine (o video in loop), con la sua profondità; sfuma da quella di prima in `dur` secondi */
-  async mostra({url, profondita = null, video = null, fuoco = null, cielo = null, fermo = null, maschera = null, comignoli = null, alberi = null}, dur = 0){
+  async mostra({url, profondita = null, video = null, fuoco = null, cielo = null, fermo = null, maschera = null, comignoli = null, alberi = null, ricolora = false}, dur = 0){
     if (this.fonti[0].ok && this.fonti[0].url === url + '|' + (video || '')){
       this.fonti[0].fuoco = fuoco;
       if ((comignoli || null) !== (this.fonti[0].fumiUrl || null)) this.caricaFumi(this.fonti[0], comignoli, this.fonti[0].dimg);   /* spostati dal telefono */
       return;
     }
+    if (ricolora && this.unita < 13) video = null;   /* il ricolorato vuole una texture in più */
     const chiave = url + '|' + (video || '');
     if (this.inArrivo === chiave) return;
     this.inArrivo = chiave;
-    try { await this._mostra(chiave, url, profondita, video, dur, fuoco, cielo, fermo, maschera, comignoli, alberi); } finally { if (this.inArrivo === chiave) this.inArrivo = null; }
+    try { await this._mostra(chiave, url, profondita, video, dur, fuoco, cielo, fermo, maschera, comignoli, alberi, ricolora && !!video); } finally { if (this.inArrivo === chiave) this.inArrivo = null; }
   }
   /* dove sale il fumo: i punti dell'AI (o messi a mano dal telefono), con la profondità di ciascuno per la prospettiva */
   async caricaFumi(f, url, dimg){
@@ -748,7 +754,7 @@ class Vista {
         n: dd ? dd[(Math.min(H - 1, Math.max(0, Math.round(q.y * H))) * W + Math.min(W - 1, Math.max(0, Math.round(q.x * W)))) * 4] / 255 : .5}));
     } catch(e) { f.fumi = []; }
   }
-  async _mostra(chiave, url, profondita, video, dur, fuoco, cielo, fermo, maschera, comignoli = null, alberi = null){
+  async _mostra(chiave, url, profondita, video, dur, fuoco, cielo, fermo, maschera, comignoli = null, alberi = null, ricolora = false){
     const f = this.fonteVuota(); f.url = chiave; f.fuoco = fuoco;
     /* 8/11: tutti i file partono insieme (prima uno dopo l'altro: immagine, profondità, cielo, video, fermo…
        e nell'app si restava al nero per molti secondi); poi si montano nello stesso ordine di prima */
@@ -786,6 +792,21 @@ class Vista {
         const x = c.getContext('2d', {willReadFrequently:true});
         x.drawImage(mi, 0, 0, W, H); const m = x.getImageData(0, 0, W, H);
         x.drawImage(fi, 0, 0, W, H); const d = x.getImageData(0, 0, W, H);
+        if (ricolora){
+          /* il fermo con i colori di questa luce: la parte dell'immagine ferma che il video inquadra (come cropProfondita) */
+          const vw = f.video[0].videoWidth || fi.naturalWidth, vh = f.video[0].videoHeight || fi.naturalHeight;
+          const sc = Math.max(vw / f.iw, vh / f.ih), rw = vw / sc / f.iw, rh = vh / sc / f.ih, fx = fuoco && fuoco.x != null ? fuoco.x : .5;
+          const sx = (1 - rw) * fx * f.iw, sy = (1 - rh) / 2 * f.ih, sw = rw * f.iw, sh = rh * f.ih;
+          /* rapporto luce/giorno, molto sfocato (64 punti di larghezza, poi lineare): ricolora il video senza disegnarne i dettagli */
+          const RW = 64, RH = Math.max(8, Math.round(RW * H / W)), rc = document.createElement('canvas'); rc.width = RW; rc.height = RH;
+          const rx = rc.getContext('2d', {willReadFrequently:true});
+          rx.drawImage(fi, 0, 0, RW, RH); const dg = rx.getImageData(0, 0, RW, RH).data;
+          rx.drawImage(f.img, sx, sy, sw, sh, 0, 0, RW, RH); const rr = rx.getImageData(0, 0, RW, RH);
+          for (let i = 0; i < rr.data.length; i += 4) for (let k = 0; k < 3; k++) rr.data[i + k] = Math.min(255, Math.round((rr.data[i + k] + 5) / (dg[i + k] + 5) / 4 * 255));
+          f.rTex = this.texture(); this.carica(f.rTex, rr);
+          x.drawImage(f.img, sx, sy, sw, sh, 0, 0, W, H); const dl = x.getImageData(0, 0, W, H);
+          for (let i = 0; i < d.data.length; i += 4){ d.data[i] = dl.data[i]; d.data[i + 1] = dl.data[i + 1]; d.data[i + 2] = dl.data[i + 2]; }
+        }
         for (let i = 3; i < d.data.length; i += 4) d.data[i] = m.data[i - 3];
         f.fTex = this.texture(); const gl = this.gl;
         gl.bindTexture(gl.TEXTURE_2D, f.fTex); gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
@@ -805,9 +826,9 @@ class Vista {
   }
   togli(){ for (const f of this.fonti) this.libera(f); this.fonti = [this.fonteVuota(), this.fonteVuota()]; this.mix = 0; }
   libera(f){ const gl = this.gl; if (!f) return;
-    for (const t of [f.tex, f.depTex, f.vtex, f.vtexB, f.cTex, f.fTex, f.aTex]) if (t) gl.deleteTexture(t);
+    for (const t of [f.tex, f.depTex, f.vtex, f.vtexB, f.cTex, f.fTex, f.aTex, f.rTex]) if (t) gl.deleteTexture(t);
     if (f.video) f.video.forEach(v => { v.pause(); v.removeAttribute('src'); v.load(); });
-    f.tex = f.depTex = f.vtex = f.vtexB = f.cTex = f.fTex = f.aTex = null; f.ok = false; }
+    f.tex = f.depTex = f.vtex = f.vtexB = f.cTex = f.fTex = f.aTex = f.rTex = null; f.ok = false; }
   get urlInVista(){ return this.fonti[0].ok ? this.fonti[0].url : null; }
 
   /* (il video è già tagliato sull'inquadratura scelta quando è stato creato: lì il fuoco non serve)
@@ -891,7 +912,7 @@ class Vista {
     const lega = (unita, t) => { gl.activeTexture(gl.TEXTURE0 + unita); gl.bindTexture(gl.TEXTURE_2D, t || this.vuota); };
     lega(0, haImg ? (v0 ? f0.vtex : f0.tex) : null);
     lega(1, haImg && this.mix > 0 ? (v1 ? f1.vtex : f1.tex) : null);
-    lega(2, f0.depTex); lega(3, f1.depTex); lega(4, haImg && f0.vk > 0 ? f0.vtexB : null); lega(5, null); lega(6, f0.cTex); lega(7, f1.cTex); if (this.unita >= 10){ lega(8, f0.fTex); lega(9, f1.fTex); }
+    lega(2, f0.depTex); lega(3, f1.depTex); lega(4, haImg && f0.vk > 0 ? f0.vtexB : null); lega(5, null); lega(6, f0.cTex); lega(7, f1.cTex); if (this.unita >= 10){ lega(8, f0.fTex); lega(9, f1.fTex); } if (this.unita >= 13) lega(12, f0.rTex);
     /* uniformi del programma principale (restano al programma anche quando si passa agli altri) */
     gl.useProgram(this.p);
     gl.uniform1f(u.uVmix, haImg && v0 ? f0.vk : 0);
@@ -902,11 +923,11 @@ class Vista {
     /* il movimento «finto» delle nuvole serve solo sulle immagini ferme: un video si muove già da sé */
     /* con un video le nuvole si muovono già da sé: restano solo gli alberi (nel video cucito sono fermi come le case) */
     const mov = s.movimento && !sp.has('alberi');
-    gl.uniform1f(u.uMovimento0, mov ? (v0 || f0.cTex ? .5 : 1) : 0); gl.uniform1f(u.uMovimento1, mov ? (v1 || f1.cTex ? .5 : 1) : 0);
+    gl.uniform1f(u.uMovimento0, mov ? ((v0 && !f0.rTex) || f0.cTex ? .5 : 1) : 0);   /* ricolorato: il cielo è il dipinto, le nuvole le muove la pagina */ gl.uniform1f(u.uMovimento1, mov ? (v1 || f1.cTex ? .5 : 1) : 0);
     gl.uniform4fv(u.uCieloM0, haImg && f0.cTex && s.movimento && !sp.has('cielo') ? f0.cm : [0,0,0,0]); gl.uniform4fv(u.uCieloM1, haImg && f1.cTex && s.movimento ? f1.cm : [0,0,0,0]);
     gl.uniform1f(u.uCieloX, s.cieloX || 0);
     gl.uniform1f(u.uNebV, s.movimento && !sp.has('nebbiolina') ? 1 : 0);
-    gl.uniform1f(u.uHaFermo0, haImg && v0 && f0.fTex ? 1 : 0); gl.uniform1f(u.uHaFermo1, haImg && v1 && f1.fTex ? 1 : 0);
+    gl.uniform1f(u.uHaFermo0, haImg && v0 && f0.fTex ? 1 : 0); gl.uniform1f(u.uHaRap0, haImg && v0 && f0.fTex && f0.rTex && this.unita >= 13 ? 1 : 0); gl.uniform1f(u.uHaFermo1, haImg && v1 && f1.fTex ? 1 : 0);
     gl.uniform1f(u.uT, s.t);
     for (const k2 of ['Coperto','Nebbia','Pioggia','Neve','Tempesta','Vento','Lampo','LampoX','LampoS','LampoB','NotteFinta','Luce','Buio','Qualita'])
       gl.uniform1f(u['u' + k2], s[k2.charAt(0).toLowerCase() + k2.slice(1)] || 0);
