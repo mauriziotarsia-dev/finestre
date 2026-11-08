@@ -9,7 +9,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
 const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 const euro = n => (n < .1 ? n.toFixed(3) : n.toFixed(2)).replace('.', ',') + ' $';
-const VERSIONE = '6.5';
+const VERSIONE = '6.6';
 /* 8/11 · l'app si aggiorna da sola (Maurizio: «vedo ancora il quadrato con la doppia finestra»: sul telefono restava la
    versione vecchia anche dopo averla chiusa). Quando torna in primo piano, e ogni 10 minuti, chiede al server quale
    app.js c'è adesso; se è un'altra, ricarica (mai mentre un lavoro AI è in corso) */
@@ -530,7 +530,10 @@ function disegnaFinestre(){
       <div class="sezione">${titolo('nuvola', 'Tempo')}<div class="pads c6" id="sceltaMeteo">${METEO.map(([v, , t]) => pad('meteo', v, MED_METEO[v], t, false, 42)).join('')}</div>
         <div class="pannello" id="pannelloTempo" style="margin-top:10px">
           <div id="rigaIntensita">${cursore('intensita', 'goccia', 'Intensità', 0, 100, Math.round(scena.intensita * 100), Math.round(scena.intensita * 100) + '%')}</div>
-        </div></div>`;   /* 8/11: il vento va col tempo (calmo con sereno e nebbia, brezza con nuvoloso, pioggia e neve, forte col temporale); la luce sta in Impostazioni → Avanzate */
+        </div></div>
+      <div class="sezione">${titolo('quadro', 'Paesaggi')}<div class="striscia-paesaggi" id="stripPaesaggi"></div></div>
+      <div class="sezione">${titolo('scintilla', 'Effetti')}<div class="pads c5" id="sceltaEffetti">${EFFETTI.map(([v, med, t]) => pad('effetto', v, med, t, false, 42)).join('')}</div>
+        <p class="nota" style="margin-top:6px">Una volta sola, come il lampo. La stella cadente si vede di notte, lo stormo di giorno.</p></div>`;   /* 8/11: il vento va col tempo (calmo con sereno e nebbia, brezza con nuvoloso, pioggia e neve, forte col temporale); la luce sta in Impostazioni → Avanzate */
     anteprimaFrame = $('#anteprimaFrame');
     anteprimaFrame.onload = () => { anteprimaPronta = true; impaginaAnteprima(); postaAnteprima({tipo:'scena', scena}); };
     anteprimaTvFrame = $('#anteprimaTvFrame');
@@ -541,6 +544,19 @@ function disegnaFinestre(){
   }
   aggiornaFinestre();
 }
+/* 8/11 · sotto il Tempo (Maurizio: «A + C, con elenco dipinto per C»): i paesaggi da scorrere e gli effetti a comando */
+const EFFETTI = [['meteora', 'stella', 'Stella cadente'], ['stormo', 'stormo', 'Stormo'], ['raffica', 'raffica', 'Raffica'], ['tuono', 'tuono', 'Tuono lontano'], ['nebbia', 'nebbia', 'Nebbia che sale']];
+let firmaStrip = '';
+function disegnaStrip(){
+  const el = $('#stripPaesaggi'); if (!el) return;
+  const lista = libreria.slice().sort((a, b) => (b.id === scena.paesaggio) - (a.id === scena.paesaggio));
+  const firma = lista.map(p => p.id).join(',') + '|' + scena.paesaggio + '|' + libreriaStato;
+  if (firma === firmaStrip) return; firmaStrip = firma;
+  el.innerHTML = (libreriaStato !== 'ok' && !lista.length ? `<p class="nota">${libreriaStato === 'carico' || libreriaStato === 'da caricare' ? 'Carico i paesaggi…' : esc(libreriaStato)}</p>` : '')
+    + lista.map(p => { const img = p.yt ? `https://i.ytimg.com/vi/${encodeURIComponent(p.yt)}/hqdefault.jpg` : p.immagini.giorno;
+      return `<button class="mini-paes" data-fai="mostra" data-v="${p.id}" aria-pressed="${p.id === scena.paesaggio}"><img alt="" loading="lazy" src="${esc(img)}"><span>${esc(p.nome)}</span></button>`; }).join('')
+    + `<button class="mini-paes nuovo" data-fai="aggiungiPaesaggio">${icona('piu', 20)}<span>Nuovo</span></button>`;
+}
 const eNotte = () => (scena.ora === 'vera' ? oraVera() : scena.ora) === 'notte';
 const luceAdesso = () => Math.round(eNotte() ? (scena.luceNotte ?? 30) : (scena.luceGiorno ?? 70));
 function aggiornaFinestre(){
@@ -549,6 +565,7 @@ function aggiornaFinestre(){
   s.querySelectorAll('[data-fai="meteo"]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.v === scena.meteo)));
   const vv = ventoVicino(scena.vento);
   s.querySelectorAll('[data-fai="vento"]').forEach(b => b.setAttribute('aria-pressed', String((b.dataset.v === '' ? null : +b.dataset.v) === vv)));
+  disegnaStrip();
   $('#rigaIntensita').hidden = scena.meteo === 'sereno'; $('#pannelloTempo').hidden = scena.meteo === 'sereno';
   const rl = $('#luceOra'); if (rl && document.activeElement !== rl){ rl.value = luceAdesso(); riempi(rl); const o = $('#luceOra-o'); if (o) o.textContent = luceAdesso() + '%'; }
   $('#btnAccendi').innerHTML = icona('accensione', 20) + '<span>' + (scena.acceso ? 'Accese' : 'Spente') + '</span>';
@@ -1668,6 +1685,12 @@ const AZIONI = {
   meteo: v => cambia({meteo:v, vento:null}),   /* 8/11: il vento lo decide il tempo */
   fps: (v, b) => { cambia({fps:+v}); b.parentNode.querySelectorAll('button').forEach(x => x.setAttribute('aria-pressed', String(x === b))); },
   accendi: () => cambia({acceso: !scena.acceso}),
+  effetto: v => {
+    const d = {tipo: v, seme: Math.floor(Math.random() * 1e9)};
+    if (canale.manda('effetto', d)) avviso((EFFETTI.find(e => e[0] === v) || [, , 'Effetto'])[2]);
+    postaAnteprima({tipo: 'effetto', effetto: d});
+    if (suonoQui()){ if (v === 'tuono') lettore.tuono(6, .4); if (v === 'raffica' && lettore.raffica) lettore.raffica(); }
+  },
   lampo: () => { if (canale.manda('lampo')) avviso('Lampo!'); postaAnteprima({tipo:'lampo'}); if (suonoQui()) lettore.tuono(); },
   vaiPaesaggi: () => vai('paesaggi'), vaiCrea: () => { chiudiFoglio(); vai('crea'); }, vaiImp: () => vai('impostazioni'),
   aggiungiPaesaggio: () => apriAggiungiPaesaggio(),

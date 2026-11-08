@@ -195,6 +195,12 @@ class LettoreBard {
     const url = this.sintetico ? null : bardRegistrazione(reg, t);
     this._colpo('t:' + (url ? t : 'tuono:sint'), url, url ? vol * BARD_GUADAGNO[t] : vol, 'tempo', dopo, url ? null : (x, g, q) => sintTuono(x, g, q, vol < .6));
   }
+  /** 8/11 · effetto «raffica di vento» dal telefono: la registrazione se c'è (se no niente: il soffio sintetico basta) */
+  raffica(){
+    if (!this.attivo || !(this.stato.tempo && this.stato.tempo.acceso)) return;
+    const url = this.sintetico ? null : bardRegistrazione(this.stato.registrazioni || {}, 'raffica');
+    if (url) this._colpo('t:raffica', url, .8 * BARD_GUADAGNO.raffica, 'tempo');
+  }
   _ogniTanto(){
     if (!this.attivo || !this.ctx) return;
     const sc = this.scena || {}, ora = Date.now(), reg = this.stato.registrazioni || {};
