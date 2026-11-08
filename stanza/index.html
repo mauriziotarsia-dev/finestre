@@ -33,6 +33,9 @@ iframe{position:absolute;inset:0;width:100%;height:100%;border:0;display:block}
 body.solo header,body.solo .avviso,body.solo .parete:first-child,body.solo .parete small{display:none}
 body.solo main{padding:2vh}
 body.solo .feritoia{height:94vh;height:94dvh}
+/* 8/11 · dal vivo: niente pulsanti né avvisi; su un telefono in verticale TV sopra e finestrelle sotto */
+body.guarda #suono,body.guarda .avviso{display:none}
+@media (max-aspect-ratio:1/1){body.guarda main{flex-direction:column;gap:16px}body.guarda .tv{width:92vw}body.guarda .feritoia{height:min(42vh,60vw)}}
 </style>
 </head>
 <body>
@@ -57,15 +60,22 @@ body.solo .feritoia{height:94vh;height:94dvh}
 <script>
 const q = new URLSearchParams(location.search);
 const casa = q.get('casa') ? '&casa=' + encodeURIComponent(q.get('casa')) : '';
+/* 8/11 · ?guarda=1: «dal vivo», per guardare da un computer o dal telefono quello che mostrano TV e finestrelle vere
+   (le pagine copiano la scena dagli schermi veri, non si presentano come schermi e non suonano) */
+const guarda = q.get('guarda') === '1';
+if (guarda){ document.body.classList.add('guarda'); document.title = 'DMaster Atmosphere · Dal vivo';
+  document.querySelector('header h1').innerHTML = '<span>DMaster</span> · Dal vivo';
+  document.querySelector('header p').textContent = 'Quello che mostrano adesso il TV e le finestrelle, ridisegnato qui: stessa scena, stessa ora, stessi lampi. Si comanda dall\'app.'; }
+const extra = guarda ? '&guarda=1&bard=0' : '';
 const base = '../finestra/?';
 const solo = q.get('solo') === 'finestre';
 if (solo) document.body.classList.add('solo');
 /* prima il TV (entra nella stanza o mostra il QR), poi le finestrelle: trovano la stessa sessione già pronta */
-if (!solo) document.getElementById('tv').src = base + 'vista=est&sim=tv' + casa;
+if (!solo) document.getElementById('tv').src = base + 'vista=est&sim=tv' + casa + extra;
 setTimeout(() => {
-  document.getElementById('sx').src = base + 'lato=sinistra&sim=finestra' + casa;
-  document.getElementById('dx').src = base + 'lato=destra&sim=finestra' + casa;
-}, solo ? 0 : 3500);
+  document.getElementById('sx').src = base + 'lato=sinistra&sim=finestra' + casa + extra;
+  document.getElementById('dx').src = base + 'lato=destra&sim=finestra' + casa + extra;
+}, solo || guarda ? 0 : 3500);
 const b = document.getElementById('suono');
 b.onclick = () => {
   for (const id of ['tv', 'sx', 'dx']) { const f = document.getElementById(id); try { f.contentWindow.postMessage({tipo: 'bardSblocca'}, location.origin); } catch(e) {} }

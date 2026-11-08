@@ -46,10 +46,14 @@ const q = new URLSearchParams(location.search);
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
 const casa = (String(q.get('casa') || '').match(UUID) || [null])[0];
 const anteprima = q.get('anteprima') === '1';
+/* 8/11 · ?guarda=1 (pagina guarda/, Maurizio: «vederle live su una pagina web, senza guardare la TV»): uno spettatore.
+   Copia la scena dagli schermi veri (chiede «chi c'è?» e prende quella del suo stesso ruolo), segue scene, lampi e
+   comandi come loro, ma non si presenta come schermo, non salva niente, non risponde a stato/foto/banco e non suona. */
+const spettatore = q.get('guarda') === '1';
 const fpsUrl = +q.get('fps') || 0;      /* uno schermo può avere la sua fluidità (es. &fps=50 se è impostato a 50 Hz) */
 const latoUrl = q.get('lato') === 'sinistra' ? -1 : q.get('lato') === 'destra' ? 1 : 0;
 const leggi = (k, d) => { if (anteprima) return d; try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
-const scrivi = (k, v) => { if (anteprima) return; try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
+const scrivi = (k, v) => { if (anteprima || spettatore) return; try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 
 /* ── la scena: quello che il telecomando manda ─────────────────────────────── */
 const PREDEFINITA = {acceso:true, yt:'', t:0, immagini:null, animati:null, paesaggio:'', ora:'vera', meteo:'sereno',
@@ -426,7 +430,7 @@ function scocca(l){
 /* ── Bard (1/11): le musiche e i suoni della stanza escono dal TV (il G10, con le casse del TV o una cassa
    abbinata), se nel telefono «Bard suona» è sulla stanza. Durante una Serata di DMaster tace: i suoni li fa
    il portatile del master. ?bard=1 fa suonare anche un'altra pagina, ?bard=0 zittisce il TV. */
-const suonaQui = !anteprima && (q.get('bard') === '1' || (tv && q.get('bard') !== '0'));
+const suonaQui = !anteprima && !spettatore && (q.get('bard') === '1' || (tv && q.get('bard') !== '0'));
 let serataFino = 0;
 addEventListener('message', e => { if (e.origin === location.origin && e.data && e.data.tipo === 'bardSblocca' && typeof bard !== 'undefined' && bard) bard.sblocca(); });
 const bard = suonaQui && typeof LettoreBard !== 'undefined' ? new LettoreBard({quandoCambia: d => { bardOra = Object.assign(bardOra || {}, d); if (window.annunciaBard) window.annunciaBard(); }}) : null;
@@ -576,6 +580,7 @@ if (anteprima){
       /* prova delle prestazioni da lontano: spegne per un po' alcune parti del disegno (poi si ricarica e torna tutto) */
       else if (evento === 'prova'){ if (Array.isArray(dati.spegni)) vista.spegni = new Set(dati.spegni); if (dati.scala){ scalaFissa = +dati.scala; scala = scalaFissa; impagina(); } }
       else if (evento === 'occhio') daTelefono(dati.x, dati.z);
+      else if (spettatore){ if (evento === 'eccomi' && dati && dati.scena && !dati.spettatore && (tv ? dati.lato === 'tv' : dati.lato !== 'tv')) applica(dati.scena, false); }
       else if (evento === 'chi') rispondi('eccomi', chi());
       else if (evento === 'stato'){ if (!dati.chi || dati.chi === mio) statoRemoto(dati, schedaVideo).catch(() => {}); }
       else if (evento === 'foto'){ if (!dati.chi || dati.chi === mio) fotoRemota(dati).catch(e => console.warn('foto', e)); }
@@ -583,7 +588,7 @@ if (anteprima){
       else if (evento === 'mostraCodice') mostraCodice();
       else if (evento === 'abbinato' || evento === 'vecchioChiuso') controllaAbbinamento();
     },
-    suStato(ok){ if (ok) rispondi('eccomi', chi()); }
+    suStato(ok){ if (ok) rispondi(spettatore ? 'chi' : 'eccomi', spettatore ? {spettatore: true} : chi()); }
   });
   let vecchioChiuso = false;
   /* il brano che parte adesso: lo dice ai telefoni (e a DMaster) */
@@ -633,9 +638,10 @@ if (anteprima){
   }
   /* all'avvio: se è già membro ascolta il canale privato; uno schermo nuovo, senza il vecchio link, mostra subito il codice */
   /* la rete torna: si dice subito «eccomi», così DMaster e i telefoni rimandano quello che serve */
-  addEventListener('online', () => setTimeout(() => { const d = chi(); if (privato) privato.manda('eccomi', d); if (canale) canale.manda('eccomi', d); }, 2500));
+  if (!spettatore) addEventListener('online', () => setTimeout(() => { const d = chi(); if (privato) privato.manda('eccomi', d); if (canale) canale.manda('eccomi', d); }, 2500));
   /* nella stanza simulata il QR lo mostra solo il TV: le finestrelle aspettano (stessa sessione, stesso abbinamento) */
-  controllaAbbinamento().then(m => { if (!m && !casa){ if (simulata === 'finestra') setInterval(controllaAbbinamento, 5000); else mostraCodice(); } });
+  if (spettatore) document.addEventListener('visibilitychange', () => { if (!document.hidden && canale) canale.manda('chi', {spettatore: true}); });
+  else controllaAbbinamento().then(m => { if (!m && !casa){ if (simulata === 'finestra') setInterval(controllaAbbinamento, 5000); else mostraCodice(); } });
   /* gli indirizzi firmati delle immagini valgono 30 giorni: una volta ogni 20 giorni la pagina si rinfresca da sola */
   /* se in quel momento la rete manca, si aspetta che torni (sw.js tiene comunque la pagina) */
   setTimeout(function rinfresca(){ if (navigator.onLine === false) setTimeout(rinfresca, 10 * 60e3); else location.reload(); }, 20 * 24 * 3600e3);
