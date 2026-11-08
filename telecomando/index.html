@@ -365,6 +365,16 @@ body.principale .testa .torna{display:none}
 /* 8/11 · il paesaggio in onda grande (il TV) con le finestrelle nell'angolo */
 .eroe{position:relative;cursor:pointer;border-radius:14px}
 /* 8/11 · i paesaggi da scorrere sotto il Tempo */
+/* 8/11 · Illusionist compatta (Maurizio: «più compatta, meno scroll»): meno spazio fra le sezioni, medaglioni un po' più piccoli */
+#s-finestre .sezione{margin-top:10px}
+#s-finestre .titolo{margin:0 0 5px;font-size:11.5px}
+#s-finestre .rapide.in-riga{margin-top:8px}
+#s-finestre .rapide.in-riga .btn{min-height:40px}
+#s-finestre .pads{gap:2px}
+#s-finestre .pad{padding:3px 0 2px}
+#s-finestre .eroe{aspect-ratio:auto}
+#s-finestre #pannelloTempo{margin-top:6px!important;padding:6px 12px}
+#s-finestre .mini-paes{width:86px;aspect-ratio:4/5}
 #sceltaEffetti .pad > span:last-child{white-space:normal;line-height:1.15;text-overflow:clip;overflow:visible}
 .striscia-paesaggi{display:flex;gap:10px;overflow-x:auto;scroll-snap-type:x proximity;padding:2px 2px 6px;margin:0 -2px;-webkit-overflow-scrolling:touch;scrollbar-width:none}
 .striscia-paesaggi::-webkit-scrollbar{display:none}
@@ -375,8 +385,8 @@ body.principale .testa .torna{display:none}
 .mini-paes.nuovo{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;color:var(--oro-luce)}
 .mini-paes.nuovo span{position:static;background:none;padding:0;text-align:center}
 .eroe #anteprimaTv{width:100%;margin:0;flex:none;box-shadow:0 14px 34px rgba(0,0,0,.55)}
-.eroe #anteprima{position:absolute;top:8px;right:8px;height:62%;width:auto;flex:none!important;margin:0;border-radius:8px;border-color:rgba(212,175,55,.55);box-shadow:0 6px 18px rgba(0,0,0,.6);z-index:2}
-.eroe-testo{position:absolute;left:0;right:0;bottom:0;z-index:3;padding:28px 12px 10px;border-radius:0 0 14px 14px;background:linear-gradient(transparent,rgba(0,0,0,.78));pointer-events:none;display:flex;flex-direction:column;gap:1px}
+.eroe #anteprima{position:absolute;top:8px;right:8px;height:calc(100% - 16px);width:auto;flex:none!important;margin:0;border-radius:8px;border-color:rgba(212,175,55,.55);box-shadow:0 6px 18px rgba(0,0,0,.6);z-index:2}
+.eroe-testo{position:absolute;left:0;right:0;bottom:0;z-index:1;padding:28px 96px 10px 12px;border-radius:0 0 14px 14px;background:linear-gradient(transparent,rgba(0,0,0,.78));pointer-events:none;display:flex;flex-direction:column;gap:1px}
 .eroe-testo b{font:500 15px var(--display);letter-spacing:.1em;text-transform:uppercase;color:var(--crema);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .eroe-testo small{font:italic 500 15px var(--libro);color:var(--tenue)}
 .stanza-mini .anteprima{margin:0;min-width:0;box-shadow:0 10px 26px rgba(0,0,0,.5)}
@@ -410,6 +420,6 @@ body.principale .testa .torna{display:none}
 <script src="../js/foto-online.js?v=2.1.0"></script>
 <script src="../js/profondita.js?v=2.1.0"></script>
 <script src="../js/bard.js?v=6"></script>
-<script src="app.js?v=6.6"></script>
+<script src="app.js?v=6.8"></script>
 </body>
 </html>

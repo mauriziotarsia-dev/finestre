@@ -9,7 +9,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
 const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 const euro = n => (n < .1 ? n.toFixed(3) : n.toFixed(2)).replace('.', ',') + ' $';
-const VERSIONE = '6.6';
+const VERSIONE = '6.8';
 /* 8/11 · l'app si aggiorna da sola (Maurizio: «vedo ancora il quadrato con la doppia finestra»: sul telefono restava la
    versione vecchia anche dopo averla chiusa). Quando torna in primo piano, e ogni 10 minuti, chiede al server quale
    app.js c'è adesso; se è un'altra, ricarica (mai mentre un lavoro AI è in corso) */
@@ -526,14 +526,13 @@ function disegnaFinestre(){
         <button class="btn" data-fai="lampo">${icona('fulmine', 20)}<span>Lampo</span></button>
         <button class="btn" data-fai="apriScheda" data-v="paesaggi">${icona('quadro', 20)}<span>Paesaggi</span></button>
       </div>
-      <div class="sezione">${titolo('orologio', 'Ora')}<div class="pads c5" id="sceltaOra">${ORE.map(([v, , t]) => pad('ora', v, v, t, false, 46)).join('')}</div></div>
-      <div class="sezione">${titolo('nuvola', 'Tempo')}<div class="pads c6" id="sceltaMeteo">${METEO.map(([v, , t]) => pad('meteo', v, MED_METEO[v], t, false, 42)).join('')}</div>
+      <div class="sezione">${titolo('orologio', 'Ora')}<div class="pads c5" id="sceltaOra">${ORE.map(([v, , t]) => pad('ora', v, v, t, false, 40)).join('')}</div></div>
+      <div class="sezione">${titolo('nuvola', 'Tempo')}<div class="pads c6" id="sceltaMeteo">${METEO.map(([v, , t]) => pad('meteo', v, MED_METEO[v], t, false, 38)).join('')}</div>
         <div class="pannello" id="pannelloTempo" style="margin-top:10px">
           <div id="rigaIntensita">${cursore('intensita', 'goccia', 'Intensità', 0, 100, Math.round(scena.intensita * 100), Math.round(scena.intensita * 100) + '%')}</div>
         </div></div>
-      <div class="sezione">${titolo('quadro', 'Paesaggi')}<div class="striscia-paesaggi" id="stripPaesaggi"></div></div>
-      <div class="sezione">${titolo('scintilla', 'Effetti')}<div class="pads c5" id="sceltaEffetti">${EFFETTI.map(([v, med, t]) => pad('effetto', v, med, t, false, 42)).join('')}</div>
-        <p class="nota" style="margin-top:6px">Una volta sola, come il lampo. La stella cadente si vede di notte, lo stormo di giorno.</p></div>`;   /* 8/11: il vento va col tempo (calmo con sereno e nebbia, brezza con nuvoloso, pioggia e neve, forte col temporale); la luce sta in Impostazioni → Avanzate */
+      <div class="sezione">${titolo('scintilla', 'Effetti')}<div class="pads c5" id="sceltaEffetti">${EFFETTI.map(([v, med, t]) => pad('effetto', v, med, t, false, 38)).join('')}</div></div>
+      <div class="sezione">${titolo('quadro', 'Paesaggi')}<div class="striscia-paesaggi" id="stripPaesaggi"></div></div>`;   /* 8/11: il vento va col tempo (calmo con sereno e nebbia, brezza con nuvoloso, pioggia e neve, forte col temporale); la luce sta in Impostazioni → Avanzate */
     anteprimaFrame = $('#anteprimaFrame');
     anteprimaFrame.onload = () => { anteprimaPronta = true; impaginaAnteprima(); postaAnteprima({tipo:'scena', scena}); };
     anteprimaTvFrame = $('#anteprimaTvFrame');
