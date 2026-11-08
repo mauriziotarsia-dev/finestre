@@ -9,7 +9,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
 const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 const euro = n => (n < .1 ? n.toFixed(3) : n.toFixed(2)).replace('.', ',') + ' $';
-const VERSIONE = '6.3';
+const VERSIONE = '6.4';
 /* 8/11 · l'app si aggiorna da sola (Maurizio: «vedo ancora il quadrato con la doppia finestra»: sul telefono restava la
    versione vecchia anche dopo averla chiusa). Quando torna in primo piano, e ogni 10 minuti, chiede al server quale
    app.js c'è adesso; se è un'altra, ricarica (mai mentre un lavoro AI è in corso) */
@@ -113,7 +113,7 @@ const gestoreCanale = {
     }
     if (d.assetto && (d.assetto.finestre || d.assetto.fori)){ const a = normalizzaFori(d.assetto); if (d.assetto.finestre || !leggi('finestre-fori', null)){ assetto = a; scrivi('finestre-fori', assetto); } }
     if (d.schermo){ schermi[d.lato || 'sinistra'] = Object.assign({}, d.schermo, d.prestazioni ? {fps: d.prestazioni.fps, scala: d.prestazioni.scala} : {}); scrivi('finestre-schermi', schermi); schermo = schermoDi('sinistra'); }
-    if (!leggi('finestre-scena', null) && d.scena){ scena = Object.assign({}, SCENA_PRED, d.scena); scrivi('finestre-scena', scena); }
+    if (!leggi('finestre-scena', null) && d.scena){ scena = Object.assign({}, SCENA_PRED, d.scena); scrivi('finestre-scena', scena); postaAnteprima({tipo:'scena', scena}); lettore.suScena(scena); }   /* 8/11: anche all'anteprima (su un telefono nuovo restava nera) */
     else if (rimanda){ rimanda = false; canale.manda('scena', scena); canale.manda('fori', Object.assign({mostra: mostraBordi}, assettoOPredefinito())); }   /* dopo «Ricarica», la scena di questo telefono */
     else if (d.scena && diversa(d.scena, scena)) canale.manda('scena', scena);   /* la finestra mostra altro (es. rimasta spenta): vale quello che dice il telefono */
     aggiornaSpia(); impaginaAnteprima(); if (scheda === 'finestre') aggiornaFinestre(); if (scheda === 'impostazioni') disegnaScheda();
@@ -510,6 +510,7 @@ const VENTI = [[null,'Auto'], [.1,'Calmo'], [.4,'Brezza'], [.8,'Forte']];
 const ventoVicino = v => v == null ? null : VENTI.slice(1).reduce((m, x) => Math.abs(x[0] - v) < Math.abs(m[0] - v) ? x : m)[0];
 function disegnaFinestre(){
   const s = $('#s-finestre');
+  if (libreriaStato === 'da caricare') caricaLibreria();   /* 8/11: il nome del paesaggio in onda (prima la caricava l'ingresso) */
   if (!s.dataset.fatto){
     s.dataset.fatto = 1;
     s.innerHTML = testa('bifora', 'Illusionist', 'Quello che si vede adesso') + `
