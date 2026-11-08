@@ -196,7 +196,11 @@ vec3 paesaggio(sampler2D img, sampler2D imgB, float vk, sampler2D dep, vec4 crop
     float vicino = smoothstep(.05, .32, n);
     vec4 vt = uHaVento > .5 ? texture2D(uVentoT, vec2(vUv.x, 1. - vUv.y)) : vec4(.5, .5, 0., 0.);
     if (vicino > .01 && vt.b > .01){
-      float verde = fogliame(c) * vicino;   /* anche gli ulivi grigio-verdi e i cipressi scuri; non la pietra, non la nebbia */
+      /* ⚠ 8/11 (Maurizio: «di notte gli alberi sono immobili»): di notte il verde non c'è più, è tutto blu scuro e
+         fogliame() non trovava niente. Dove sono le chiome lo sa già il vento (vt.b, dalla maschera fatta sull'immagine
+         del giorno): di notte lì si muove quello che è scuro */
+      float notteA = smoothstep(.5, 1., uNotte);
+      float verde = mix(fogliame(c), smoothstep(.4, .12, dot(c, vec3(.299, .587, .114))), notteA) * vicino;   /* anche gli ulivi grigio-verdi e i cipressi scuri; non la pietra, non la nebbia */
       /* ⚠ 30/10: il vento (raffiche e rami) arriva già calcolato a un quarto di risoluzione: sul Raspberry
          calcolarlo per ogni pixel costava un terzo delle immagini al secondo */
       /* quanto si muovono (pixel su un foro alto 1000). Due parti, alla stessa velocità con ogni vento:
@@ -211,7 +215,7 @@ vec3 paesaggio(sampler2D img, sampler2D imgB, float vk, sampler2D dep, vec4 crop
       /* la chioma si sposta davvero, anche oltre il suo contorno: dove adesso c'è un ramo spostato lo si disegna
          (anche contro il cielo); dove la chioma se n'è andata si vede quello che c'era accanto, ma mai il cielo
          dipinto al posto del cielo che scorre */
-      float verdeS = fogliame(mosso);
+      float verdeS = mix(fogliame(mosso), smoothstep(.4, .12, dot(mosso, vec3(.299, .587, .114))), notteA);
       float nS = profG(dep, cropD, p + d, haDep, gx, gy), cieloS = haDep > .5 ? smoothstep(.022, .004, nS) * smoothstep(.85, .45, p.y + d.y) : sky;
       float w = max(verdeS * smoothstep(.1, .4, nS), verde * (1. - cieloS));
       c = mix(c, mosso, w);
@@ -227,14 +231,14 @@ vec3 paesaggio(sampler2D img, sampler2D imgB, float vk, sampler2D dep, vec4 crop
     vec3 cbm = haF > .5 ? fotoL(fer, crop, p, 2.) : fotoL(img, crop, p, 2.);
     float nB = haDep > .5 ? fotoL(dep, cropD, p, 1.).r : n;   /* anche la profondità sfocata: quella nitida è granulosa e la soglia saltava da un pixel all'altro */
     float lm = dot(cbm, vec3(.299, .587, .114)), mxm = max(cbm.r, max(cbm.g, cbm.b));
-    float satm = (mxm - min(cbm.r, min(cbm.g, cbm.b))) / max(mxm, .01), sogliaM = mix(.4, .15, uNotte) - .2 * smoothstep(.05, .3, nB);   /* 5/11: la nebbia vicina, in ombra, è più scura (grigio-azzurro ~0,35): prima restava fuori */
+    float satm = (mxm - min(cbm.r, min(cbm.g, cbm.b))) / max(mxm, .01), sogliaM = mix(.4, .1, uNotte) - mix(.2, .06, uNotte) * smoothstep(.05, .3, nB);   /* 8/11: di notte la nebbia è grigio-blu scura (~0,1–0,2) */   /* 5/11: la nebbia vicina, in ombra, è più scura (grigio-azzurro ~0,35): prima restava fuori */
     /* la nebbia è azzurrina o grigia (blu almeno quanto il rosso): la pietra chiara del castello, calda, resta ferma */
     float neb = smoothstep(sogliaM - .06, sogliaM + .22, lm) * (1. - smoothstep(.1, .34, satm)) * smoothstep(-.05, .03, cbm.b - cbm.r) * (1. - smoothstep(.75, .95, nB)) * (1. - (haDep > .5 ? smoothstep(.03, .006, nB) * smoothstep(.85, .45, p.y) : sky)) * uNebV;   /* cielo anche lui dalla profondità sfocata: sulle colline lontane quella nitida faceva fiocchi */   /* 5/11: anche la nebbia in primo piano (Maurizio: «sotto l'abbazia sembra immobile») */
     neb = min(1., neb * 1.5);   /* 5/11 (Maurizio: «le nebbioline mi sembrano ferme davanti e dietro»): più decisa */
     /* ⚠ 5/11: la maschera sfocata «sborda» di qualche pixel sugli oggetti scuri e caldi (cipressi, alberi, pietra) e i
        veli facevano un alone intorno alle sagome: si spegne dove il pixel nitido è scuro o caldo */
     float lS = dot(c, vec3(.299, .587, .114));
-    neb *= smoothstep(.1, .26, lS) * smoothstep(-.09, -.01, c.b - c.r);
+    neb *= smoothstep(mix(.1, .035, uNotte), mix(.26, .1, uNotte), lS) * smoothstep(-.09, -.01, c.b - c.r);   /* 8/11: di notte le soglie scendono, se no la nebbia notturna (tutta sotto 0,1) spariva (Maurizio: «di notte non c'è un po' di nebbiolina») */
     if (neb > .01){
       vec2 ti = cropD.xy + p * cropD.zw;   /* coordinate dell'immagine intera: la nebbia non dipende dal taglio */
       float va = .05 + .06 * uVento;   /* ⚠ 5/11: una velocità sola per tutti i punti: moltiplicare il tempo per un valore diverso punto per punto, dopo qualche minuto, dava righe e puntini (G10) */      /* quanto scorre la trama (sue unità al secondo): un banco attraversa sé stesso in 12-25 s (5/11: più viva) */
@@ -248,7 +252,7 @@ vec3 paesaggio(sampler2D img, sampler2D imgB, float vk, sampler2D dep, vec4 crop
       /* veli: banchi più chiari, lunghi e bassi, che passano e si disfano */
       float velo = fbmP(vec2(ti.x * mix(3.3, 2.2, vicinaM) - tP(uT * va * 1.6), ti.y * mix(15., 8., vicinaM) + tP(uT * .08))) * .65 + f2 * .35;
       float wv = smoothstep(.38, .7, velo);
-      vec3 bianco = vec3(lm) * vec3(.97, .99, 1.03) * 1.3 + .06 * (1. - uNotte);   /* dal colore sfocato di qui (non da quello spostato: faceva venature) */
+      vec3 bianco = vec3(lm) * vec3(.97, .99, 1.03) * mix(1.3, 1.55, uNotte) + .06 * (1. - uNotte) + vec3(.008, .012, .02) * uNotte;   /* dal colore sfocato di qui (non da quello spostato: faceva venature) */
       c = mix(c, bianco, neb * wv * mix(.85, 1., vicinaM));
       c *= 1. - neb * (1. - wv) * (.22 + .12 * vicinaM);   /* fra un velo e l'altro la nebbia si dirada un poco: respira */
       /* filamenti: veli sottili e più svelti che attraversano i banchi (si vede che la nebbia scorre) */
@@ -353,7 +357,7 @@ void main(){
     if (uNFumo > .5 && uFumoA > .01){
       float fm = fumo(uv) * (1. - uPioggia * .6) * (1. - uTempesta * .3);
       if (fm > .001){
-        vec3 cf = mix(vec3(.8, .81, .84), vec3(.16, .18, .24), smoothstep(.2, .9, uNotte)) * (1. - uCoperto * .18);
+        vec3 cf = mix(vec3(.8, .81, .84), vec3(.24, .26, .32), smoothstep(.2, .9, uNotte)) * (1. - uCoperto * .18);   /* 8/11: di notte un po' più chiaro (luna), se no sul buio non si vedeva (Maurizio: «di notte non c'è fumo») */
         col = mix(col, cf, fm * .5);
       }
     }
@@ -718,7 +722,7 @@ class Vista {
   fonteVuota(){ return {fumi:[], fumiUrl:null, dimg:null, img:null, tex:null, dep:null, depTex:null, video:null, cTex:null, cm:[0,0,0,0], fTex:null, iw:1, ih:1, url:null, ok:false}; }
 
   /* nuova immagine (o video in loop), con la sua profondità; sfuma da quella di prima in `dur` secondi */
-  async mostra({url, profondita = null, video = null, fuoco = null, cielo = null, fermo = null, maschera = null, comignoli = null}, dur = 0){
+  async mostra({url, profondita = null, video = null, fuoco = null, cielo = null, fermo = null, maschera = null, comignoli = null, alberi = null}, dur = 0){
     if (this.fonti[0].ok && this.fonti[0].url === url + '|' + (video || '')){
       this.fonti[0].fuoco = fuoco;
       if ((comignoli || null) !== (this.fonti[0].fumiUrl || null)) this.caricaFumi(this.fonti[0], comignoli, this.fonti[0].dimg);   /* spostati dal telefono */
@@ -727,7 +731,7 @@ class Vista {
     const chiave = url + '|' + (video || '');
     if (this.inArrivo === chiave) return;
     this.inArrivo = chiave;
-    try { await this._mostra(chiave, url, profondita, video, dur, fuoco, cielo, fermo, maschera, comignoli); } finally { if (this.inArrivo === chiave) this.inArrivo = null; }
+    try { await this._mostra(chiave, url, profondita, video, dur, fuoco, cielo, fermo, maschera, comignoli, alberi); } finally { if (this.inArrivo === chiave) this.inArrivo = null; }
   }
   /* dove sale il fumo: i punti dell'AI (o messi a mano dal telefono), con la profondità di ciascuno per la prospettiva */
   async caricaFumi(f, url, dimg){
@@ -744,11 +748,12 @@ class Vista {
         n: dd ? dd[(Math.min(H - 1, Math.max(0, Math.round(q.y * H))) * W + Math.min(W - 1, Math.max(0, Math.round(q.x * W)))) * 4] / 255 : .5}));
     } catch(e) { f.fumi = []; }
   }
-  async _mostra(chiave, url, profondita, video, dur, fuoco, cielo, fermo, maschera, comignoli = null){
+  async _mostra(chiave, url, profondita, video, dur, fuoco, cielo, fermo, maschera, comignoli = null, alberi = null){
     const f = this.fonteVuota(); f.url = chiave; f.fuoco = fuoco;
     /* 8/11: tutti i file partono insieme (prima uno dopo l'altro: immagine, profondità, cielo, video, fermo…
        e nell'app si restava al nero per molti secondi); poi si montano nello stesso ordine di prima */
     const pDep = profondita ? caricaImg(profondita).catch(() => null) : null;
+    const pAlberi = alberi && alberi !== url ? caricaImg(alberi).catch(() => null) : null;
     const pCielo = cielo ? caricaImg(cielo).catch(() => null) : null;
     const pVideo = video ? apriVideo(video).catch(() => null) : null;
     const pCucito = video ? fetch(video.split('?')[0].replace(/\.mp4$/, '-originale.mp4'), {method:'HEAD', cache:'no-store'}).then(r => r.ok).catch(() => false) : null;
@@ -757,7 +762,8 @@ class Vista {
     f.img = im; f.iw = im.naturalWidth; f.ih = im.naturalHeight; f.tex = this.texture(); this.carica(f.tex, this.entro(im)); this.mip(f.tex);
     let dimg = null;
     if (pDep){ dimg = await pDep; if (dimg){ f.depTex = this.texture(); this.carica(f.depTex, dimg); this.mip(f.depTex); } }
-    try { f.aTex = this.texture(); this.carica(f.aTex, mascheraAlberi(im, dimg)); } catch(e) { f.aTex = null; }
+    const imA = pAlberi ? (await pAlberi) || im : im;   /* 8/11: di notte gli alberi si trovano sull'immagine del giorno */
+    try { f.aTex = this.texture(); this.carica(f.aTex, mascheraAlberi(imA, dimg)); } catch(e) { f.aTex = null; }
     f.dimg = dimg; await this.caricaFumi(f, comignoli, dimg);
     /* il cielo che scorre (serve la profondità, per sapere dov'è il cielo). Il video resta per quello che
        si muove sotto il cielo (nebbia nelle valli, fumo dei camini): il suo cielo non si usa più */

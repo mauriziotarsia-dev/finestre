@@ -27,7 +27,7 @@
 <script src="../js/canale.js?v=2.2.0"></script>
 <script src="../js/accesso.js?v=8"></script>
 <script src="../js/qrcode.js?v=1"></script>
-<script src="../js/vista.js?v=5.17"></script>
+<script src="../js/vista.js?v=5.18"></script>
 <script src="../js/inseguitore.js?v=1"></script>
 <script src="../js/uccelli.js?v=3"></script>
 <script src="../js/bard.js?v=5"></script>
@@ -309,7 +309,7 @@ function fonteDi(s){
   }
   /* dove sale il fumo (4/11): lo stesso per tutte le luci; se la scena non lo porta (DMaster) si prova il file col nome */
   const comignoli = s.immagini.comignoli || (/_(?:est-)?(giorno|alba|tramonto|notte)\.jpg$/.test(url.split('?')[0]) ? url.split('?')[0].replace(/_((?:est-)?)(giorno|alba|tramonto|notte)\.jpg$/, '_$1comignoli.json') : null);
-  return {url, profondita: s.immagini.profondita || null, video, fuoco: s.fuoco || null, cielo: s.immagini.profondita ? cielo : null, fermo, maschera, comignoli};
+  return {url, profondita: s.immagini.profondita || null, video, fuoco: s.fuoco || null, cielo: s.immagini.profondita ? cielo : null, fermo, maschera, comignoli, alberi: s.immagini.giorno || null};   /* 8/11: dove sono gli alberi lo dice sempre l'immagine del giorno (di notte i colori non bastano) */
 }
 function chiaveFonte(f){ return f ? f.url + '|' + (f.video || '') : null; }
 function paesaggioDi(s){ return s.yt ? 'yt:' + s.yt + ':' + (s.t || 0) : s.immagini ? 'img:' + (s.paesaggio || s.immagini.giorno) : 'niente'; }
