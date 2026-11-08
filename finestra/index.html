@@ -93,14 +93,17 @@ const simulata = q.get('sim') || '';
    del muro (2 cm in più per lato) e oltre, di N × 0,7 cm. Apertura di pietra alta circa 40 cm (Maurizio, 2/11). */
 /* ⚠ 7/11 · MISURE NUOVE (Maurizio, corrette la sera stessa): il foro nel muro è 16 × 44 cm, il muro è profondo 16 cm;
    davanti, nella stanza medievale, la pietra del triforo è 1 cm più stretta e più bassa: 15 × 43 cm. In fondo, dove sta lo schermo, il
-   foro è 16: il disegno deve coprire 16 × 44 (più N × 0,7 per lato con lo schermo staccato di N cm). */
+   foro è 16: il disegno deve coprire 16 × 44 (più N × SBIECO per lato con lo schermo staccato di N cm). */
 const PIETRA = {w:15, h:43, fondoW:16, fondoH:44};   /* davanti la pietra del triforo è 1 cm più stretta anche in altezza */
-const FORO_CM = {w:PIETRA.fondoW, h:PIETRA.fondoH, muroW:PIETRA.fondoW, muroH:PIETRA.fondoH}, SBIECO = .7;
+/* 8/11 · lo sbieco massimo che il tunnel lascia passare: bordo della pietra davanti → bordo opposto del foro in fondo,
+   (15 + 16) / 2 su 16 cm di muro in larghezza (44°, poi il foro si chiude), (43 + 44) / 2 su 16 in altezza. Prima era 0,7
+   (35°): fra 35° e 44° si vedeva il nero oltre il disegno. */
+const FORO_CM = {w:PIETRA.fondoW, h:PIETRA.fondoH, muroW:PIETRA.fondoW, muroH:PIETRA.fondoH}, SBIECO = (PIETRA.w + PIETRA.fondoW) / 2 / 16, SBIECO_V = (PIETRA.h + PIETRA.fondoH) / 2 / 16;
 const staccatoCm = () => tv || simulata ? 0 : Math.max(0, Math.min(30, q.get('staccato') != null ? +q.get('staccato') || 0 : +casaFori.staccato || 0));
 const radarQui = () => !!(tv || simulata) || !staccatoCm();
 function allarga(f){
   const g = staccatoCm(); if (!g) return f;
-  const ex = ((FORO_CM.muroW - FORO_CM.w) / 2 + g * SBIECO) * f.w / FORO_CM.w, ey = ((FORO_CM.muroH - FORO_CM.h) / 2 + g * SBIECO) * f.h / FORO_CM.h;
+  const ex = ((FORO_CM.muroW - FORO_CM.w) / 2 + g * SBIECO) * f.w / FORO_CM.w, ey = ((FORO_CM.muroH - FORO_CM.h) / 2 + g * SBIECO_V) * f.h / FORO_CM.h;
   const x0 = Math.max(0, f.x - ex), y0 = Math.max(0, f.y - ey), x1 = Math.min(1, f.x + f.w + ex), y1 = Math.min(1, f.y + f.h + ey);
   return {x:x0, y:y0, w:x1 - x0, h:y1 - y0};
 }
