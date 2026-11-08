@@ -52,7 +52,7 @@ const anteprima = q.get('anteprima') === '1';
 const spettatore = q.get('guarda') === '1';
 const fpsUrl = +q.get('fps') || 0;      /* uno schermo può avere la sua fluidità (es. &fps=50 se è impostato a 50 Hz) */
 const latoUrl = q.get('lato') === 'sinistra' ? -1 : q.get('lato') === 'destra' ? 1 : 0;
-const leggi = (k, d) => { if (anteprima) return d; try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
+const leggi = (k, d) => { if (anteprima || (spettatore && k === 'finestre-scena')) return d; try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
 const scrivi = (k, v) => { if (anteprima || spettatore) return; try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 
 /* ── la scena: quello che il telecomando manda ─────────────────────────────── */
