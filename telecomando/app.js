@@ -9,7 +9,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
 const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 const euro = n => (n < .1 ? n.toFixed(3) : n.toFixed(2)).replace('.', ',') + ' $';
-const VERSIONE = '6.4';
+const VERSIONE = '6.5';
 /* 8/11 · l'app si aggiorna da sola (Maurizio: «vedo ancora il quadrato con la doppia finestra»: sul telefono restava la
    versione vecchia anche dopo averla chiusa). Quando torna in primo piano, e ogni 10 minuti, chiede al server quale
    app.js c'è adesso; se è un'altra, ricarica (mai mentre un lavoro AI è in corso) */
@@ -377,7 +377,7 @@ $('#velo').onclick = chiudiFoglio;
 $('#chiudiFoglio').innerHTML = icona('chiudi', 18);
 
 /* ── pezzi di interfaccia ────────────────────────────────────────────────── */
-const testa = (ic, titolo, sotto, spia = true) => `<header class="testa"><button class="torna" data-fai="ingresso" aria-label="Indietro">${icona('indietro', 20)}</button><div><h1>${icona(ic, 22)}${esc(titolo)}</h1><p>${esc(sotto)}</p></div>${spia ? '<span class="spia"><i></i><span>…</span></span>' : ''}<button class="ingranaggio" data-fai="apriScheda" data-v="impostazioni" aria-label="Impostazioni">${icona('manopole', 20)}</button></header>`;
+const testa = (ic, titolo, sotto, spia = true) => `<header class="testa"><button class="torna" data-fai="ingresso" aria-label="Indietro">${icona('indietro', 20)}</button><div><h1>${icona(ic, 22)}${esc(titolo)}</h1><p>${esc(sotto)}</p></div>${spia ? '<span class="spia"><i></i><span>…</span></span>' : ''}</header>`;
 const titolo = (ic, testo, piccolo = '') => `<h2 class="titolo">${icona(ic, 16)}${esc(testo)}${piccolo ? '<small>' + esc(piccolo) + '</small>' : ''}</h2>`;
 /* 2/11 · un pulsante dipinto (bozze B e D): il medaglione con il nome sotto, come nella console della serata */
 const pad = (fai, v, med, testo, acceso, px = 42, tasto = '') => `<button class="pad" data-fai="${fai}" data-v="${esc(v)}" aria-pressed="${!!acceso}" title="${esc(testo)}">${tasto ? `<i class="tasto">${esc(tasto)}</i>` : ''}<span class="tondo">${medaglione(med, px)}</span><span>${esc(testo)}</span></button>`;
@@ -398,10 +398,11 @@ function legaCursore(id, fn){ const r = document.getElementById(id); if (!r) ret
 /* 3/11 · la scheda delle finestre si chiama Illusionist (Maurizio: «finestre in inglese diventa windows, non possiamo»;
    Illusionist è il nome già deciso il 29/10 per finestre e paesaggi; Bard resta Bard) */
 /* 8/11 · PIÙ SEMPLICE (Maurizio: «più semplice e intuitiva, con meno voci»; bozza A scelta): tre schede in basso,
-   Illusionist · Paesaggi · Bard. Si apre su Illusionist; Crea si apre da Paesaggi (Nuovo), le Impostazioni dall'ingranaggio
+   (poi, la sera stessa: Illusionist · Bard · Impostazioni). Si apre su Illusionist; Crea si apre da Paesaggi (Nuovo), le Impostazioni dall'ingranaggio
    in alto a destra. L'ingresso coi medaglioni resta nel codice ma non si apre più */
-const SCHEDE = [['finestre','bifora','Illusionist'], ['paesaggi','quadro','Paesaggi'], ['bard','liuto','Bard']];
-const ALTRE_SCHEDE = ['crea', 'impostazioni'];
+/* 8/11 sera (Maurizio: «al massimo Illusionist, Bard e Impostazioni»): i Paesaggi si aprono da Illusionist */
+const SCHEDE = [['finestre','bifora','Illusionist'], ['bard','liuto','Bard'], ['impostazioni','manopole','Impostazioni']];
+const ALTRE_SCHEDE = ['paesaggi', 'crea'];
 let ultimaPrincipale = 'finestre';
 /* 2/11 · l'app si apre sull'ingresso (bozza E): i cinque medaglioni grandi; da lì si entra nelle schede, la freccia in alto torna */
 let scheda = (location.hash.slice(1) in {finestre:1, bard:1, paesaggi:1, crea:1, impostazioni:1}) ? location.hash.slice(1) : 'finestre';
@@ -419,7 +420,7 @@ function disegnaScheda(){
   document.querySelectorAll('.scheda').forEach(s => s.classList.toggle('attiva', s.id === 's-' + scheda));
   document.body.classList.toggle('su-ingresso', scheda === 'ingresso');
   document.body.classList.toggle('principale', SCHEDE.some(x => x[0] === scheda));
-  const inBarra = scheda === 'crea' ? 'paesaggi' : scheda;
+  const inBarra = scheda === 'crea' || scheda === 'paesaggi' ? 'finestre' : scheda;
   document.querySelectorAll('#barra button').forEach(b => b.setAttribute('aria-current', b.dataset.scheda === inBarra ? 'page' : 'false'));
   ({ingresso: disegnaIngresso, finestre: disegnaFinestre, bard: disegnaBard, paesaggi: disegnaPaesaggi, crea: disegnaCrea, impostazioni: disegnaImpostazioni})[scheda]();
   aggiornaSpia();
@@ -523,6 +524,7 @@ function disegnaFinestre(){
       <div class="rapide in-riga">
         <button class="btn" data-fai="accendi" id="btnAccendi">${icona('accensione', 20)}<span>Accese</span></button>
         <button class="btn" data-fai="lampo">${icona('fulmine', 20)}<span>Lampo</span></button>
+        <button class="btn" data-fai="apriScheda" data-v="paesaggi">${icona('quadro', 20)}<span>Paesaggi</span></button>
       </div>
       <div class="sezione">${titolo('orologio', 'Ora')}<div class="pads c5" id="sceltaOra">${ORE.map(([v, , t]) => pad('ora', v, v, t, false, 46)).join('')}</div></div>
       <div class="sezione">${titolo('nuvola', 'Tempo')}<div class="pads c6" id="sceltaMeteo">${METEO.map(([v, , t]) => pad('meteo', v, MED_METEO[v], t, false, 42)).join('')}</div>
@@ -1659,7 +1661,7 @@ const AZIONI = {
     try { await Accesso.togli(CASA_PRIVATA, [v]); await caricaBard(); avviso('Tolto dalla stanza'); } catch(e) { avviso(e.message, true); } },
   bardRicarica: () => caricaBard(),
   bardDove: v => { mandaBard({dove: v}); if (v === ID_TELEFONO) lettore.sblocca(); disegnaImpostazioni(); },
-  ingresso: () => vai(scheda === 'crea' ? 'paesaggi' : ultimaPrincipale), apriScheda: v => vai(v),
+  ingresso: () => vai(scheda === 'crea' ? 'paesaggi' : scheda === 'paesaggi' ? 'finestre' : ultimaPrincipale), apriScheda: v => vai(v),
   vaiImpBard: () => { aperti.add('bard'); scrivi('atm-gruppi-aperti', [...aperti]); vai('impostazioni'); },
   chiudiFoglio: () => chiudiFoglio(),
   ora: v => cambia({ora:v}),
