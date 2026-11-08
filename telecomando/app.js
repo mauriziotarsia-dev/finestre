@@ -9,7 +9,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
 const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 const euro = n => (n < .1 ? n.toFixed(3) : n.toFixed(2)).replace('.', ',') + ' $';
-const VERSIONE = '5.12';
+const VERSIONE = '6.0';
 
 /* ── la casa ──────────────────────────────────────────────────────────────── */
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
@@ -360,7 +360,7 @@ $('#velo').onclick = chiudiFoglio;
 $('#chiudiFoglio').innerHTML = icona('chiudi', 18);
 
 /* ── pezzi di interfaccia ────────────────────────────────────────────────── */
-const testa = (ic, titolo, sotto, spia = true) => `<header class="testa"><button class="torna" data-fai="ingresso" aria-label="Torna all'ingresso">${icona('indietro', 20)}</button><div><h1>${icona(ic, 22)}${esc(titolo)}</h1><p>${esc(sotto)}</p></div>${spia ? '<span class="spia"><i></i><span>…</span></span>' : ''}</header>`;
+const testa = (ic, titolo, sotto, spia = true) => `<header class="testa"><button class="torna" data-fai="ingresso" aria-label="Indietro">${icona('indietro', 20)}</button><div><h1>${icona(ic, 22)}${esc(titolo)}</h1><p>${esc(sotto)}</p></div>${spia ? '<span class="spia"><i></i><span>…</span></span>' : ''}<button class="ingranaggio" data-fai="apriScheda" data-v="impostazioni" aria-label="Impostazioni">${icona('manopole', 20)}</button></header>`;
 const titolo = (ic, testo, piccolo = '') => `<h2 class="titolo">${icona(ic, 16)}${esc(testo)}${piccolo ? '<small>' + esc(piccolo) + '</small>' : ''}</h2>`;
 /* 2/11 · un pulsante dipinto (bozze B e D): il medaglione con il nome sotto, come nella console della serata */
 const pad = (fai, v, med, testo, acceso, px = 42, tasto = '') => `<button class="pad" data-fai="${fai}" data-v="${esc(v)}" aria-pressed="${!!acceso}" title="${esc(testo)}">${tasto ? `<i class="tasto">${esc(tasto)}</i>` : ''}<span class="tondo">${medaglione(med, px)}</span><span>${esc(testo)}</span></button>`;
@@ -380,22 +380,30 @@ function legaCursore(id, fn){ const r = document.getElementById(id); if (!r) ret
 /* ═════════════════════════════ SCHEDE ═════════════════════════════════════ */
 /* 3/11 · la scheda delle finestre si chiama Illusionist (Maurizio: «finestre in inglese diventa windows, non possiamo»;
    Illusionist è il nome già deciso il 29/10 per finestre e paesaggi; Bard resta Bard) */
-const SCHEDE = [['finestre','bifora','Illusionist'], ['bard','liuto','Bard'], ['paesaggi','quadro','Paesaggi'], ['crea','scintilla','Crea'], ['impostazioni','manopole','Impostazioni']];
+/* 8/11 · PIÙ SEMPLICE (Maurizio: «più semplice e intuitiva, con meno voci»; bozza A scelta): tre schede in basso,
+   Illusionist · Paesaggi · Bard. Si apre su Illusionist; Crea si apre da Paesaggi (Nuovo), le Impostazioni dall'ingranaggio
+   in alto a destra. L'ingresso coi medaglioni resta nel codice ma non si apre più */
+const SCHEDE = [['finestre','bifora','Illusionist'], ['paesaggi','quadro','Paesaggi'], ['bard','liuto','Bard']];
+const ALTRE_SCHEDE = ['crea', 'impostazioni'];
+let ultimaPrincipale = 'finestre';
 /* 2/11 · l'app si apre sull'ingresso (bozza E): i cinque medaglioni grandi; da lì si entra nelle schede, la freccia in alto torna */
-let scheda = (location.hash.slice(1) in {finestre:1, bard:1, paesaggi:1, crea:1, impostazioni:1}) ? location.hash.slice(1) : 'ingresso';
+let scheda = (location.hash.slice(1) in {finestre:1, bard:1, paesaggi:1, crea:1, impostazioni:1}) ? location.hash.slice(1) : 'finestre';
 $('#barra').innerHTML = SCHEDE.map(([id, ic, nome]) => `<button data-scheda="${id}">${icona(ic, 22)}<span>${nome}</span></button>`).join('');
 $('#barra').onclick = e => { const b = e.target.closest('[data-scheda]'); if (b) vai(b.dataset.scheda); };
 const app = $('#app');
-app.innerHTML = MARCHIO + '<section class="scheda" id="s-ingresso"></section>' + SCHEDE.map(([id]) => `<section class="scheda" id="s-${id}"></section>`).join('');
+app.innerHTML = MARCHIO + '<section class="scheda" id="s-ingresso"></section>' + SCHEDE.map(([id]) => id).concat(ALTRE_SCHEDE).map(id => `<section class="scheda" id="s-${id}"></section>`).join('');
 function vai(id){
   if (scheda === 'impostazioni' && id !== 'impostazioni' && mostraBordi){ mostraBordi = false; canale.manda('fori', Object.assign({mostra:false}, assettoOPredefinito())); }
+  if (SCHEDE.some(x => x[0] === id)) ultimaPrincipale = id;
   scheda = id; history.replaceState(null, '', location.pathname + location.search + (id === 'ingresso' ? '' : '#' + id)); aggiornaComando();
   disegnaScheda(); scrollTo(0, 0);
 }
 function disegnaScheda(){
   document.querySelectorAll('.scheda').forEach(s => s.classList.toggle('attiva', s.id === 's-' + scheda));
   document.body.classList.toggle('su-ingresso', scheda === 'ingresso');
-  document.querySelectorAll('#barra button').forEach(b => b.setAttribute('aria-current', b.dataset.scheda === scheda ? 'page' : 'false'));
+  document.body.classList.toggle('principale', SCHEDE.some(x => x[0] === scheda));
+  const inBarra = scheda === 'crea' ? 'paesaggi' : scheda;
+  document.querySelectorAll('#barra button').forEach(b => b.setAttribute('aria-current', b.dataset.scheda === inBarra ? 'page' : 'false'));
   ({ingresso: disegnaIngresso, finestre: disegnaFinestre, bard: disegnaBard, paesaggi: disegnaPaesaggi, crea: disegnaCrea, impostazioni: disegnaImpostazioni})[scheda]();
   aggiornaSpia();
 }
@@ -494,13 +502,13 @@ function disegnaFinestre(){
       <div class="in-onda-riga"><b id="nomeInOnda">—</b><small id="sottoInOnda"></small></div>
       <div class="rapide in-riga">
         <button class="btn" data-fai="accendi" id="btnAccendi">${icona('accensione', 20)}<span>Accese</span></button>
-        <button class="btn" data-fai="vaiPaesaggi">${icona('quadro', 20)}<span>Paesaggio</span></button>
         <button class="btn" data-fai="lampo">${icona('fulmine', 20)}<span>Lampo</span></button>
       </div>
       <div class="sezione">${titolo('orologio', 'Ora')}<div class="pads c5" id="sceltaOra">${ORE.map(([v, , t]) => pad('ora', v, v, t, false, 46)).join('')}</div></div>
       <div class="sezione">${titolo('nuvola', 'Tempo')}<div class="pads c6" id="sceltaMeteo">${METEO.map(([v, , t]) => pad('meteo', v, MED_METEO[v], t, false, 42)).join('')}</div>
         <div class="pannello" style="margin-top:10px">
           <div id="rigaIntensita">${cursore('intensita', 'goccia', 'Intensità', 0, 100, Math.round(scena.intensita * 100), Math.round(scena.intensita * 100) + '%')}</div>
+          ${cursore('luceOra', 'sole', 'Luce', 2, 100, luceAdesso(), luceAdesso() + '%')}
           <div class="riga-vento">${icona('vento', 18)}<span>Vento</span><div class="segmenti">${VENTI.map(([v, t]) => `<button data-fai="vento" data-v="${v == null ? '' : v}">${t}</button>`).join('')}</div></div>
         </div></div>`;
     anteprimaFrame = $('#anteprimaFrame');
@@ -508,10 +516,14 @@ function disegnaFinestre(){
     anteprimaTvFrame = $('#anteprimaTvFrame');
     anteprimaTvFrame.onload = () => { anteprimaTvPronta = true; anteprimaTvFrame.contentWindow.postMessage({tipo:'scena', scena}, '*'); if (ultimoTv) anteprimaTvFrame.contentWindow.postMessage({tipo:'tv', tv: ultimoTv}, '*'); };
     legaCursore('intensita', (v, o) => { o.textContent = v + '%'; cambia({intensita: v / 100}, false); });
+    /* 8/11 · la luce dello schermo qui, per l'ora che si vede (prima era nelle Impostazioni, giorno e notte separati) */
+    legaCursore('luceOra', (v, o) => { o.textContent = v + '%'; cambia(eNotte() ? {luceNotte: v} : {luceGiorno: v}, false); });
     impaginaAnteprima();
   }
   aggiornaFinestre();
 }
+const eNotte = () => (scena.ora === 'vera' ? oraVera() : scena.ora) === 'notte';
+const luceAdesso = () => Math.round(eNotte() ? (scena.luceNotte ?? 30) : (scena.luceGiorno ?? 70));
 function aggiornaFinestre(){
   const s = $('#s-finestre'); if (!s.dataset.fatto) return;
   s.querySelectorAll('[data-fai="ora"]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.v === scena.ora)));
@@ -519,6 +531,7 @@ function aggiornaFinestre(){
   const vv = ventoVicino(scena.vento);
   s.querySelectorAll('[data-fai="vento"]').forEach(b => b.setAttribute('aria-pressed', String((b.dataset.v === '' ? null : +b.dataset.v) === vv)));
   $('#rigaIntensita').hidden = scena.meteo === 'sereno';
+  const rl = $('#luceOra'); if (rl && document.activeElement !== rl){ rl.value = luceAdesso(); riempi(rl); const o = $('#luceOra-o'); if (o) o.textContent = luceAdesso() + '%'; }
   $('#btnAccendi').innerHTML = icona('accensione', 20) + '<span>' + (scena.acceso ? 'Accese' : 'Spente') + '</span>';
   $('#btnAccendi').classList.toggle('oro', !!scena.acceso);
   const p = libreria.find(x => x.id === scena.paesaggio);
@@ -579,7 +592,7 @@ function disegnaPaesaggi(){
   if (vistaPaesaggi === 'miei'){
     const elenco = filtraLibreria(libreria, filtroTesto, null);
     corpo = `<div class="riga-cerca"><div class="cerca">${icona('lente', 18)}<input id="cercaMiei" type="search" placeholder="Cerca…" value="${esc(filtroTesto)}" autocomplete="off"></div>
-        <button class="btn oro" data-fai="aggiungiPaesaggio">${icona('piu', 18)}Aggiungi</button></div>
+        <button class="btn oro" data-fai="aggiungiPaesaggio">${icona('piu', 18)}Nuovo</button></div>
       <div class="griglia" style="margin-top:14px">${libreriaStato === 'carico' && !libreria.length ? '<p class="vuoto">Carico la libreria…</p>'
         : libreriaStato !== 'ok' && libreriaStato !== 'carico' ? `<p class="vuoto">${esc(libreriaStato)}</p>`
         : elenco.length ? elenco.map(cartaPaesaggio).join('') : `<p class="vuoto">${libreria.length ? 'Nessun paesaggio con queste parole.' : 'Ancora nessun paesaggio: tocca «Aggiungi».'}</p>`}</div>`;
@@ -609,7 +622,7 @@ function disegnaPaesaggi(){
 }
 function apriAggiungiPaesaggio(){
   const riga = (fai, ic, t, sotto) => `<button class="scelta riga" data-fai="${fai}">${icona(ic, 22)}<span><b>${t}</b><small>${sotto}</small></span></button>`;
-  apriFoglio(`<h3 class="foglio-titolo">Aggiungi un paesaggio</h3><div class="scelte">
+  apriFoglio(`<h3 class="foglio-titolo">Nuovo paesaggio</h3><div class="scelte">
     ${riga('vaiCrea', 'scintilla', 'Dipinto dall\'AI', 'Lo descrivi, lo dipinge con le luci del giorno e la vista per il TV')}
     ${riga('aggiungiWebVai', 'mondo', 'Foto vera dal web', 'Da Wikimedia Commons' + (imp.chiavi.pexels ? ' e Pexels' : ''))}
     ${riga('aggiungiYTVai', 'scena', 'Video di YouTube', 'Un video in loop, muto')}</div>`);
@@ -617,11 +630,12 @@ function apriAggiungiPaesaggio(){
 }
 
 /* che cosa manca a un paesaggio per essere completo come uno appena creato */
+const cieliMancanti = p => imp.cielo === false ? [] : ['giorno','alba','tramonto','notte'].filter(o => p.immagini[o] && !p.immagini['cielo-' + o]);
 function cosaManca(p){
   if (p.yt || !p.immagini.giorno) return [];
   const m = ['alba','tramonto','notte'].filter(o => !p.immagini[o]);
   if (!p.immagini['est-giorno']) m.push('tv');
-  if (!['giorno','alba','tramonto','notte'].some(o => p.immagini['cielo-' + o])) m.push('cielo');
+  if (cieliMancanti(p).length) m.push('cielo');   /* 8/11: anche quando manca il cielo di una luce sola (di notte le nuvole erano ferme) */
   if (!p.immagini.comignoli || (p.immagini['est-giorno'] && !p.immagini['est-comignoli'])) m.push('fumo');
   /* 4/11 (Maurizio: «bisogna avere anche sul TV le animazioni come sulle finestrelle»): se le finestrelle sono
      animate, anche il TV */
@@ -642,9 +656,43 @@ function animiDaFare(p, manca = cosaManca(p)){
 function costoCompleta(manca, p = null){
   const m = Ai.modello(imp.modello), c = m.costo[imp.qualita] || m.costo.alta, nLuci = manca.filter(o => NOME_ORA[o]).length;
   const mv = MODELLI_VIDEO.find(x => x.id === imp.video.modello) || MODELLI_VIDEO[0];
-  return c * 1.15 * nLuci + (manca.includes('tv') ? c * 1.3 * (1 + 3 * 1.15) : 0) + (manca.includes('cielo') ? c * 4 : 0) + (manca.includes('fumo') ? .01 : 0) + (manca.includes('anim') && mv && p ? mv.euroSecondo * imp.video.secondi * animiDaFare(p, manca.filter(x => x !== 'anim')) : 0);
+  return c * 1.15 * nLuci + (manca.includes('tv') ? c * 1.3 * (1 + 3 * 1.15) : 0) + (manca.includes('cielo') ? c * Math.max(1, p ? cieliMancanti(p).length : 4) : 0) + (manca.includes('fumo') ? .01 : 0) + (manca.includes('anim') && mv && p ? mv.euroSecondo * imp.video.secondi * animiDaFare(p, manca.filter(x => x !== 'anim')) : 0);
 }
-const NOME_MANCA = {alba:'alba', tramonto:'tramonto', notte:'notte', tv:'vista per il TV', cielo:'cielo che scorre', anim:'animazioni di tutte le luci, finestrelle e TV', fumo:'fumo dai comignoli'};
+/* Completa: le luci, la profondità, la vista per il TV, il cielo, il fumo e le animazioni che mancano */
+async function completaPaesaggio(p, desc = ''){
+  const m = Ai.modello(imp.modello);
+  await conLavoro('completa', async L => {
+    L.p = p; L.anteprime.giorno = {url:p.immagini.giorno};
+    const manca = cosaManca(p), luci = ['alba','tramonto','notte'].filter(o => manca.includes(o));
+    const foto = await (await fetch(p.immagini.giorno)).blob(), mis = await misuraDi(foto);
+    /* come quando si crea: con la vista per il TV, all'alba il sole si vede solo nel TV (mai due soli) */
+    if (luci.length){ await faiLuci(p, foto, luci, m.fornitore === 'openai' ? mis.openai : mis.largo ? 'tv' : null, {conTv: true}); aggiornaInLibreria(p); }
+    if (!p.immagini.profondita){ await faiProfondita(p, foto); aggiornaInLibreria(p); }
+    if (manca.includes('tv')){ try { await faiVistaEst(p, foto, desc, luci.includes('alba')); aggiornaInLibreria(p); } catch(e) { passo('est-giorno', 'errore', 'TV · vista verso est: ' + e.message); segnala(e); } }
+    if (manca.includes('cielo')){ await faiCieli(p, true); aggiornaInLibreria(p); }
+    if (manca.includes('fumo')){
+      if (!p.immagini.comignoli){ await faiComignoli(p, foto); aggiornaInLibreria(p); }
+      if (p.immagini['est-giorno'] && !p.immagini['est-comignoli']){ await faiComignoli(p, await (await fetch(p.immagini['est-giorno'])).blob(), true); aggiornaInLibreria(p); }
+    }
+    if (manca.includes('anim')) await animaTutto(p, animMancanti(p));
+  });
+}
+/* 8/11 · «Migliora con l'AI»: quanto costa e che cosa fa (con stretta = il panorama va rifatto largo per le finestrelle) */
+function costoMigliora(p, stretta){
+  const manca = cosaManca(p);
+  if (!stretta) return costoCompleta(manca, p);
+  const mv = MODELLI_VIDEO.find(x => x.id === imp.video.modello) || MODELLI_VIDEO[0];
+  const video = MODELLI_VIDEO.length && Object.keys(p.animati).length ? mv.euroSecondo * imp.video.secondi * (imp.risparmio !== false ? 1 : 1 + ['alba','tramonto','notte'].filter(o => p.immagini[o]).length) : 0;
+  return costoRifaiLargo(p) + video + costoCompleta(manca.filter(x => !['anim','cielo','fumo'].includes(x)), p);
+}
+function cosaFaMigliora(p, stretta){
+  const v = [];
+  if (stretta) v.push('panorama largo per le finestrelle (con luci, profondità, fumo e cielo)');
+  for (const o of cosaManca(p)) if (!(stretta && ['cielo','fumo'].includes(o))) v.push(NOME_MANCA[o]);
+  if (stretta && Object.keys(p.animati).length && !v.some(x => /animazion/.test(x))) v.push('animazione delle finestrelle');
+  return v.length ? 'Fa da sé: ' + v.join(', ') + '.' : '';
+}
+const NOME_MANCA = {alba:'alba', tramonto:'tramonto', notte:'notte', tv:'vista per il TV', cielo:'cielo che scorre', anim:'animazioni che mancano', fumo:'fumo dai comignoli'};
 
 /* il dettaglio di un paesaggio */
 function apriPaesaggio(p){
@@ -665,10 +713,8 @@ function apriPaesaggio(p){
       </div>
     </div>
     <button class="btn oro piena" style="margin-top:14px" data-fai="mostra" data-v="${p.id}">${icona('play', 18)}Mostra alle finestre</button>
-    ${p.yt ? '' : `<button class="btn piena" id="rifaiLargo" hidden style="margin-top:8px" data-fai="rifaiLargo" data-v="${p.id}">${icona('scintilla', 18)}Rifai largo per le finestrelle · ≈ ${euro(costoRifaiLargo(p))}</button>
-      <p class="nota" id="rifaiLargoNota" hidden style="margin-top:6px">Il panorama largo per il trucco della prospettiva: stesso posto e stile, soggetto al centro. Rifà le luci, la profondità, il fumo e il cielo delle finestrelle; le loro animazioni vanno rifatte. Il TV resta com'è.</p>`}
-    ${manca.length ? `<button class="btn piena" style="margin-top:8px" data-fai="completa" data-v="${p.id}">${icona('scintilla', 18)}Completa con l'AI · ≈ ${euro(costoCompleta(manca, p))}</button>
-      <p class="nota" style="margin-top:6px">Manca: ${esc(elencoManca.join(', '))}.</p>` : ''}
+    ${p.yt ? '' : `<button class="btn piena" id="migliora" style="margin-top:8px"${manca.length ? '' : ' hidden'} data-fai="migliora" data-v="${p.id}">${icona('scintilla', 18)}Migliora con l'AI · ≈ ${euro(costoMigliora(p, false))}</button>
+      <p class="nota" id="miglioraNota" style="margin-top:6px"${manca.length ? '' : ' hidden'}>${esc(cosaFaMigliora(p, false))}</p>`}
     <details class="gruppo" style="margin-top:12px"><summary>${icona('manopole', 18)}<span>Altro</span></summary><div class="dentro-gruppo">
       ${p.yt ? '' : `${cursore('inquadra', 'mirino', 'Inquadratura', 0, 100, Math.round(fx * 100), fx === .5 ? 'centro' : Math.round(fx * 100) + '%')}
         <p class="nota" style="margin:0 0 10px">Quale parte dell'immagine si vede nel foro, se è più larga.</p>
@@ -679,12 +725,14 @@ function apriPaesaggio(p){
         ${p.yt || !MODELLI_VIDEO.length ? '' : `<button class="btn" data-fai="anima" data-v="${p.id}">${icona('anima', 18)}Anima</button>`}
         ${p.yt ? '' : `<button class="btn" data-fai="fumo" data-v="${p.id}">${icona('fiamma', 18)}Fumo dai comignoli</button>`}
         <button class="btn" data-fai="modifica" data-v="${p.id}">${icona('matita', 18)}Rinomina</button>
-      </div></div></details>
-    <button class="btn pericolo piena" style="margin-top:12px" data-fai="elimina" data-v="${p.id}">${icona('cestino', 18)}Elimina questo paesaggio</button>
+      </div>
+      <button class="btn pericolo piena" style="margin-top:12px" data-fai="elimina" data-v="${p.id}">${icona('cestino', 18)}Elimina questo paesaggio</button></div></details>
     <div id="lavoroFoglio"></div>`, el => {
       let tFuoco = null;
       if (!p.yt && p.immagini.giorno){ const prova = new Image(); prova.onload = () => { const stretta = prova.naturalWidth / prova.naturalHeight < 1.2;
-        if (stretta && foglioAperto === p.id){ const b = $('#rifaiLargo'), n = $('#rifaiLargoNota'); if (b) b.hidden = false; if (n) n.hidden = false; } }; prova.src = p.immagini.giorno; }
+        if (stretta && foglioAperto === p.id){ const b = $('#migliora'), n = $('#miglioraNota');
+          if (b){ b.hidden = false; b.dataset.stretta = '1'; b.innerHTML = icona('scintilla', 18) + "Migliora con l'AI · ≈ " + euro(costoMigliora(p, true)); }
+          if (n){ n.hidden = false; n.textContent = cosaFaMigliora(p, true); } } }; prova.src = p.immagini.giorno; }
       legaCursore('inquadra', (v, o) => {
         o.textContent = v === 50 ? 'centro' : v + '%';
         el.querySelectorAll('.grande img, .luci img').forEach(i => i.style.objectPosition = v + '% 50%');
@@ -945,8 +993,8 @@ async function cucitoAiLati(blob){
   x.drawImage(t, 0, 0);                                                      /* …sfuma nell'inizio */
   return await new Promise(r => c.toBlob(r, 'image/jpeg', .9));
 }
-async function faiCieli(p){
-  const ore = ['giorno','alba','tramonto','notte'].filter(o => p.immagini[o]);
+async function faiCieli(p, soloMancanti = false){
+  const ore = soloMancanti ? cieliMancanti(p) : ['giorno','alba','tramonto','notte'].filter(o => p.immagini[o]);
   for (const ora of ore){
     const k = 'cielo-' + ora, nomeOra = NOME_ORA[ora][0].toUpperCase() + NOME_ORA[ora].slice(1);
     passo(k, 'ora', `Cielo che scorre · ${nomeOra.toLowerCase()}: lo dipingo largo…`);
@@ -1476,7 +1524,7 @@ function disegnaImpostazioni(){
   const chi = account ? (account.email || '') : casaPrivata ? 'telefono collegato' : 'non collegato';
   const conChiave = !!imp.chiavi[Ai.modello(imp.modello).fornitore];
   s.innerHTML = testa('manopole', 'Impostazioni', 'Si sistemano una volta') + `<div class="problema" hidden></div>
-    ${gruppo('stanza', 'persona', 'Stanza e schermi', chi, corpoAccount)}
+    ${gruppo('stanza', 'persona', 'Account e stanza', chi, corpoAccount)}
     ${gruppo('ai', 'scintilla', 'AI e chiavi', conChiave ? Ai.modello(imp.modello).nome : 'manca la chiave', `
       <div class="blocco"><span>Per le immagini</span><div class="scelte">${MODELLI_IMMAGINE.map(m => `<button class="scelta riga" data-fai="modello" data-v="${m.id}" aria-pressed="${imp.modello === m.id}">${icona(m.fornitore === 'google' ? 'mondo' : 'scintilla', 22)}<span><b>${esc(m.nome)}</b><small>${esc(m.note)}</small></span><span class="prezzo">≈ ${euro(m.costo[imp.qualita] || m.costo.alta)}</span></button>`).join('')}</div></div>
       <div class="segmenti">${['alta','media','bassa'].map(v => `<button data-fai="qualita" data-v="${v}" aria-pressed="${imp.qualita === v}">Qualità ${v}</button>`).join('')}</div>
@@ -1489,21 +1537,22 @@ function disegnaImpostazioni(){
         ${campoChiave('kEleven', 'Chiave ElevenLabs', 'sk_…', imp.chiavi.elevenlabs, 'Per i suoni e le musiche di Bard. La stessa di DMaster.')}
         ${campoChiave('kPexels', 'Chiave Pexels (facoltativa)', 'chiave Pexels', imp.chiavi.pexels, 'Più foto vere e verticali. Gratis su <a href="https://www.pexels.com/api/" target="_blank" rel="noopener">pexels.com/api</a>.')}
         <p class="nota" style="margin-top:0">Le chiavi restano su questo telefono.</p></div>`)}
-    ${gruppo('bard', 'liuto', 'Bard', suonoQui() ? 'suona dal telefono' : 'suona dal TV', `
+    ${gruppo('bard', 'liuto', 'Suono', suonoQui() ? 'dal telefono' : 'dal TV', `
       <div class="segmenti">${[['stanza', 'tv', 'Il TV'], [ID_TELEFONO, 'telefono', 'Questo telefono']].map(([v, ic, t]) => `<button data-fai="bardDove" data-v="${v}" aria-pressed="${bardStato.dove === v}">${icona(ic, 18)}${t}</button>`).join('')}</div>
       ${suonoQui() ? '' : `<label class="campo" style="margin-top:12px"><span>Uscita del TV</span><select data-cambia="bardUscita">
         <option value="">Quella di Windows (di solito le casse del TV)</option>
         ${bardCasse.map(c => `<option value="${esc(c.id)}"${(bardStato.uscitaTv && bardStato.uscitaTv.id === c.id) ? ' selected' : ''}>${esc(c.nome)}</option>`).join('')}</select></label>
         ${bardCasse.length ? '' : '<p class="nota" style="margin-top:-4px">Il TV non ha ancora detto quali casse vede: succede dopo l\'installatore aggiornato sul G10, con la JBL già abbinata in Bluetooth.</p>'}`}
       <p class="nota">${suonoQui() ? 'Suona da qui: dall\'altoparlante o da una cassa collegata al telefono. Tieni l\'app aperta e lo schermo acceso, se no il telefono smette di suonare.' : 'Suona il G10 del TV: dalle casse del TV o da una cassa Bluetooth abbinata al G10. Puoi bloccare il telefono.'} Durante una serata i suoni li fa DMaster dal portatile.</p>`)}
-    ${gruppo('aspetto', 'nuvola', 'Come si muovono', '', `
+    ${gruppo('avanzate', 'manopole', 'Avanzate', 'movimento, allineamento, collegamento', `
+      <div class="titolo" style="margin:14px 0 8px">${icona('nuvola', 15)}Come si muovono</div>
       ${interruttore('movimento', 'nuvola', 'Movimento', 'Nuvole che scorrono e alberi al vento, anche sulle immagini ferme', scena.movimento !== false)}
       ${interruttore('prospettiva', 'occhio', 'Prospettiva', 'Le due finestre vedono il paesaggio da punti appena diversi', scena.prospettiva !== false)}
       ${interruttore('prospettivaViva', 'persona', 'Prospettiva viva', a.staccato ? 'Il TV segue chi si muove nella stanza (serve il sensore accanto al TV). Le finestrelle hanno già la prospettiva vera dello schermo staccato' : 'Le finestre seguono chi si muove nella stanza (serve il sensore)', !!scena.prospettivaViva)}
       <div class="blocco"><span>Luce dello schermo</span>${cursore('luceGiorno', 'sole', 'Di giorno', 5, 100, scena.luceGiorno, scena.luceGiorno + '%')}${cursore('luceNotte', 'luna', 'Di notte', 2, 100, scena.luceNotte, scena.luceNotte + '%')}</div>
       <div class="blocco"><span>Fluidità · immagini al secondo</span><div class="scelte c3">${FLUIDITA.map(([v, t]) => `<button class="scelta" data-fai="fps" data-v="${v}" aria-pressed="${v === (scena.fps || 60)}"><b style="font:600 18px var(--display)">${v}</b><span>${esc(t)}</span></button>`).join('')}</div>
-        <p class="nota">Meno immagini = ventola più tranquilla. 50 solo se lo schermo è a 50 Hz.</p></div>`)}
-    ${gruppo('allinea', 'mirino', 'Allineamento', a.n === 2 ? 'due finestre' : 'una finestra', `
+        <p class="nota">Meno immagini = ventola più tranquilla. 50 solo se lo schermo è a 50 Hz.</p></div>
+      <div class="titolo" style="margin:14px 0 8px">${icona('mirino', 15)}Allineamento · ${a.n === 2 ? 'due finestre' : 'una finestra'}</div>
       <div class="segmenti">${[1, 2].map(n => `<button data-fai="nFinestre" data-v="${n}" aria-pressed="${a.n === n}">${icona(n === 1 ? 'monofora' : 'bifora', 18)}${n === 1 ? 'Una finestra' : 'Due finestre'}</button>`).join('')}</div>
       ${interruttore('bordi', 'mirino', 'Mostra i bordi sulle finestre', 'Una cornice tratteggiata per allineare ogni foro al traforo', mostraBordi)}
       <div class="pannello" style="margin-top:10px">
@@ -1520,8 +1569,8 @@ function disegnaImpostazioni(){
         ${cursore('provaX', 'destra', 'Dove sei', -100, 100, 0, 'centro')}
         ${cursore('provaZ', 'mirino', 'Quanto vicino', -100, 100, 0, '0')}
         <p class="nota" style="margin:0 0 6px">${a.staccato ? 'Fai finta di muoverti nella stanza: il TV reagisce come col sensore (le finestrelle staccate no, hanno la prospettiva vera).' : 'Fai finta di muoverti nella stanza: le finestre reagiscono come col sensore.'}</p></div>
-      ${a.n === 2 && !schermi.destra ? '<p class="nota">La finestra destra non ha ancora risposto: si collega quando c\'è il secondo schermo.</p>' : ''}`)}
-    ${gruppo('collega', 'catena', 'Collegamento', '', `
+      ${a.n === 2 && !schermi.destra ? '<p class="nota">La finestra destra non ha ancora risposto: si collega quando c\'è il secondo schermo.</p>' : ''}
+      <div class="titolo" style="margin:14px 0 8px">${icona('catena', 15)}Collegamento</div>
       <p class="nota" style="margin-top:0">Indirizzo da aprire sul Raspberry:</p><code class="link">${esc(linkPi)}</code>
       <a class="btn piena" style="margin-top:10px;text-decoration:none" href="../stanza/" target="_blank" rel="noopener">${icona('schermo', 18)}Stanza simulata (da aprire sul computer)</a>
       <p class="nota">Il TV e le due finestrelle su un computer, per provare tutto prima del montaggio.</p>
@@ -1593,7 +1642,7 @@ const AZIONI = {
     try { await Accesso.togli(CASA_PRIVATA, [v]); await caricaBard(); avviso('Tolto dalla stanza'); } catch(e) { avviso(e.message, true); } },
   bardRicarica: () => caricaBard(),
   bardDove: v => { mandaBard({dove: v}); if (v === ID_TELEFONO) lettore.sblocca(); disegnaImpostazioni(); },
-  ingresso: () => vai('ingresso'), apriScheda: v => vai(v),
+  ingresso: () => vai(scheda === 'crea' ? 'paesaggi' : ultimaPrincipale), apriScheda: v => vai(v),
   vaiImpBard: () => { aperti.add('bard'); scrivi('atm-gruppi-aperti', [...aperti]); vai('impostazioni'); },
   chiudiFoglio: () => chiudiFoglio(),
   ora: v => cambia({ora:v}),
@@ -1648,22 +1697,20 @@ const AZIONI = {
   completa: async v => {
     const p = libreria.find(x => x.id === v); if (!p) return;
     const m = Ai.modello(imp.modello); if (!imp.chiavi[m.fornitore]){ avviso('Serve la chiave nelle Impostazioni → AI e chiavi.', true); return; }
-    const desc = (($('#tvDesc') || {}).value || '').trim();
-    await conLavoro('completa', async L => {
-      L.p = p; L.anteprime.giorno = {url:p.immagini.giorno};
-      const manca = cosaManca(p), luci = ['alba','tramonto','notte'].filter(o => manca.includes(o));
-      const foto = await (await fetch(p.immagini.giorno)).blob(), mis = await misuraDi(foto);
-      /* come quando si crea: con la vista per il TV, all'alba il sole si vede solo nel TV (mai due soli) */
-      if (luci.length){ await faiLuci(p, foto, luci, m.fornitore === 'openai' ? mis.openai : mis.largo ? 'tv' : null, {conTv: true}); aggiornaInLibreria(p); }
-      if (!p.immagini.profondita){ await faiProfondita(p, foto); aggiornaInLibreria(p); }
-      if (manca.includes('tv')){ try { await faiVistaEst(p, foto, desc, luci.includes('alba')); aggiornaInLibreria(p); } catch(e) { passo('est-giorno', 'errore', 'TV · vista verso est: ' + e.message); segnala(e); } }
-      if (manca.includes('cielo')){ await faiCieli(p); aggiornaInLibreria(p); }
-      if (manca.includes('fumo')){
-        if (!p.immagini.comignoli){ await faiComignoli(p, foto); aggiornaInLibreria(p); }
-        if (p.immagini['est-giorno'] && !p.immagini['est-comignoli']){ await faiComignoli(p, await (await fetch(p.immagini['est-giorno'])).blob(), true); aggiornaInLibreria(p); }
-      }
-      if (manca.includes('anim')) await animaTutto(p, animMancanti(p));
-    });
+    await completaPaesaggio(p, (($('#tvDesc') || {}).value || '').trim());
+  },
+  /* 8/11 · un solo pulsante AI nella scheda: panorama largo se serve, poi quello che manca */
+  migliora: async (v, b) => {
+    const p = libreria.find(x => x.id === v); if (!p) return;
+    const m = Ai.modello(imp.modello); if (!imp.chiavi[m.fornitore]){ avviso('Serve la chiave nelle Impostazioni → AI e chiavi.', true); return; }
+    const stretta = b.dataset.stretta === '1', desc = (($('#tvDesc') || {}).value || '').trim();
+    if (stretta && Object.keys(p.animati).some(k => !k.startsWith('est-')) && b.dataset.conferma !== '1'){
+      b.dataset.conferma = '1'; b.innerHTML = icona('avviso', 18) + 'Le animazioni delle finestrelle si rifanno: tocca ancora';
+      setTimeout(() => { if (b.isConnected && b.dataset.conferma === '1'){ b.dataset.conferma = ''; b.innerHTML = icona('scintilla', 18) + "Migliora con l'AI · ≈ " + euro(costoMigliora(p, stretta)); } }, 5000); return; }
+    b.hidden = true; const n = $('#miglioraNota'); if (n) n.hidden = true;
+    if (stretta) await rifaiLargo(p);
+    if (cosaManca(p).length) await completaPaesaggio(p, desc);
+    if (scena.paesaggio === p.id){ Object.assign(scena, scenaDi(p)); mandaScena(); }
   },
   cieli: async v => {
     const p = libreria.find(x => x.id === v); if (!p) return;

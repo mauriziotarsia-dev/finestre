@@ -353,6 +353,11 @@ body.su-ingresso main{padding-bottom:28px}
 .testa .torna{flex:none;width:36px;height:36px;margin:0 2px 0 -8px;border:0;background:none;color:var(--tenue);display:flex;align-items:center;justify-content:center;cursor:pointer;border-radius:999px}
 .testa .torna:active{color:var(--oro)}
 .testa .torna{align-self:center} .testa .torna + div{flex:1}
+/* 8/11 · tre schede: sulle schede principali niente freccia, l'ingranaggio porta alle Impostazioni */
+.testa .ingranaggio{flex:none;width:38px;height:38px;margin-left:8px;border:1px solid var(--filo-forte,rgba(212,175,55,.45));border-radius:999px;background:var(--oro-veste);color:var(--oro-luce);display:flex;align-items:center;justify-content:center;cursor:pointer;align-self:center}
+.testa .ingranaggio:active{transform:scale(.96)}
+body.principale .testa .torna{display:none}
+#s-impostazioni .testa .ingranaggio{display:none}
 .ingresso-testa h1{text-transform:uppercase}
 
 /* 3/11 · le anteprime della stanza: TV e finestrelle affiancati, alti uguali */
@@ -388,6 +393,6 @@ body.su-ingresso main{padding-bottom:28px}
 <script src="../js/foto-online.js?v=2.1.0"></script>
 <script src="../js/profondita.js?v=2.1.0"></script>
 <script src="../js/bard.js?v=5"></script>
-<script src="app.js?v=5.14"></script>
+<script src="app.js?v=6.0"></script>
 </body>
 </html>
