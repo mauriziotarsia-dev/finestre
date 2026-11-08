@@ -825,7 +825,7 @@ function giro(ora){
   for (let i = 0; i < 3; i++){ const grigio = o === 'notte' ? .1 : .6; nebCol[i] += (nc[i] + (grigio - nc[i]) * met.coperto * .35 - nebCol[i]) * k; }
   const finta = o === 'notte' && scena.immagini && !vistaDi(scena).im.notte && !scena.yt ? 1 : 0;
   notteFinta += (finta - notteFinta) * k;
-  const luceTgt = (o === 'notte' ? scena.luceNotte : scena.luceGiorno) / 100;
+  const luceTgt = anteprima ? 1 : (o === 'notte' ? scena.luceNotte : scena.luceGiorno) / 100;   /* 8/11: l'anteprima nell'app mostra il paesaggio, non quanto è abbassato lo schermo (di notte al 30% sul telefono era nero) */
   luce += (luceTgt - luce) * Math.min(1, dt * 3);
   scuro += (scuroVerso - scuro) * Math.min(1, dt * 3.2);
   /* 8/11: l'app tiene sotto l'immagine ferma finché l'anteprima non ha davvero acceso il paesaggio */
