@@ -9,7 +9,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
 const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 const euro = n => (n < .1 ? n.toFixed(3) : n.toFixed(2)).replace('.', ',') + ' $';
-const VERSIONE = '6.1';
+const VERSIONE = '6.2';
 
 /* ── la casa ──────────────────────────────────────────────────────────────── */
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
@@ -469,7 +469,8 @@ function forieAnteprima(){
   /* l'anteprima mostra le finestre nella loro forma vera; se sono due, una accanto all'altra con un po' di muro in mezzo */
   const a = assettoOPredefinito(), f = a.finestre.sinistra, sch = schermoDi('sinistra');
   const asp = (f.w * sch.w) / (f.h * sch.h);
-  if (a.n === 1) return {aspetto: asp, fori:[{x:0, y:0, w:1, h:1}], modo:'doppia'};
+  /* 8/11 (Maurizio: «a destra solo una finestrella in un rettangolo, non due nel quadrato»): nell'angolo del TV ne basta una */
+  if (a.n === 1 || document.querySelector('.eroe')) return {aspetto: asp, fori:[{x:0, y:0, w:1, h:1}], modo:'doppia'};
   const muro = asp * .45, tot = 2 * asp + muro;
   return {aspetto: tot, fori:[{x:0, y:0, w:asp / tot, h:1}, {x:(asp + muro) / tot, y:0, w:asp / tot, h:1}], modo:'doppia'};
 }
