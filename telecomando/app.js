@@ -9,7 +9,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
 const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 const euro = n => (n < .1 ? n.toFixed(3) : n.toFixed(2)).replace('.', ',') + ' $';
-const VERSIONE = '5.11';
+const VERSIONE = '5.12';
 
 /* ── la casa ──────────────────────────────────────────────────────────────── */
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
@@ -35,7 +35,7 @@ history.replaceState(null, '', location.pathname + (casa || q.get('code') ? '?' 
 
 /* ── impostazioni ─────────────────────────────────────────────────────────── */
 const IMP_PRED = {modello:'openai:gpt-image-2', qualita:'alta', chiavi:{openai:'', google:'', pexels:'', elevenlabs:''},
-  video:{modello:'omni-720p', secondi:8}, stile:'painterly', luci:{alba:true, tramonto:true, notte:true}, anima:false, elementi:['alberi','acqua'], cielo:true, tv:true};
+  video:{modello:'omni-720p', secondi:8}, stile:'painterly', luci:{alba:true, tramonto:true, notte:true}, anima:false, elementi:['alberi','acqua'], cielo:true, tv:true, risparmio:true};
 const imp = Object.assign({}, IMP_PRED, leggi('finestre-impostazioni', {}));
 imp.elementi = (imp.elementi || []).filter(e => e !== 'fumo');   /* 5/11: il fumo lo disegna la finestra */
 imp.chiavi = Object.assign({}, IMP_PRED.chiavi, imp.chiavi || {});
@@ -632,7 +632,7 @@ function cosaManca(p){
 }
 function animiDaFare(p, manca = cosaManca(p)){
   let n = 0;
-  for (const ora of ['giorno','alba','tramonto','notte']){
+  for (const ora of oreDaAnimare()){
     if ((p.immagini[ora] || manca.includes(ora)) && !p.animati[ora]) n++;
     const est = p.immagini['est-' + ora] || (manca.includes('tv') && (ora === 'giorno' || p.immagini[ora] || manca.includes(ora)));
     if (est && !p.animati['est-' + ora]) n++;
@@ -1023,10 +1023,14 @@ async function faiAnimazione(p, foto, ora, elementi, tv = false){
 }
 /* 4/11 · le animazioni su tutte e quattro le luci (Maurizio: «devo avere animazioni sui 4 momenti, sia sulle finestrelle
    sia sul TV»). Ogni luce che ha la sua immagine ha il suo video; la finestra lo sceglie da sé (an[ora]) */
-const nVideoCrea = () => (1 + ['alba','tramonto','notte'].filter(o => imp.luci[o]).length) * (imp.tv !== false ? 2 : 1);
+/* 8/11 · RISPARMIO (Maurizio: «9 dollari per animare, come risparmiamo?»): di norma si anima solo il giorno, finestrelle e
+   TV; alba, tramonto e notte usano quel video ricolorato con la loro luce (js/vista.js). Un video per luce solo se lo si
+   sceglie in Anima o se si spegne «Risparmio» nelle Impostazioni */
+const oreDaAnimare = () => imp.risparmio !== false ? ['giorno'] : ['giorno','alba','tramonto','notte'];
+const nVideoCrea = () => (imp.risparmio !== false ? 1 : 1 + ['alba','tramonto','notte'].filter(o => imp.luci[o]).length) * (imp.tv !== false ? 2 : 1);
 function animMancanti(p, viste = [false, true]){
   const m = [];
-  for (const tv of viste) for (const ora of ['giorno','alba','tramonto','notte']){
+  for (const tv of viste) for (const ora of oreDaAnimare()){
     const pre = tv ? 'est-' : '';
     if (p.immagini[pre + ora] && !p.animati[pre + ora]) m.push({tv, ora});
   }
@@ -1099,7 +1103,7 @@ function disegnaCrea(){
       ${imp.tv !== false ? `<label class="campo"><span>Che cosa si vede verso il TV</span><input id="creaEst" placeholder="Vuoto: lo sceglie l'AI" value="${esc(descEst)}"></label>` : ''}
       <div class="blocco"><span>Luci del giorno</span><div class="scelte c4">${['giorno','alba','tramonto','notte'].map(o => `<button class="scelta" data-fai="luce" data-v="${o}" aria-pressed="${o === 'giorno' || !!imp.luci[o]}" ${o === 'giorno' ? 'disabled style="opacity:1"' : ''}>${icona(o === 'giorno' ? 'sole' : o === 'notte' ? 'luna' : o, 22)}<span>${NOME_ORA[o]}</span></button>`).join('')}</div></div>
       ${interruttore('cieloToggle', 'nuvola', 'Cielo che scorre', 'Le nuvole passano senza fine dietro il paesaggio', imp.cielo !== false)}
-      ${MODELLI_VIDEO.length ? interruttore('animaToggle', 'anima', 'Animalo con ' + mv.nome, `Un video per ogni luce, finestrelle${imp.tv !== false ? ' e TV' : ''} · ${imp.video.secondi} s in loop · ≈ ${euro(mv.euroSecondo * imp.video.secondi * nVideoCrea())}`, imp.anima)
+      ${MODELLI_VIDEO.length ? interruttore('animaToggle', 'anima', 'Animalo con ' + mv.nome, `${imp.risparmio !== false ? 'Un video del giorno (alba, tramonto e notte lo usano ricolorato)' : 'Un video per ogni luce'}, finestrelle${imp.tv !== false ? ' e TV' : ''} · ${imp.video.secondi} s in loop · ≈ ${euro(mv.euroSecondo * imp.video.secondi * nVideoCrea())}`, imp.anima)
         + (imp.anima ? `<div class="pillole" style="margin:0 0 12px">${ELEMENTI.map(([v, ic, t]) => `<button class="pillola" data-fai="elemento" data-v="${v}" aria-pressed="${imp.elementi.includes(v)}">${icona(ic, 15)}${t}</button>`).join('')}</div>` : '') : ''}`)}
     <div class="sezione">
       <button class="btn oro piena" data-fai="crea" ${lavoro && !lavoro.finito || manca ? 'disabled' : ''}>${icona('scintilla', 18)}Crea · ≈ ${euro(costo)}</button>
@@ -1477,7 +1481,8 @@ function disegnaImpostazioni(){
       <div class="blocco"><span>Per le immagini</span><div class="scelte">${MODELLI_IMMAGINE.map(m => `<button class="scelta riga" data-fai="modello" data-v="${m.id}" aria-pressed="${imp.modello === m.id}">${icona(m.fornitore === 'google' ? 'mondo' : 'scintilla', 22)}<span><b>${esc(m.nome)}</b><small>${esc(m.note)}</small></span><span class="prezzo">≈ ${euro(m.costo[imp.qualita] || m.costo.alta)}</span></button>`).join('')}</div></div>
       <div class="segmenti">${['alta','media','bassa'].map(v => `<button data-fai="qualita" data-v="${v}" aria-pressed="${imp.qualita === v}">Qualità ${v}</button>`).join('')}</div>
       ${MODELLI_VIDEO.length ? `<div class="blocco" style="margin-top:14px"><span>Per le animazioni</span><div class="scelte">${MODELLI_VIDEO.map(m => `<button class="scelta riga" data-fai="modelloVideo" data-v="${m.id}" aria-pressed="${imp.video.modello === m.id}">${icona('anima', 22)}<span><b>${esc(m.nome)}</b><small>${esc(m.note)}</small></span><span class="prezzo">${euro(m.euroSecondo)}/s</span></button>`).join('')}</div></div>
-        <div class="segmenti">${[4, 6, 8, 10].map(v => `<button data-fai="secondi" data-v="${v}" aria-pressed="${imp.video.secondi === v}">${v} s</button>`).join('')}</div>` : ''}
+        <div class="segmenti">${[4, 6, 8, 10].map(v => `<button data-fai="secondi" data-v="${v}" aria-pressed="${imp.video.secondi === v}">${v} s</button>`).join('')}</div>
+        <div class="pannello" style="padding:2px 14px;margin-top:10px">${interruttore('risparmioToggle', 'anima', 'Risparmio sulle animazioni', 'Si anima solo il giorno; alba, tramonto e notte usano quel video ricolorato con la loro luce (un quarto dei video)', imp.risparmio !== false)}</div>` : ''}
       <div style="margin-top:14px">
         ${campoChiave('kOpenai', 'Chiave OpenAI', 'sk-…', imp.chiavi.openai, 'La stessa di DMaster.')}
         ${campoChiave('kGoogle', 'Chiave Google (Gemini)', 'AIza…', imp.chiavi.google, 'Per Nano Banana e le animazioni. Gratis su <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com</a>.')}
@@ -1677,8 +1682,8 @@ const AZIONI = {
       <p class="nota" style="margin-top:0">${esc(mv.nome)} gira un breve video dall'immagine, con la camera ferma; le finestre lo ripetono in loop sfumando la fine nell'inizio.</p>
       ${titolo('nuvola', 'Che cosa si muove')}<div class="pillole" id="animEl">${ELEMENTI.map(([e, ic, t]) => `<button class="pillola" data-fai="elemento" data-v="${e}" aria-pressed="${imp.elementi.includes(e)}">${icona(ic, 15)}${t}</button>`).join('')}</div><p class="nota">${ELEMENTI_FINESTRA}</p>
       ${p.immagini['est-giorno'] ? `<div class="sezione">${titolo('tv', 'Quale vista')}<div class="segmenti" id="animVista"><button data-fai="animLuce" data-v="entrambe" aria-pressed="true">Entrambe</button><button data-fai="animLuce" data-v="nord" aria-pressed="false">Finestrelle</button><button data-fai="animLuce" data-v="tv" aria-pressed="false">TV</button></div><p class="nota" style="margin:6px 0 0">Con «Entrambe» due video: il costo raddoppia.</p></div>` : ''}
-      <div class="sezione">${titolo('orologio', 'Quale luce')}<div class="segmenti" id="animLuce">${luci.length > 1 ? '<button data-fai="animLuce" data-v="tutte" aria-pressed="true">Tutte</button>' : ''}${luci.map((o, i) => `<button data-fai="animLuce" data-v="${o}" aria-pressed="${luci.length === 1 && i === 0}">${NOME_ORA[o]}</button>`).join('')}</div>
-        <p class="nota">«Tutte»: un video per ogni luce che non ce l'ha ancora (se ce l'hanno già tutte, le rifà).</p></div>
+      <div class="sezione">${titolo('orologio', 'Quale luce')}<div class="segmenti" id="animLuce">${luci.length > 1 ? `<button data-fai="animLuce" data-v="tutte" aria-pressed="${imp.risparmio === false}">Tutte</button>` : ''}${luci.map((o, i) => `<button data-fai="animLuce" data-v="${o}" aria-pressed="${luci.length === 1 || imp.risparmio !== false ? o === 'giorno' : false}">${NOME_ORA[o]}</button>`).join('')}</div>
+        <p class="nota">${imp.risparmio !== false ? 'Basta il giorno: alba, tramonto e notte usano il suo video ricolorato con la loro luce. Una luce col suo video solo se il ricolorato non ti convince. ' : ''}«Tutte»: un video per ogni luce che non ce l'ha ancora (se ce l'hanno già tutte, le rifà).</p></div>
       <button class="btn oro piena" style="margin-top:14px" data-fai="animaVia" data-v="${p.id}">${icona('anima', 18)}Anima · ${imp.video.secondi} s · ≈ ${euro(mv.euroSecondo * imp.video.secondi)} a video</button>
       <p class="nota">Modello e durata si cambiano nelle Impostazioni. Ogni video richiede alcuni minuti: tieni il telefono acceso.</p>
       <div id="lavoroFoglio"></div>`);
@@ -1774,6 +1779,7 @@ const AZIONI = {
   },
   luce: v => { imp.luci[v] = !imp.luci[v]; salvaImp(); disegnaCrea(); },
   animaToggle: () => { imp.anima = !imp.anima; salvaImp(); disegnaCrea(); },
+  risparmioToggle: () => { imp.risparmio = imp.risparmio === false; salvaImp(); disegnaImpostazioni(); },
   cieloToggle: () => { imp.cielo = imp.cielo === false; salvaImp(); disegnaCrea(); },
   crea: () => crea(),
   modello: v => { imp.modello = v; salvaImp(); disegnaImpostazioni(); },
