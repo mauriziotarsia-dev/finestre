@@ -294,7 +294,7 @@ function fonteDi(s){
   if (!url) return null;
   let video = an[o] || (!s.immagini[o] || o === 'giorno' ? an.giorno : null) || null, ricolora = false;
   /* 8/11 · «risparmio»: una luce con la sua immagine ma senza video suo prende il video del giorno, ricolorato (js/vista.js) */
-  if (!video && an.giorno && s.immagini[o] && o !== 'giorno' && s.ricolora !== false && q.get('ricolora') !== '0' && vista.unita >= 13){ video = an.giorno; ricolora = true; }
+  if ((!video || (q.get('ricolora') === 'forza' && an[o])) && an.giorno && s.immagini[o] && o !== 'giorno' && s.ricolora !== false && q.get('ricolora') !== '0' && vista.unita >= 13){ video = an.giorno; ricolora = true; }
   /* il cielo che scorre: quello della luce che si vede; se la scena non lo porta (da DMaster, per esempio)
      si prova il file con lo stesso nome (…_alba.jpg → …_cielo-alba.jpg): se non c'è, niente */
   const oraUsata = s.immagini[o] ? o : 'giorno';
