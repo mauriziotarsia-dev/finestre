@@ -9,7 +9,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
 const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 const euro = n => (n < .1 ? n.toFixed(3) : n.toFixed(2)).replace('.', ',') + ' $';
-const VERSIONE = '5.10';
+const VERSIONE = '5.11';
 
 /* ── la casa ──────────────────────────────────────────────────────────────── */
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
@@ -433,9 +433,30 @@ const NOME_ORA = {vera:'come fuori', alba:'alba', giorno:'giorno', tramonto:'tra
    il TV (la stessa pagina con vista=est: il suo soggetto, e quello che DMaster gli manda in serata) e le due finestrelle */
 let anteprimaPronta = false, anteprimaFrame = null, anteprimaTvPronta = false, anteprimaTvFrame = null, ultimoTv = null;
 function postaAnteprima(m){
+  if (m.tipo === 'scena') fermiAnteprima();
   if (anteprimaFrame && anteprimaPronta && m.tipo !== 'tv') anteprimaFrame.contentWindow.postMessage(m, '*');
   if (anteprimaTvFrame && anteprimaTvPronta && m.tipo !== 'fori') anteprimaTvFrame.contentWindow.postMessage(m, '*');
 }
+/* 8/11 · finché l'anteprima carica (immagini, profondità, video) sotto c'è l'immagine ferma della luce giusta:
+   prima per molti secondi si vedeva nero (Maurizio: «ci mette tantissimo, per tanti secondi si vede nero») */
+const chiaveAnteprima = s => s.yt ? 'yt:' + s.yt + ':' + (s.t || 0) : s.immagini ? 'img:' + (s.paesaggio || s.immagini.giorno) : 'niente';
+function fermoAnteprima(est){
+  const s = scena; if (s.yt) return `https://i.ytimg.com/vi/${encodeURIComponent(s.yt)}/hqdefault.jpg`;
+  const im = s.immagini; if (!im) return '';
+  const o = s.ora === 'vera' ? oraVera() : s.ora, pre = est && im['est-giorno'] ? 'est-' : '';
+  return im[pre + o] || im[pre + 'giorno'] || im.giorno || '';
+}
+let attesaAnteprima = null;
+function fermiAnteprima(){
+  const k = chiaveAnteprima(scena), nuovo = k !== attesaAnteprima;
+  const metti = (id, url) => { const b = $(id); if (!b) return; b.querySelectorAll('.fermo').forEach(e => { e.style.backgroundImage = url && scena.acceso !== false ? `url("${url}")` : 'none'; }); };
+  metti('#anteprima', fermoAnteprima(false)); metti('#anteprimaTv', fermoAnteprima(true));
+  if (nuovo){ attesaAnteprima = k; [anteprimaFrame, anteprimaTvFrame].forEach(f => { if (f) f.style.opacity = 0; }); }
+}
+addEventListener('message', e => {
+  const d = e.data || {}; if (d.tipo !== 'pronta' || d.paesaggio !== attesaAnteprima) return;
+  [anteprimaFrame, anteprimaTvFrame].forEach(f => { if (f && e.source === f.contentWindow) f.style.opacity = 1; });
+});
 function forieAnteprima(){
   /* l'anteprima mostra le finestre nella loro forma vera; se sono due, una accanto all'altra con un po' di muro in mezzo */
   const a = assettoOPredefinito(), f = a.finestre.sinistra, sch = schermoDi('sinistra');
@@ -450,6 +471,14 @@ function impaginaAnteprima(){
   box.style.aspectRatio = String(fa.aspetto);
   box.style.flex = fa.aspetto + ' 1 0';   /* larghezze in proporzione alle forme: TV e finestrelle alti uguali */
   postaAnteprima({tipo:'fori', fori:fa.fori, modo:fa.modo});
+  /* l'immagine ferma nelle stesse forme dei fori */
+  box.querySelectorAll('.fermo').forEach(e => e.remove());
+  const fr = $('#anteprimaFrame');
+  fa.fori.forEach((f, i) => { const d = document.createElement('div'); d.className = 'fermo';
+    Object.assign(d.style, {left: f.x * 100 + '%', top: f.y * 100 + '%', width: f.w * 100 + '%', height: f.h * 100 + '%',
+      backgroundPosition: fa.fori.length > 1 ? (i ? '68% 50%' : '32% 50%') : '50% 50%'});
+    box.insertBefore(d, fr); });
+  fermiAnteprima();
 }
 const VENTI = [[null,'Auto'], [.1,'Calmo'], [.4,'Brezza'], [.8,'Forte']];
 const ventoVicino = v => v == null ? null : VENTI.slice(1).reduce((m, x) => Math.abs(x[0] - v) < Math.abs(m[0] - v) ? x : m)[0];
@@ -460,7 +489,7 @@ function disegnaFinestre(){
     s.innerHTML = testa('bifora', 'Illusionist', 'Quello che si vede adesso') + `
       <div class="stanza-mini">
         <figure class="anteprima" id="anteprima"><iframe id="anteprimaFrame" title="Anteprima delle finestrelle" src="../finestra/?anteprima=1"></iframe><figcaption>Finestrelle</figcaption></figure>
-        <figure class="anteprima tv" id="anteprimaTv"><iframe id="anteprimaTvFrame" title="Anteprima del TV" src="../finestra/?anteprima=1&vista=est"></iframe><figcaption>TV</figcaption></figure>
+        <figure class="anteprima tv" id="anteprimaTv"><div class="fermo" style="inset:0"></div><iframe id="anteprimaTvFrame" title="Anteprima del TV" src="../finestra/?anteprima=1&vista=est"></iframe><figcaption>TV</figcaption></figure>
       </div>
       <div class="in-onda-riga"><b id="nomeInOnda">—</b><small id="sottoInOnda"></small></div>
       <div class="rapide in-riga">

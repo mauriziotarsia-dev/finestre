@@ -746,30 +746,35 @@ class Vista {
   }
   async _mostra(chiave, url, profondita, video, dur, fuoco, cielo, fermo, maschera, comignoli = null){
     const f = this.fonteVuota(); f.url = chiave; f.fuoco = fuoco;
+    /* 8/11: tutti i file partono insieme (prima uno dopo l'altro: immagine, profondità, cielo, video, fermo…
+       e nell'app si restava al nero per molti secondi); poi si montano nello stesso ordine di prima */
+    const pDep = profondita ? caricaImg(profondita).catch(() => null) : null;
+    const pCielo = cielo ? caricaImg(cielo).catch(() => null) : null;
+    const pVideo = video ? apriVideo(video).catch(() => null) : null;
+    const pCucito = video ? fetch(video.split('?')[0].replace(/\.mp4$/, '-originale.mp4'), {method:'HEAD', cache:'no-store'}).then(r => r.ok).catch(() => false) : null;
+    const pFermo = video && fermo && maschera && this.unita >= 10 ? Promise.all([caricaImg(fermo), caricaImg(maschera)]).catch(() => null) : null;
     const im = await caricaImg(url);
     f.img = im; f.iw = im.naturalWidth; f.ih = im.naturalHeight; f.tex = this.texture(); this.carica(f.tex, this.entro(im)); this.mip(f.tex);
     let dimg = null;
-    if (profondita){ try { dimg = await caricaImg(profondita); f.depTex = this.texture(); this.carica(f.depTex, dimg); this.mip(f.depTex); } catch(e) { dimg = null; } }
+    if (pDep){ dimg = await pDep; if (dimg){ f.depTex = this.texture(); this.carica(f.depTex, dimg); this.mip(f.depTex); } }
     try { f.aTex = this.texture(); this.carica(f.aTex, mascheraAlberi(im, dimg)); } catch(e) { f.aTex = null; }
     f.dimg = dimg; await this.caricaFumi(f, comignoli, dimg);
     /* il cielo che scorre (serve la profondità, per sapere dov'è il cielo). Il video resta per quello che
        si muove sotto il cielo (nebbia nelle valli, fumo dei camini): il suo cielo non si usa più */
-    if (cielo && dimg){
+    if (pCielo && dimg){
       try {
-        const ci = await caricaImg(cielo), oriz = orizzonte(dimg);
-        if (oriz > .05){ f.cTex = this.texture(); this.carica(f.cTex, this.entro(ci)); this.mip(f.cTex); f.cm = [oriz, ci.naturalWidth / ci.naturalHeight, f.iw / f.ih, 0]; }
+        const ci = await pCielo, oriz = ci ? orizzonte(dimg) : 0;
+        if (ci && oriz > .05){ f.cTex = this.texture(); this.carica(f.cTex, this.entro(ci)); this.mip(f.cTex); f.cm = [oriz, ci.naturalWidth / ci.naturalHeight, f.iw / f.ih, 0]; }
       } catch(e) { /* nessun cielo panoramico per questo paesaggio */ }
     }
-    if (video){ try { f.video = await apriVideo(video); f.vtex = this.texture(); } catch(e) { f.video = null; } }
+    if (pVideo){ f.video = await pVideo; if (f.video) f.vtex = this.texture(); }
     /* cucito? cuci-animazione.py lascia accanto il file dell'AI, «…-originale.mp4» */
-    if (f.video){
-      try { const r = await fetch(video.split('?')[0].replace(/\.mp4$/, '-originale.mp4'), {method:'HEAD', cache:'no-store'}); f.cucito = r.ok; }
-      catch(e) { f.cucito = false; }
-    }
+    if (f.video) f.cucito = await pCucito;
     /* fermo + maschera in una texture sola (rgb + a); se non ci sono, il video è già cucito */
-    if (f.video && fermo && maschera && this.unita >= 10){
+    const fm = pFermo ? await pFermo : null;
+    if (f.video && fm){
       try {
-        const [fi, mi] = await Promise.all([caricaImg(fermo), caricaImg(maschera)]);
+        const [fi, mi] = fm;
         const k = Math.min(1, (this.maxTex || 4096) / Math.max(fi.naturalWidth, fi.naturalHeight));
         const W = Math.floor(fi.naturalWidth * k), H = Math.floor(fi.naturalHeight * k), c = document.createElement('canvas'); c.width = W; c.height = H;
         const x = c.getContext('2d', {willReadFrequently:true});
