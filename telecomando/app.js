@@ -9,7 +9,24 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
 const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 const euro = n => (n < .1 ? n.toFixed(3) : n.toFixed(2)).replace('.', ',') + ' $';
-const VERSIONE = '6.2';
+const VERSIONE = '6.3';
+/* 8/11 · l'app si aggiorna da sola (Maurizio: «vedo ancora il quadrato con la doppia finestra»: sul telefono restava la
+   versione vecchia anche dopo averla chiusa). Quando torna in primo piano, e ogni 10 minuti, chiede al server quale
+   app.js c'è adesso; se è un'altra, ricarica (mai mentre un lavoro AI è in corso) */
+(() => {
+  const mia = ([...document.scripts].map(x => x.src).find(x => /telecomando\/app\.js/.test(x)) || '').split('v=')[1] || '';
+  let ultimo = 0;
+  const controlla = async () => {
+    if (!mia || Date.now() - ultimo < 60000 || document.hidden) return; ultimo = Date.now();
+    try {
+      const t = await (await fetch('index.html?c=' + Date.now(), {cache: 'no-store'})).text();
+      const nuova = (t.match(/app\.js\?v=([0-9.]+)/) || [])[1];
+      if (nuova && nuova !== mia && !(typeof lavoro !== 'undefined' && lavoro && !lavoro.finito)) location.reload();
+    } catch(e) {}
+  };
+  document.addEventListener('visibilitychange', controlla); addEventListener('focus', controlla); addEventListener('pageshow', controlla);
+  setInterval(controlla, 10 * 60e3); setTimeout(controlla, 3000);
+})();
 
 /* ── la casa ──────────────────────────────────────────────────────────────── */
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
