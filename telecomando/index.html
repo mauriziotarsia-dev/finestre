@@ -317,6 +317,7 @@ details.gruppo .campo > span{margin-top:6px}
 .pad .tondo{display:block;border-radius:999px;line-height:0;transition:box-shadow .2s}
 .pad[aria-pressed="true"]{background:rgba(212,175,55,.12);color:var(--oro-luce)}
 .pad[aria-pressed="true"] .tondo{box-shadow:0 0 10px rgba(240,203,91,.7)}
+.pad.fuori-ora{opacity:.4}   /* 9/11: effetto che adesso non si vedrebbe (stella cadente di giorno, stormo di notte) */
 .pad:active .tondo{transform:scale(.94)}
 .pad .tasto{position:absolute;top:1px;left:4px;z-index:1;font:600 9px ui-monospace,monospace;font-style:normal;color:var(--oro);background:rgba(7,9,14,.85);border-radius:4px;padding:0 3px}
 .suono.con-med{display:inline-flex;align-items:center;gap:8px;padding:4px 14px 4px 4px}
@@ -420,6 +421,6 @@ body.principale .testa .torna{display:none}
 <script src="../js/foto-online.js?v=2.1.0"></script>
 <script src="../js/profondita.js?v=2.1.0"></script>
 <script src="../js/bard.js?v=6"></script>
-<script src="app.js?v=6.9"></script>
+<script src="app.js?v=6.10"></script>
 </body>
 </html>

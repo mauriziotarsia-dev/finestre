@@ -382,7 +382,7 @@ void main(){
       vec2 A = uMeteora.xy * uPix, B = uMeteora.zw * uPix, P = uv * uPix;
       vec2 testa = mix(A, B, uMeteoraK), coda = mix(A, B, max(0., uMeteoraK - .3));
       float dd = segmento(P, coda, testa), lungo = clamp(dot(P - coda, testa - coda) / max(1., dot(testa - coda, testa - coda)), 0., 1.);
-      stelle += vec3(.95, .97, 1.) * exp(-dd * dd / (.5 * scP * scP + .25)) * lungo * lungo * sin(3.14159 * uMeteoraK) * 1.6 * smoothstep(.3, .8, sky) * uNotte;
+      stelle += vec3(.95, .97, 1.) * exp(-dd * dd / (.5 * scP * scP + .25)) * lungo * lungo * sin(3.14159 * uMeteoraK) * 1.6 * smoothstep(.3, .8, sky) * uNotte * (1. - uCoperto * .7);   /* 9/11: dietro le nuvole si vede appena */
     }
     float l = dot(col, vec3(.299, .587, .114)); l0 = l;
     /* notte finta (quando manca l'immagine della notte): luna, blu, poco colore */
@@ -413,9 +413,16 @@ void main(){
   float lontano = 1. - n;
   if (uNebbia + uPioggia + uNeve > .005){
     vec4 fm = texture2D(uMeteo, vUv);
-    float nebbia = uNebbia * clamp(pow(lontano, 1.15) * 1.15 + .12, 0., 1.) * fm.r * 1.35;
+    /* ⚠ 9/11 (prove con Maurizio assente): con la nebbia allo 0,85 di sempre tutto quello che stava oltre metà
+       profondità spariva del tutto (l'abbazia, il soggetto, non si vedeva più), mentre la collina più vicina spuntava
+       dai buchi fra i banchi a sfilacci scuri che sembravano fumo nero. Ora la nebbia cresce più piano con la
+       distanza e i banchi sono meno netti: il soggetto resta una sagoma, i buchi non sono più neri.
+       L'intensità del telefono porta uNebbia da ~0,5 (velo) a 1 (muro: i banchi si chiudono e copre anche il vicino) */
+    float pieno = smoothstep(.86, 1., uNebbia);
+    float nebbia = uNebbia * (pow(lontano, 1.15) * .9 + .15 + pieno * .35) * mix(.45 + .55 * fm.r, .75 + .25 * fm.r, pieno) * 1.25;
     nebbia += (uPioggia * .32 + uNeve * .3) * pow(lontano, 1.6) * (.8 + .4 * fm.b);   /* la pioggia lontana fa velo, a scrosci */
-    nebbia = clamp(nebbia, 0., .96);
+    nebbia = max(nebbia, pieno * (.72 + .22 * fm.r) * smoothstep(.02, .25, lontano));   /* al 100% copre anche a metà distanza */
+    nebbia = clamp(nebbia, 0., mix(.9, .97, pieno));
     col = mix(col, uColNebbia, nebbia);
     alfa = max(alfa, nebbia);
   }
@@ -468,7 +475,7 @@ void main(){
   /* luce dello schermo, buio dei cambi, rumore finissimo contro le fasce */
   col *= uLuce * (1. - uBuio);
   /* stelle e stelle cadenti sono luci: dopo il buio della notte e la luce dello schermo (solo un po' attenuate) */
-  col += stelle * (.45 + .55 * sqrt(uLuce)) * (1. - uBuio);
+  col += stelle * (.45 + .55 * sqrt(uLuce)) * (1. - uBuio) * (1. - min(1., uNebbia * 1.1));   /* 9/11: nella nebbia fitta non si vedono le stelle (prima sì: col 100% brillavano sopra il muro) */
   col += (h1(gl_FragCoord.xy + fract(uT) * 97.) - .5) / 255.;
   if (uHaImg > .5) gl_FragColor = vec4(max(col, 0.), 1.);
   else { float a = clamp(alfa, 0., 1.) * (1. - uBuio) + uBuio; gl_FragColor = vec4(max(col, 0.) * (1. - uBuio), a); }

@@ -27,7 +27,7 @@
 <script src="../js/canale.js?v=2.2.0"></script>
 <script src="../js/accesso.js?v=8"></script>
 <script src="../js/qrcode.js?v=1"></script>
-<script src="../js/vista.js?v=5.20"></script>
+<script src="../js/vista.js?v=5.21"></script>
 <script src="../js/inseguitore.js?v=1"></script>
 <script src="../js/uccelli.js?v=3"></script>
 <script src="../js/bard.js?v=6"></script>
@@ -408,7 +408,7 @@ const METEO = {
   temporale:{coperto:1,   nebbia:.18, pioggia:1, neve:0, tempesta:1, vento:.8},
   neve:     {coperto:.75, nebbia:.3,  pioggia:0, neve:.9, tempesta:0, vento:.4}
 };
-const NEBBIA_ORA = {alba:[.86,.74,.68], giorno:[.74,.77,.8], tramonto:[.78,.6,.52], notte:[.09,.11,.16]};
+const NEBBIA_ORA = {alba:[.86,.74,.68], giorno:[.74,.77,.8], tramonto:[.77,.64,.6], notte:[.09,.11,.16]};
 const met = Object.assign({}, METEO.sereno), nebCol = [...NEBBIA_ORA.giorno];
 const stormi = new Stormi();
 let notte = 0, ombre = 0, meteora = null, prossimaMeteora = 0;
@@ -832,6 +832,10 @@ function giro(ora){
   for (const key in tgt){
     let v = tgt[key];
     if (key === 'pioggia' || key === 'neve') v *= .35 + intens * .9;
+    /* 9/11: l'intensità valeva solo per pioggia e neve; ora fa anche la nebbia (30% velo, 100% muro) e le nuvole.
+       Al 75% (quello di sempre) tutto resta com'era */
+    else if (key === 'nebbia' && scena.meteo === 'nebbia') v = Math.min(1, v * (.5 + intens * .67));
+    else if (key === 'coperto' && (scena.meteo === 'nuvoloso' || scena.meteo === 'nebbia')) v = Math.min(1, v * (.45 + intens * .73));
     if (key === 'vento' && scena.vento != null) v = scena.vento;
     /* raffica: sale in 1 s, dura 4 s, cala in 6 · nebbia che sale: 40 s per salire, un minuto e mezzo per diradarsi */
     if (key === 'nebbia' && nebbiaDa){ const t = (ora - nebbiaDa) / 1000; const g = t < 40 ? t / 40 : t < 70 ? 1 : t < 160 ? 1 - (t - 70) / 90 : 0; if (t > 160) nebbiaDa = 0; v = Math.max(v, .75 * g); }

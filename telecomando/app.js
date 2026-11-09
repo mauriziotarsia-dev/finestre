@@ -9,7 +9,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
 const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 const euro = n => (n < .1 ? n.toFixed(3) : n.toFixed(2)).replace('.', ',') + ' $';
-const VERSIONE = '6.9';
+const VERSIONE = '6.10';
 /* 8/11 · l'app si aggiorna da sola (Maurizio: «vedo ancora il quadrato con la doppia finestra»: sul telefono restava la
    versione vecchia anche dopo averla chiusa). Quando torna in primo piano, e ogni 10 minuti, chiede al server quale
    app.js c'è adesso; se è un'altra, ricarica (mai mentre un lavoro AI è in corso) */
@@ -573,6 +573,12 @@ function aggiornaFinestre(){
   s.querySelectorAll('[data-fai="vento"]').forEach(b => b.setAttribute('aria-pressed', String((b.dataset.v === '' ? null : +b.dataset.v) === vv)));
   disegnaStrip();
   $('#rigaIntensita').hidden = scena.meteo === 'sereno'; $('#pannelloTempo').hidden = scena.meteo === 'sereno';
+  /* 9/11: l'intensità segue la scena anche quando la cambia un altro telefono o la riprendo dagli schermi */
+  const ri = $('#intensita'), iv = Math.round((scena.intensita ?? .75) * 100);
+  if (ri && document.activeElement !== ri && +ri.value !== iv){ ri.value = iv; riempi(ri); const o = $('#intensita-o'); if (o) o.textContent = iv + '%'; }
+  /* 9/11: le stelle cadenti si vedono solo di notte e a cielo sgombro, gli uccelli di notte dormono: il pulsante lo dice */
+  const notte = eNotte(), coperto = ['nebbia', 'pioggia', 'temporale', 'neve'].includes(scena.meteo);
+  s.querySelectorAll('[data-fai="effetto"]').forEach(b => b.classList.toggle('fuori-ora', b.dataset.v === 'meteora' ? !notte || coperto : b.dataset.v === 'stormo' ? notte : false));
   const rl = $('#luceOra'); if (rl && document.activeElement !== rl){ rl.value = luceAdesso(); riempi(rl); const o = $('#luceOra-o'); if (o) o.textContent = luceAdesso() + '%'; }
   $('#btnAccendi').innerHTML = icona('accensione', 20) + '<span>' + (scena.acceso ? 'Accese' : 'Spente') + '</span>';
   $('#btnAccendi').classList.toggle('oro', !!scena.acceso);
@@ -1692,6 +1698,9 @@ const AZIONI = {
   fps: (v, b) => { cambia({fps:+v}); b.parentNode.querySelectorAll('button').forEach(x => x.setAttribute('aria-pressed', String(x === b))); },
   accendi: () => cambia({acceso: !scena.acceso}),
   effetto: v => {
+    if (v === 'meteora' && !eNotte()) return avviso('Le stelle cadenti si vedono solo di notte');
+    if (v === 'meteora' && ['nebbia', 'pioggia', 'temporale', 'neve'].includes(scena.meteo)) return avviso('Col cielo coperto la stella cadente non si vedrebbe');
+    if (v === 'stormo' && eNotte()) return avviso('Di notte gli uccelli dormono');
     const d = {tipo: v, seme: Math.floor(Math.random() * 1e9)};
     if (canale.manda('effetto', d)) avviso((EFFETTI.find(e => e[0] === v) || [, , 'Effetto'])[2]);
     postaAnteprima({tipo: 'effetto', effetto: d});
