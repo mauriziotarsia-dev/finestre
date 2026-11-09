@@ -1003,8 +1003,9 @@ class Vista {
         if (px < -R || py < -R || px > foro.w + R || py > foro.h + R) continue;
         const k = modo === 'piu' ? b.forza * luce : 1;
         const col = modo === 'piu' ? b.col.map(c => c * k) : b.col.map(c => 1 + (c - 1) * b.forza);
+        const Ry = R * (b.ry || 1);   /* ry: allungato in verticale (fiamma) o schiacciato (bagliore sul terreno) */
         for (const [qx, qy] of [[-1,-1],[1,-1],[-1,1],[-1,1],[1,-1],[1,1]]){
-          d.set([px + qx * R, py + qy * R, qx, qy, col[0], col[1], col[2], cr], n * 8); n++;
+          d.set([px + qx * R, py + qy * Ry, qx, qy, col[0], col[1], col[2], cr], n * 8); n++;
         }
       }
       if (!n) return;

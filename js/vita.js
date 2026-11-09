@@ -82,6 +82,7 @@
     return (px, py) => d[(cl(Math.round(py * H), 0, H - 1) * W + cl(Math.round(px * W), 0, W - 1)) * 4] / 255;
   }
 
+  const FUOCHI = false;
   const LUCE = [1, .6, .26], LUCCIOLA = [.72, 1, .3], FIAMMA = [1, .5, .16];
 
   class Vita {
@@ -102,7 +103,8 @@
       });
       /* fuochi lontani: ognuno ha i suoi quarti d'ora */
       const prob = {notte: .6, tramonto: .5, alba: .3, giorno: .35}[o] || 0;
-      this.fuochi = (f && f.fuochi || []).map((F, j) => {
+      /* ⚠ 9/11 (Maurizio: «eliminerei i fuochi, lascerei il resto»): spenti. Il codice resta, basta FUOCHI = true */
+      this.fuochi = (FUOCHI && f && f.fuochi || []).map((F, j) => {
         const sj = h1(F.x * 91, F.y * 37 + j), slot = Math.floor((ora + sj * 700) / 900);
         const acceso = brutto < .06 && (this.prova === 'fuochi' || h1(j + 40, slot) < prob) ? 1 : 0;   /* prova: vista.vita.prova = 'fuochi' li accende tutti */
         return {F, k: segui('f' + j + (f.url || ''), acceso, 25), seme: sj};
@@ -111,10 +113,10 @@
       const quante = (o === 'notte' ? 1 : o === 'tramonto' ? liscio((k - .45) / .4) * .7 : 0) * cl(1 - brutto * 8) * cl(1 - (met.nebbia || 0) * .7);
       const pr = f && f.prati || [];
       if (pr.length && f.url !== this.urlLucciole){ this.urlLucciole = f.url; this.lucciole = []; }
-      const voglio = pr.length ? Math.round(24 * quante) : 0;
+      const voglio = pr.length ? Math.round(7 * quante) : 0;   /* 9/11 (Maurizio: «troppe lucciole»): erano 24 */
       while (this.lucciole.length < voglio){
         const p = pr[Math.floor(Math.random() * pr.length)], s = Math.random();
-        this.lucciole.push({x: p.x + (Math.random() - .5) * .015, y: p.y + (Math.random() - .5) * .015, n: p.n, s, a: 0, per: 1.6 + 3.4 * s, fase: Math.random() * 5, nasce: this.t});
+        this.lucciole.push({x: p.x + (Math.random() - .5) * .015, y: p.y + (Math.random() - .5) * .015, n: p.n, s, a: 0, per: 3 + 4.5 * s, fase: Math.random() * 5, nasce: this.t});
       }
       this.lucciole.forEach((l, i) => { l.via = i >= voglio; });
       this.lucciole = this.lucciole.filter(l => { l.a += ((l.via ? 0 : 1) - l.a) * Math.min(1, dt / 2); return !(l.via && l.a < .02); });
@@ -137,8 +139,14 @@
       }
       for (const {F, k, seme} of this.fuochi || []){
         if (k < .02 || !(this.o === 'notte' || this.o === 'tramonto')) continue;
-        const n = F.n ?? .3, fl = .55 + .7 * tremola(t, seme * 13, 9) * (.75 + .25 * Math.sin(t * 1.3 + seme * 20)), s = F.w * 1000;
-        out.push({x: F.x, y: F.y, n, core: Math.max(1.4, s * .11), alone: Math.max(8, s * 1.1), col: FIAMMA, forza: (this.o === 'notte' ? 1.2 : 1) * k * fl * vela(n), modo: 'piu'});
+        /* ⚠ 9/11 (Maurizio: «alcuni fuochi sono troppo finti»): era una palla arancione con l'alone tondo, sembrava una
+           lanterna sospesa. Ora: un bagliore basso e largo sul terreno (rosso cupo, appena), e sopra due lingue di
+           fiamma piccole e allungate che ballano e tremano ognuna per conto suo */
+        const n = F.n ?? .3, s = F.w * 1000, on = (this.o === 'notte' ? 1 : .8) * k * vela(n);
+        const f1 = tremola(t, seme * 13, 11), f2 = tremola(t + 1.7, seme * 7, 15), resp = .8 + .2 * Math.sin(t * 1.1 + seme * 20);
+        out.push({x: F.x, y: F.y + s * .00025, n, core: s * .3, alone: s * .85, ry: .32, col: [.85, .3, .08], forza: on * .2 * resp * (.8 + .4 * f1), modo: 'piu'});
+        [f1, f2].forEach((fi, i) => out.push({x: F.x + (fi - .5) * s * .00007 * (i ? 1 : -1), y: F.y - s * .00009 * fi * (1 + i), n,
+          core: Math.max(.7, s * .045 * (1 - i * .3)), alone: Math.max(2.4, s * .15), ry: 1.7, col: i ? [1, .7, .28] : FIAMMA, forza: on * resp * (.35 + .75 * fi) * (i ? .6 : 1), modo: 'piu'}));
       }
       for (const l of this.lucciole){
         const tt = t + l.fase, ph = (tt % l.per) / l.per, lampo = Math.exp(-Math.pow((ph - .5) / .07, 2)) + .25 * Math.exp(-Math.pow((ph - .72) / .05, 2));
@@ -147,7 +155,7 @@
         const x = l.x + Math.sin(tt * (.21 + .2 * l.s) + l.s * 9) * R + Math.sin(tt * (.53 + .3 * l.s) + l.s * 4) * R * .4;
         const y = l.y + Math.sin(tt * (.17 + .15 * l.s) + l.s * 5) * R * .5 - .004;
         const sc = .5 + 1.2 * l.n;
-        out.push({x, y, n: l.n, core: 1.1 * sc, alone: 7 * sc, col: LUCCIOLA, forza: lampo * l.a * vela(l.n) * .95, modo: 'piu'});
+        out.push({x, y, n: l.n, core: .9 * sc, alone: 5 * sc, col: LUCCIOLA, forza: lampo * l.a * vela(l.n) * .7, modo: 'piu'});
       }
       return out;
     }
