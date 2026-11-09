@@ -421,7 +421,7 @@ void main(){
     float pieno = smoothstep(.86, 1., uNebbia);
     float nebbia = uNebbia * (pow(lontano, 1.15) * .9 + .15 + pieno * .35) * mix(.45 + .55 * fm.r, .75 + .25 * fm.r, pieno) * 1.25;
     nebbia += (uPioggia * .32 + uNeve * .3) * pow(lontano, 1.6) * (.8 + .4 * fm.b);   /* la pioggia lontana fa velo, a scrosci */
-    nebbia = max(nebbia, pieno * (.72 + .22 * fm.r) * smoothstep(.02, .25, lontano));   /* al 100% copre anche a metà distanza */
+    nebbia = max(nebbia, pieno * (.62 + .25 * fm.r) * smoothstep(.05, .45, lontano));   /* al 100% copre anche a metà distanza */
     nebbia = clamp(nebbia, 0., mix(.9, .97, pieno));
     col = mix(col, uColNebbia, nebbia);
     alfa = max(alfa, nebbia);
