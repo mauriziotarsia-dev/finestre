@@ -9,7 +9,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
 const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 const euro = n => (n < .1 ? n.toFixed(3) : n.toFixed(2)).replace('.', ',') + ' $';
-const VERSIONE = '6.15';
+const VERSIONE = '6.16';
 /* 8/11 · l'app si aggiorna da sola (Maurizio: «vedo ancora il quadrato con la doppia finestra»: sul telefono restava la
    versione vecchia anche dopo averla chiusa). Quando torna in primo piano, e ogni 10 minuti, chiede al server quale
    app.js c'è adesso; se è un'altra, ricarica (mai mentre un lavoro AI è in corso) */
@@ -64,8 +64,12 @@ const salvaImp = () => scrivi('finestre-impostazioni', imp);
 
 /* ── la scena e i fori ───────────────────────────────────────────────────── */
 const SCENA_PRED = {acceso:true, yt:'', t:0, immagini:null, animati:null, paesaggio:'', fuoco:null, ora:'vera', meteo:'sereno',
-  intensita:.75, vento:null, nebbiaSale:false, fps:60, prospettivaViva:false, movimento:true, luceGiorno:70, luceNotte:30, prospettiva:true, zoom:1, vx:0};
+  intensita:.75, vento:null, nebbiaSale:false, fps:60, prospettivaViva:false, movimento:true, luceGiorno:70, luceNotte:40, prospettiva:true, zoom:1, vx:0};
 let scena = Object.assign({}, SCENA_PRED, leggi('finestre-scena', {}));
+/* 9/11 (Maurizio: «farei come se la notte fosse leggermente più illuminata, altrimenti è troppo buio»): la luce dello
+   schermo di notte passa dal 30% al 40%. Una volta sola: chi l'aveva lasciata al 30 di prima va al 40; un valore scelto
+   a mano (diverso da 30) resta */
+if (!leggi('luce-notte-40', false)){ if (scena.luceNotte === 30){ scena.luceNotte = 40; scena.quando = Date.now(); scrivi('finestre-scena', scena); } scrivi('luce-notte-40', true); }
 /* le finestre della casa: una o due, ognuna sul suo schermo (sono a due metri l'una dall'altra) */
 /* 4/11 · il trucco della prospettiva (Maurizio, bozza C): con due finestrelle e un paesaggio largo, ognuna ne mostra
    una striscia diversa, l'elemento cardine fra le due. fra = cm di panorama fra le due strisce viste di fronte:
@@ -580,7 +584,7 @@ function mostraIntensita(){
 }
 setInterval(() => { if (scheda === 'finestre' && !document.hidden) mostraIntensita(); }, 250);
 const eNotte = () => (scena.ora === 'vera' ? oraVera() : scena.ora) === 'notte';
-const luceAdesso = () => Math.round(eNotte() ? (scena.luceNotte ?? 30) : (scena.luceGiorno ?? 70));
+const luceAdesso = () => Math.round(eNotte() ? (scena.luceNotte ?? 40) : (scena.luceGiorno ?? 70));
 function aggiornaFinestre(){
   const s = $('#s-finestre'); if (!s.dataset.fatto) return;
   s.querySelectorAll('[data-fai="ora"]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.v === scena.ora)));

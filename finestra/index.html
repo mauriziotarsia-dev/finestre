@@ -57,7 +57,7 @@ const scrivi = (k, v) => { if (anteprima || spettatore) return; try { localStora
 
 /* ── la scena: quello che il telecomando manda ─────────────────────────────── */
 const PREDEFINITA = {acceso:true, yt:'', t:0, immagini:null, animati:null, paesaggio:'', ora:'vera', meteo:'sereno',
-  intensita:.75, vento:null, nebbiaSale:false, fps:60, fuoco:null, prospettivaViva:false, movimento:true, luceGiorno:70, luceNotte:30, prospettiva:true, zoom:1, vx:0};
+  intensita:.75, vento:null, nebbiaSale:false, fps:60, fuoco:null, prospettivaViva:false, movimento:true, luceGiorno:70, luceNotte:40, prospettiva:true, zoom:1, vx:0};
 let scena = Object.assign({}, PREDEFINITA, leggi('finestre-scena', null) || {});
 let saleK = scena.nebbiaSale ? 1 : 0;   /* nebbia che sale: 0 giù, 1 su (ricaricando la pagina resta dov'era) */
 if (!leggi('finestre-scena', null) || q.get('forza')){
