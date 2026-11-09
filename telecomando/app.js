@@ -9,7 +9,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
 const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 const euro = n => (n < .1 ? n.toFixed(3) : n.toFixed(2)).replace('.', ',') + ' $';
-const VERSIONE = '6.14';
+const VERSIONE = '6.15';
 /* 8/11 · l'app si aggiorna da sola (Maurizio: «vedo ancora il quadrato con la doppia finestra»: sul telefono restava la
    versione vecchia anche dopo averla chiusa). Quando torna in primo piano, e ogni 10 minuti, chiede al server quale
    app.js c'è adesso; se è un'altra, ricarica (mai mentre un lavoro AI è in corso) */
@@ -119,7 +119,7 @@ const gestoreCanale = {
       /* ⚠ 9/11 · prima valeva sempre il telefono: un telefono rimasto indietro di giorni, riaperto, rimetteva sugli schermi
          la sua scena vecchia (così stanotte TV e finestrelle sono finite sulla città eliminata il 5/11). Ora vince la più
          recente; a pari merito (scene vecchie, senza data) vincono gli schermi */
-      if ((scena.quando || 0) > (d.scena.quando || 0)) canale.manda('scena', scena);
+      if ((scena.quando || 0) > (d.scena.quando || 0) || (!d.scena.immagini && !d.scena.yt)) canale.manda('scena', scena);   /* uno schermo nuovo, ancora vuoto, non vince mai */
       else { scena = Object.assign({}, SCENA_PRED, d.scena); scrivi('finestre-scena', scena); postaAnteprima({tipo:'scena', scena}); lettore.suScena(scena); if (scheda === 'finestre') aggiornaFinestre(); }
     }
     aggiornaSpia(); impaginaAnteprima(); if (scheda === 'finestre') aggiornaFinestre(); if (scheda === 'impostazioni') disegnaScheda();

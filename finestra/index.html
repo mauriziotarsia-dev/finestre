@@ -589,6 +589,7 @@ if (anteprima){
   const chi = () => ({lato: mio, tv: tv ? {id: proiezione.id} : undefined, assetto: tv ? null : casaFori, scena, schermo:{w:innerWidth, h:innerHeight, dpr:devicePixelRatio}, comando: comandaDM() ? 'dmaster' : null, bard: bard ? {rev: bard.stato.rev || 0, stato: bard.stato, ora: bardOra, suona: bard.attivo, serata: Date.now() < serataFino, casse, uscita: bard.idUscita || ''} : undefined,
     prestazioni:{fps: Math.round(fpsMisurati), hzSchermo: Math.round(1000 / intervalloSchermo), msDisegno: Math.round(msDisegno * 10) / 10, scala, qualita, disegno:{w:c.width, h:c.height}, schermoVero:{w:Math.round(screen.width * devicePixelRatio), h:Math.round(screen.height * devicePixelRatio)}, gl: schedaVideo(), browser: navigator.userAgent}});
   /* lo stesso ascolto per il canale del vecchio link e per quello privato della casa (js/accesso.js) */
+  const senzaScena = () => !scena.immagini && !scena.yt;
   const gestore = rispondi => ({
     suMessaggio(evento, dati){
       if (evento === 'dmaster'){ dmasterFino = dati.attivo ? Date.now() + 30000 : 0; serataFino = dati.attivo && dati.serata ? Date.now() + 30000 : 0; if (bard) bard.imposta({muto: Date.now() < serataFino}); return; }
@@ -606,6 +607,9 @@ if (anteprima){
       else if (evento === 'prova'){ if (Array.isArray(dati.spegni)) vista.spegni = new Set(dati.spegni); if (dati.scala){ scalaFissa = +dati.scala; scala = scalaFissa; impagina(); } }
       else if (evento === 'occhio') daTelefono(dati.x, dati.z);
       else if (spettatore){ if (evento === 'eccomi' && dati && dati.scena && !dati.spettatore && (tv ? dati.lato === 'tv' : dati.lato !== 'tv')) applica(dati.scena, false); }
+      /* ⚠ 9/11 (ROG Ally appena montata): uno schermo nuovo, senza scena salvata, restava nero finché qualcuno non apriva
+         l'app sul telefono. Ora chiede agli altri schermi e prende la scena del primo che risponde */
+      else if (evento === 'eccomi' && senzaScena() && dati && dati.scena && !dati.spettatore && (dati.scena.immagini || dati.scena.yt)){ const s = Object.assign({}, dati.scena); delete s.da; applica(s); }
       else if (evento === 'chi') rispondi('eccomi', chi());
       else if (evento === 'stato'){ if (!dati.chi || dati.chi === mio) statoRemoto(dati, schedaVideo).catch(() => {}); }
       else if (evento === 'foto'){ if (!dati.chi || dati.chi === mio) fotoRemota(dati).catch(e => console.warn('foto', e)); }
@@ -613,7 +617,7 @@ if (anteprima){
       else if (evento === 'mostraCodice') mostraCodice();
       else if (evento === 'abbinato' || evento === 'vecchioChiuso') controllaAbbinamento();
     },
-    suStato(ok){ if (ok) rispondi(spettatore ? 'chi' : 'eccomi', spettatore ? {spettatore: true} : chi()); }
+    suStato(ok){ if (ok){ rispondi(spettatore ? 'chi' : 'eccomi', spettatore ? {spettatore: true} : chi()); if (!spettatore && senzaScena()) setTimeout(() => rispondi('chi', {nuovo: true}), 800); } }
   });
   let vecchioChiuso = false;
   /* il brano che parte adesso: lo dice ai telefoni (e a DMaster) */
