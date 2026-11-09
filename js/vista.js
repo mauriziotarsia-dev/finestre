@@ -235,6 +235,7 @@ vec3 paesaggio(sampler2D img, sampler2D imgB, float vk, sampler2D dep, vec4 crop
     /* 4/11 (Maurizio: «non vedo il movimento degli alberi nel paesaggio TV»): sul TV gli alberi sono quasi tutti a
        media distanza; prima si muovevano solo i vicinissimi. Ora anche quelli a metà strada, un po' di più */
     float vicino = smoothstep(.05, .32, n);
+    vec2 dSp = vec2(0.);   /* di quanto si è spostato quello che si vede qui (chiome al vento): la nebbiolina lo segue */
     vec4 vt = uHaVento > .5 ? texture2D(uVentoT, vec2(vUv.x, 1. - vUv.y)) : vec4(.5, .5, 0., 0.);
     if (vicino > .01 && vt.b > .01){
       /* ⚠ 8/11 (Maurizio: «di notte gli alberi sono immobili»): di notte il verde non c'è più, è tutto blu scuro e
@@ -269,6 +270,12 @@ vec3 paesaggio(sampler2D img, sampler2D imgB, float vk, sampler2D dep, vec4 crop
       float nS = profG(dep, cropD, p + d, haDep, gx, gy), cieloS = haDep > .5 ? smoothstep(.022, .004, nS) * smoothstep(.85, .45, p.y + d.y) : sky;
       float w = max(verdeS * smoothstep(.1, .4, nS), verde * (1. - cieloS));
       c = mix(c, mosso, w);
+      /* ⚠ 9/11 (Maurizio: «con la nebbia c'è ancora la sensazione di alone, intorno a cipresso e campanile»): la chioma
+         si spostava ma la profondità restava dov'era. Dove il cipresso se n'era andato si vedeva lo sfondo con la
+         nebbia leggera del cipresso (una striscia scura accanto), e dove arrivava prendeva la nebbia fitta dello sfondo.
+         Ora anche la profondità (quindi nebbia, foschia, cielo) segue quello che si vede */
+      n = mix(n, nS, w);
+      dSp = d * w;
       /* le foglie (ulivi) si rovesciano e mostrano il rovescio chiaro: un luccichio fitto che passa col fronte */
       if (luccica > .02){ float fl = rumore(uv * uPix / (4.5 * max(1., uPix.y / 1000.)) + vec2(uT * 9., uT * 2.)); c = mix(c, c * 1.18 + vec3(.04, .045, .035), luccica * w * smoothstep(.5, .8, fl) * .7); }
     }
@@ -280,8 +287,28 @@ vec3 paesaggio(sampler2D img, sampler2D imgB, float vk, sampler2D dep, vec4 crop
        non più agitata). Vale per tutte le luci e per tutti i paesaggi, anche senza video. */
     /* ⚠ 5/11: si decide dov'è la nebbia guardando l'immagine sfocata (livello ridotto della mipmap): sui prati e sui
        cespugli grigi l'immagine nitida dava una maschera a puntini, e i veli diventavano granelli che sfarfallavano */
-    vec3 cbm = haF > .5 ? fotoL(fer, crop, p, 2.) : fotoL(img, crop, p, 2.);
-    float nB = haDep > .5 ? fotoL(dep, cropD, p, 1.).r : n;   /* anche la profondità sfocata: quella nitida è granulosa e la soglia saltava da un pixel all'altro */
+    /* ⚠ 9/11 (Maurizio: «con la nebbia c'è ancora la sensazione di alone, intorno a cipresso e campanile»): la maschera
+       della nebbiolina si leggeva dove il cipresso stava, il pixel nitido che la spegne dove il cipresso è adesso
+       (spostato dal vento): accanto alla sagoma restava una riga scura staccata di qualche pixel, che la seguiva.
+       Ora anche la maschera si legge dove sta quello che si vede (pS) */
+    vec2 pS = p + dSp;
+    vec3 cbm = haF > .5 ? fotoL(fer, crop, pS, 2.) : fotoL(img, crop, pS, 2.);
+    /* e intorno alle sagome ferme (campanile, pietra calda e chiara): nell'immagine sfocata la torre «sbordava» sul cielo
+       e sulla nebbia accanto, che lì sembravano calde e la nebbiolina non ci andava: una fascia scura tutto intorno.
+       Si guarda anche poco più in là (destra, sinistra, sopra) e vale il punto più «da nebbia» (chiaro e freddo).
+       Sull'oggetto stesso i veli restano spenti dal pixel nitido, più sotto */
+#ifndef LEGGERO   /* sul Raspberry no: tre letture in più per ogni pixel, e la sua scheda video cade facilmente */
+    { vec2 oM = vec2(4.5 / uPix.x, 0.), oV = vec2(0., 4.5 / uPix.y);
+      vec3 cL = haF > .5 ? fotoL(fer, crop, pS - oM, 2.) : fotoL(img, crop, pS - oM, 2.);
+      vec3 cR = haF > .5 ? fotoL(fer, crop, pS + oM, 2.) : fotoL(img, crop, pS + oM, 2.);
+      vec3 cU = haF > .5 ? fotoL(fer, crop, pS - oV, 2.) : fotoL(img, crop, pS - oV, 2.);
+      vec3 W3 = vec3(.299, .587, .114);
+      float sb = dot(cbm, W3) + 2. * (cbm.b - cbm.r), sL = dot(cL, W3) + 2. * (cL.b - cL.r), sR = dot(cR, W3) + 2. * (cR.b - cR.r), sU = dot(cU, W3) + 2. * (cU.b - cU.r);
+      if (sL > sb){ cbm = cL; sb = sL; }
+      if (sR > sb){ cbm = cR; sb = sR; }
+      if (sU > sb) cbm = cU; }
+#endif
+    float nB = haDep > .5 ? fotoL(dep, cropD, pS, 1.).r : n;   /* anche la profondità sfocata: quella nitida è granulosa e la soglia saltava da un pixel all'altro */
     float lm = dot(cbm, vec3(.299, .587, .114)), mxm = max(cbm.r, max(cbm.g, cbm.b));
     float satm = (mxm - min(cbm.r, min(cbm.g, cbm.b))) / max(mxm, .01), sogliaM = mix(.4, .1, uNotte) - mix(.2, .06, uNotte) * smoothstep(.05, .3, nB);   /* 8/11: di notte la nebbia è grigio-blu scura (~0,1–0,2) */   /* 5/11: la nebbia vicina, in ombra, è più scura (grigio-azzurro ~0,35): prima restava fuori */
     /* la nebbia è azzurrina o grigia (blu almeno quanto il rosso): la pietra chiara del castello, calda, resta ferma */
