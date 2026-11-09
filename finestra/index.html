@@ -28,7 +28,7 @@
 <script src="../js/accesso.js?v=8"></script>
 <script src="../js/qrcode.js?v=1"></script>
 <script src="../js/vita.js?v=3"></script>
-<script src="../js/vista.js?v=5.35"></script>
+<script src="../js/vista.js?v=5.36"></script>
 <script src="../js/inseguitore.js?v=1"></script>
 <script src="../js/uccelli.js?v=4"></script>
 <script src="../js/bard.js?v=6"></script>
@@ -430,6 +430,8 @@ let ultimoParam = null, bancoInCorso = false;
 /* 9/11 · a che punto è l'ora che si vede (0 appena cominciata … 1 finita): con «Come fuori» dall'orologio (le stesse
    ore di oraVera in js/canale.js), se no da quando la si vede (le luci si accendono in 5 minuti) */
 let oraVista = null, oraDa = 0, pip = 0, pulviscolo = 0;
+/* la nebbia secondo la percentuale (0..1): 0 niente velo (solo la nebbiolina), 0,75 come sempre, 1 il muro */
+const curvaNebbia = i => i <= .75 ? Math.pow(Math.max(0, i) / .75, 1.6) : 1 + (Math.min(1, i) - .75) / .25 * .17;
 function progressoOra(o, msDa){
   if (scena.ora !== 'vera') return Math.min(1, msDa / 300000);
   const d = new Date(), g = (d - new Date(d.getFullYear(), 0, 1)) / 864e5;
@@ -899,8 +901,14 @@ function giro(ora){
     if (key === 'pioggia' || key === 'neve') v *= .35 + intens * .9;
     /* 9/11: l'intensità valeva solo per pioggia e neve; ora fa anche la nebbia (30% velo, 100% muro) e le nuvole.
        Al 75% (quello di sempre) tutto resta com'era */
-    else if (key === 'nebbia' && scena.meteo === 'nebbia') v = Math.min(1, v * (.5 + intens * .67));
-    else if (key === 'coperto' && (scena.meteo === 'nuvoloso' || scena.meteo === 'nebbia')) v = Math.min(1, v * (.45 + intens * .73));
+    /* ⚠ 9/11 (Maurizio: «la nebbia al 5% è già tanta: dovrebbe iniziare dalla nebbiolina che si muove nel paesaggio e
+       poi diventare nebbia più sale la %»). Prima la nebbia partiva già da metà (al 5% copriva il paesaggio di un velo
+       uniforme). Ora parte da zero: in basso resta solo la nebbiolina viva del paesaggio (c'è sempre), poi il velo
+       cresce piano (al 25% appena, al 50% metà) e al 75% è quella di prima; sopra va verso il muro come prima.
+       Anche il cielo grigio della nebbia parte da poco */
+    else if (key === 'nebbia' && scena.meteo === 'nebbia') v = Math.min(1, v * curvaNebbia(intens));
+    else if (key === 'coperto' && scena.meteo === 'nebbia') v = Math.min(1, v * (.15 + .85 * curvaNebbia(intens)));
+    else if (key === 'coperto' && scena.meteo === 'nuvoloso') v = Math.min(1, v * (.45 + intens * .73));
     if (key === 'vento' && scena.vento != null) v = scena.vento;
     met[key] += (v - met[key]) * k;
   }

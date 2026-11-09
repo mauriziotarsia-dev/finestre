@@ -754,10 +754,12 @@ void main(){
     c = vec2(x * uFori.x + sin(uT * (.4 + .5 * r.y) + r.z * 6.283) * 6. * uScala, y * uFori.y);
     vis = step(fract(r.w * 7.31 + r.z), uDens);
     float luccica = .5 + .5 * sin(uT * (.6 + 1.6 * r.z) + r.y * 40.);
-    float hw = R + 1.5;
+    luccica = pow(luccica, 14.);                      /* acceso solo per un attimo */
+    vis *= step(.02, luccica);                        /* gli altri non si disegnano neanche */
+    float hw = R + 1.;
     pos = c + aAngolo * hw;
-    vQ = aAngolo * hw; vW = R;
-    vA = vis * (.2 + .8 * luccica * luccica * luccica);
+    vQ = aAngolo * hw; vW = R + .5;
+    vA = vis * luccica;
   }
   gl_Position = vis > .5 ? vec4(pos.x / uFori.x * 2. - 1., 1. - pos.y / uFori.y * 2., 0., 1.) : vec4(2., 2., 2., 1.);
 }`;
@@ -814,10 +816,12 @@ void main(){
   else gl_FragColor = vec4(mix(vec3(1.), vCol.rgb, exp(-d * d * 1.8)), 1.);
 }`;
 /* il pulviscolo nella luce (alba, giorno, tramonto): granelli fini e qualche seme piumoso che il vento porta */
+/* ⚠ 9/11 (Maurizio: «sono pallini grandi e quasi sembrano fiocchi di neve»): erano granelli di 2-3 pixel sempre visibili
+   e semi di 10: tolti i semi, granelli sotto il pixel, quasi tutti invisibili; si accendono un attimo quando girano
+   nella luce (un luccichio, non un fiocco) */
 const PULVISCOLO = [
-  {n:260, raggio:.8,  morb:.2, vel:.012, alfa:.5,  fine:true},
-  {n:70,  raggio:1.5, morb:.3, vel:.018, alfa:.55},
-  {n:5,   raggio:5,   morb:.75, vel:.025, alfa:.4}
+  {n:220, raggio:.35, morb:0, vel:.012, alfa:.55, fine:true},
+  {n:45,  raggio:.6,  morb:0, vel:.018, alfa:.6}
 ];
 
 /* ─────────────────────────────────────────────────────────────────────────── */
