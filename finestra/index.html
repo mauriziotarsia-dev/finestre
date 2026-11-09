@@ -28,7 +28,7 @@
 <script src="../js/accesso.js?v=8"></script>
 <script src="../js/qrcode.js?v=1"></script>
 <script src="../js/vita.js?v=3"></script>
-<script src="../js/vista.js?v=5.37"></script>
+<script src="../js/vista.js?v=5.38"></script>
 <script src="../js/inseguitore.js?v=1"></script>
 <script src="../js/uccelli.js?v=4"></script>
 <script src="../js/bard.js?v=6"></script>
@@ -939,7 +939,7 @@ function giro(ora){
      con la neve?»). Un po' di più dappertutto, e come dal vero: la foschia delle valli si forma di notte e col fresco, è
      più forte all'alba, si alza e si assottiglia di giorno, torna verso sera. Di notte c'è (si vede appena, alla luna).
      Con la neve che cade e con la pioggia c'è meno (l'aria è piena d'altro), col vento forte si disperde */
-  const nvTgt = ({alba: 1.45, giorno: 1.15, tramonto: 1.25, notte: 1.2}[o] || 1.2) * (1 - met.neve * .3 - met.pioggia * .2 - met.tempesta * .15) * (1 - Math.max(0, met.vento - .3) * .5);
+  const nvTgt = ({alba: 1.7, giorno: 1.15, tramonto: 1.25, notte: 1.2}[o] || 1.2) * (1 - met.neve * .3 - met.pioggia * .2 - met.tempesta * .15) * (1 - Math.max(0, met.vento - .3) * .5);
   nebViva += (nvTgt - nebViva) * k;
   stormi.aggiorna(dt, (geom[0] && geom[0].aspetto) || .4, uccelli, pip);
   const nTgt = o === 'notte' ? 1 : o === 'tramonto' ? .15 : 0;
