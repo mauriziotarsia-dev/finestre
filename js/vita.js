@@ -26,36 +26,76 @@
   const tremola = (t, s, hz) => .5 + .27 * Math.sin(t * hz + s * 31) + .15 * Math.sin(t * hz * 2.37 + s * 17) + .08 * Math.sin(t * hz * 5.11 + s * 7);
 
   /* ── le finestre accese, dall'immagine della notte ─────────────────────────
-     Un punto è una finestra accesa se è caldo (rosso > verde > blu) e più chiaro di quello che ha intorno.
-     Provato sulle notti di abbazia (TV e finestrelle) e valle: trova le finestre del monastero, del casale e del
-     castello, non la luna né il fiume. */
-  function trovaLuci(img){
-    const iw = img.naturalWidth || img.width, ih = img.naturalHeight || img.height;
-    const W = Math.min(1200, iw), H = Math.max(8, Math.round(W * ih / iw));
+     ⚠ 9/11 (Maurizio: «spendere più tempo per ottimizzare la ricerca delle finestre da illuminare, per non trovare
+     falsi positivi»). Non è una domanda all'AI: la pagina guarda l'immagine della notte, a piena risoluzione (fino a
+     2400 punti di larghezza: a 1200 le finestre lontane, 2-4 pixel, si confondevano e se ne trovavano la metà).
+       1. candidati: pixel caldi (rosso ≥ verde ≥ blu) e almeno il 45% più chiari della media intorno;
+       2. i pixel vicini fanno una macchia sola (una finestra = una macchia, non tre punti sulla stessa finestra);
+       3. si scarta una macchia se: è troppo grande per una finestra; è una striscia (riflesso nell'acqua, bagliore
+          sull'orizzonte); è rossa (resti del tramonto); è debole (un granello d'erba); sta nel cielo (dalla profondità:
+          luna, stelle); di giorno nello stesso punto c'è qualcosa di più chiaro del suo intorno (una macchia di sole
+          dipinta, non una finestra: le finestre di giorno sono scure) o c'è fogliame (una finestra sta su un muro).
+     Provato sulle tre notti che ci sono (abbazia TV: 41 finestre, abbazia finestrelle: 10, valle: 30), guardando una
+     per una le macchie trovate e quelle scartate: nessuna fuori posto; scartati un granello nell'erba e un pezzo di
+     muro al sole. */
+  function datiImg(img, W, H){
     const c = document.createElement('canvas'); c.width = W; c.height = H;
     const x = c.getContext('2d', {willReadFrequently: true}); x.drawImage(img, 0, 0, W, H);
-    const d = x.getImageData(0, 0, W, H).data, N = W * H;
-    const L = new Float32Array(N), I = new Float64Array((W + 1) * (H + 1));
+    return x.getImageData(0, 0, W, H).data;
+  }
+  function trovaLuci(img, giorno = null, prof = null){
+    const iw = img.naturalWidth || img.width, ih = img.naturalHeight || img.height;
+    const W = Math.min(2400, iw), H = Math.max(8, Math.round(W * ih / iw)), N = W * H;
+    const d = datiImg(img, W, H);
+    const L = new Float32Array(N);
     for (let i = 0; i < N; i++) L[i] = (d[i * 4] * .299 + d[i * 4 + 1] * .587 + d[i * 4 + 2] * .114) / 255;
-    for (let y = 0; y < H; y++){ let s = 0; for (let xx = 0; xx < W; xx++){ s += L[y * W + xx]; I[(y + 1) * (W + 1) + xx + 1] = I[y * (W + 1) + xx + 1] + s; } }
-    const media = (x0, y0, r) => { const a = Math.max(0, x0 - r), b = Math.max(0, y0 - r), c2 = Math.min(W, x0 + r + 1), e = Math.min(H, y0 + r + 1);
-      return (I[e * (W + 1) + c2] - I[b * (W + 1) + c2] - I[e * (W + 1) + a] + I[b * (W + 1) + a]) / ((c2 - a) * (e - b)); };
-    const caldo = new Uint8Array(N), cand = [];
-    for (let y = 1; y < H - 1; y++) for (let xx = 1; xx < W - 1; xx++){
-      const i = y * W + xx, r = d[i * 4] / 255, g = d[i * 4 + 1] / 255, b = d[i * 4 + 2] / 255, l = L[i];
-      if (l > .09 && r > g * 1.06 && g > b * 1.02 && l > media(xx, y, 6) * 1.35 + .02){ caldo[i] = 1; cand.push(i); }
+    /* media intorno a ogni punto (finestra di 2R+1), con l'immagine integrale */
+    const R = Math.max(4, Math.round(H * .006)), I = new Float64Array((W + 1) * (H + 1));
+    for (let y = 0; y < H; y++){ let s = 0; for (let x = 0; x < W; x++){ s += L[y * W + x]; I[(y + 1) * (W + 1) + x + 1] = I[y * (W + 1) + x + 1] + s; } }
+    const media = (Lx, x0, y0) => { const a = Math.max(0, x0 - R), b = Math.max(0, y0 - R), c2 = Math.min(W, x0 + R + 1), e = Math.min(H, y0 + R + 1);
+      return (Lx[e * (W + 1) + c2] - Lx[b * (W + 1) + c2] - Lx[e * (W + 1) + a] + Lx[b * (W + 1) + a]) / ((c2 - a) * (e - b)); };
+    const m = new Uint8Array(N);
+    for (let y = 1; y < H - 1; y++) for (let x = 1; x < W - 1; x++){
+      const i = y * W + x, r = d[i * 4], g = d[i * 4 + 1], b = d[i * 4 + 2], l = L[i];
+      if (l > .07 && r > g * 1.05 && g >= b){ const mm = media(I, x, y); if (l > mm * 1.45 && l - mm > .035) m[i] = 1; }
     }
-    cand.sort((a, b) => L[b] - L[a]);
-    const presi = [];
-    for (const i of cand){
-      const px = i % W, py = (i / W) | 0;
-      if (presi.some(p => Math.abs(p.px - px) < 6 && Math.abs(p.py - py) < 6)) continue;
-      let n = 0; for (let dy = -4; dy <= 4; dy++) for (let dx = -4; dx <= 4; dx++){ const yy = py + dy, x2 = px + dx; if (yy >= 0 && yy < H && x2 >= 0 && x2 < W && caldo[yy * W + x2]) n++; }
-      presi.push({px, py, l: L[i], r: Math.max(1, Math.sqrt(n / Math.PI)) * 1.2, c: [d[i * 4] / 255, d[i * 4 + 1] / 255, d[i * 4 + 2] / 255]});
-      if (presi.length >= 40) break;
+    /* il giorno, per il controllo: luminosità, e la sua media intorno solo dove serve */
+    let dg = null, Lg = null;
+    if (giorno){ try { dg = datiImg(giorno, W, H); Lg = new Float32Array(N); for (let i = 0; i < N; i++) Lg[i] = (dg[i * 4] * .299 + dg[i * 4 + 1] * .587 + dg[i * 4 + 2] * .114) / 255; } catch(e) { dg = null; } }
+    const mediaG = (x0, y0) => { let s = 0, n = 0; for (let y = Math.max(0, y0 - R); y <= Math.min(H - 1, y0 + R); y++) for (let x = Math.max(0, x0 - R); x <= Math.min(W - 1, x0 + R); x++){ s += Lg[y * W + x]; n++; } return s / n; };
+    const amax = Math.pow(H * .012, 2), luci = [], pila = [];
+    for (let i0 = 0; i0 < N; i0++){
+      if (!m[i0]) continue;
+      /* la macchia: tutti i pixel candidati attaccati */
+      const px = []; m[i0] = 0; pila.push(i0);
+      while (pila.length){ const i = pila.pop(); px.push(i); const x = i % W, y = (i / W) | 0;
+        for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++){ const xx = x + dx, yy = y + dy; if (xx >= 0 && yy >= 0 && xx < W && yy < H){ const j = yy * W + xx; if (m[j]){ m[j] = 0; pila.push(j); } } } }
+      let x0 = W, x1 = 0, y0 = H, y1 = 0, sl = 0, sx = 0, sy = 0, pk = 0, sr = 0, sg = 0;
+      for (const i of px){ const x = i % W, y = (i / W) | 0, l = L[i]; x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); sl += l; sx += x * l; sy += y * l; pk = Math.max(pk, l); sr += d[i * 4]; sg += d[i * 4 + 1]; }
+      const area = px.length, w = x1 - x0 + 1, h = y1 - y0 + 1, cx = sx / sl, cy = sy / sl;
+      if (area > amax) continue;                                  /* troppo grande per una finestra */
+      if ((w > 3 * h && w > 3) || (h > 8 * w && h > 8)) continue;  /* striscia */
+      if (sg < sr * .5) continue;                                 /* rossa */
+      if (pk < .12) continue;                                     /* debole */
+      if (prof && prof(cx / W, cy / H) < .03) continue;           /* nel cielo */
+      if (Lg){
+        let s = 0; for (const i of px) s += Lg[i];
+        if (s / area / (mediaG(Math.round(cx), Math.round(cy)) + .01) > 1.6) continue;   /* di giorno è una macchia chiara */
+        let v = 0, n = 0;
+        for (let y = Math.max(0, y0 - 2); y <= Math.min(H - 1, y1 + 2); y++) for (let x = Math.max(0, x0 - 2); x <= Math.min(W - 1, x1 + 2); x++){ const j = (y * W + x) * 4; n++; if (dg[j + 1] > dg[j] * 1.08 && dg[j + 1] > dg[j + 2] * 1.08) v++; }
+        if (v / n > .7) continue;                                 /* di giorno lì c'è fogliame */
+      }
+      luci.push({x: (cx + .5) / W, y: (cy + .5) / H, r: Math.max(1, Math.sqrt(area / Math.PI)) * 1.15 / H, l: pk});
     }
-    /* r: raggio della finestra, in frazioni dell'altezza dell'immagine */
-    return presi.map((p, k) => ({x: (p.px + .5) / W, y: (p.py + .5) / H, r: p.r / H, l: p.l, seme: h1(p.px * .37 + k, p.py * .53), inImg: true}));
+    luci.sort((a, b) => b.l - a.l);
+    /* una finestra con la colonnina in mezzo fa due macchie vicinissime: diventano una luce sola (se no di notte se ne
+       spegneva metà) */
+    const unite = [], vicino = Math.max(3, H * .003) / H;
+    for (const L2 of luci){
+      const u = unite.find(q => Math.abs(q.x - L2.x) * W / H < vicino && Math.abs(q.y - L2.y) < vicino);
+      if (u) u.r = Math.max(u.r, Math.hypot((u.x - L2.x) * W / H, u.y - L2.y) + L2.r); else unite.push(L2);
+    }
+    return unite.slice(0, 60).map((L2, k) => Object.assign(L2, {seme: h1(L2.x * 997 + k, L2.y * 613), inImg: true}));
   }
 
   /* dove possono stare le lucciole: prati e cespugli vicini (profondità alta, sotto l'orizzonte) */
@@ -73,16 +113,16 @@
   }
 
   /* la profondità di un punto (per la prospettiva), dalla mappa piccola */
-  function profonditaDi(dimg){
+  function profonditaDi(dimg, W = 128){
     if (!dimg) return () => .5;
-    const W = 128, H = Math.max(8, Math.round(W * dimg.naturalHeight / dimg.naturalWidth));
+    const H = Math.max(8, Math.round(W * dimg.naturalHeight / dimg.naturalWidth));
     const c = document.createElement('canvas'); c.width = W; c.height = H;
     const x = c.getContext('2d', {willReadFrequently: true}); x.drawImage(dimg, 0, 0, W, H);
     const d = x.getImageData(0, 0, W, H).data;
     return (px, py) => d[(cl(Math.round(py * H), 0, H - 1) * W + cl(Math.round(px * W), 0, W - 1)) * 4] / 255;
   }
 
-  const FUOCHI = false;
+  const FUOCHI = true;   /* 9/11: dei fuochi resta solo il fumo (Maurizio: «il fumo anche di notte può rimanere, se ne vanno solo i fuochi») */
   const LUCE = [1, .6, .26], LUCCIOLA = [.72, 1, .3], FIAMMA = [1, .5, .16];
 
   class Vita {
@@ -137,17 +177,7 @@
           out.push({x: L.x, y: L.y, n, core: r * 1.05, alone: r * 5 + 4, col: LUCE, forza: (this.o === 'notte' ? .9 : 1.25) * k * fl * vela(n), modo: 'piu'});
         }
       }
-      for (const {F, k, seme} of this.fuochi || []){
-        if (k < .02 || !(this.o === 'notte' || this.o === 'tramonto')) continue;
-        /* ⚠ 9/11 (Maurizio: «alcuni fuochi sono troppo finti»): era una palla arancione con l'alone tondo, sembrava una
-           lanterna sospesa. Ora: un bagliore basso e largo sul terreno (rosso cupo, appena), e sopra due lingue di
-           fiamma piccole e allungate che ballano e tremano ognuna per conto suo */
-        const n = F.n ?? .3, s = F.w * 1000, on = (this.o === 'notte' ? 1 : .8) * k * vela(n);
-        const f1 = tremola(t, seme * 13, 11), f2 = tremola(t + 1.7, seme * 7, 15), resp = .8 + .2 * Math.sin(t * 1.1 + seme * 20);
-        out.push({x: F.x, y: F.y + s * .00025, n, core: s * .3, alone: s * .85, ry: .32, col: [.85, .3, .08], forza: on * .2 * resp * (.8 + .4 * f1), modo: 'piu'});
-        [f1, f2].forEach((fi, i) => out.push({x: F.x + (fi - .5) * s * .00007 * (i ? 1 : -1), y: F.y - s * .00009 * fi * (1 + i), n,
-          core: Math.max(.7, s * .045 * (1 - i * .3)), alone: Math.max(2.4, s * .15), ry: 1.7, col: i ? [1, .7, .28] : FIAMMA, forza: on * resp * (.35 + .75 * fi) * (i ? .6 : 1), modo: 'piu'}));
-      }
+      /* (dei fuochi lontani non si disegna più la fiamma: resta il fumo, in fumi()) */
       for (const l of this.lucciole){
         const tt = t + l.fase, ph = (tt % l.per) / l.per, lampo = Math.exp(-Math.pow((ph - .5) / .07, 2)) + .25 * Math.exp(-Math.pow((ph - .72) / .05, 2));
         if (lampo < .01) continue;
@@ -166,7 +196,7 @@
       for (const {F, k} of this.fuochi || []){
         if (k < .02) continue;
         const giorno = this.o === 'giorno' || this.o === 'alba';
-        out.push({x: F.x, y: F.y, w: F.w * (giorno ? 1.6 : 1), n: F.n ?? .3, forza: k * (giorno ? 1 : .55)});
+        out.push({x: F.x, y: F.y, w: F.w * (giorno ? 1.6 : 1.2), n: F.n ?? .3, forza: k * (giorno ? 1 : .7)});
       }
       return out;
     }

@@ -888,7 +888,7 @@ class Vista {
     /* bagliori (luci, falò, lucciole) e la vita del paesaggio che li decide */
     this.pb = programma(BAG_VERT, BAG_FRAG, ['aPos', 'aQ', 'aCol']);
     this.ub = posizioni(this.pb, ['uFori', 'uModo']);
-    this.bBag = gl.createBuffer(); this.datiBag = new Float32Array(64 * 6 * 8);
+    this.bBag = gl.createBuffer(); this.datiBag = new Float32Array(96 * 6 * 8);
     this.vita = typeof Vita !== 'undefined' ? new Vita() : null;
     this.meteo = [];   /* per ogni foro: la sua piccola immagine di nebbia e nuvole */
     /* le due «fonti» (quella che si vede e quella da cui si sfuma): immagine, profondità, eventuale video */
@@ -963,7 +963,7 @@ class Vista {
   }
   /* 9/11 · luci delle case (dall'immagine della notte) e prati delle lucciole (dalla profondità): js/vita.js.
      Le finestre accese si cercano una volta sola per immagine */
-  async caricaVita(f, notte, dimg){
+  async caricaVita(f, notte, dimg, giorno = null){
     if (typeof trovaLuci === 'undefined') return;
     try {
       const pr = profonditaDi(dimg);
@@ -971,7 +971,8 @@ class Vista {
       let luci = [];
       if (notte){
         const cache = Vista.luciTrovate || (Vista.luciTrovate = new Map());
-        if (!cache.has(notte)) cache.set(notte, trovaLuci(await caricaImg(notte)));
+        /* il giorno serve al controllo dei falsi positivi (js/vita.js): solo se è lo stesso paesaggio, stessa inquadratura */
+        if (!cache.has(notte)){ const nim = await caricaImg(notte), g = giorno && Math.abs(giorno.naturalWidth / giorno.naturalHeight - nim.naturalWidth / nim.naturalHeight) < .02 ? giorno : null; cache.set(notte, trovaLuci(nim, g, profonditaDi(dimg, 512))); }   /* il cielo con la profondità più fine: a 128 punti le torri contro il cielo cadevano fuori */
         luci = cache.get(notte).map(L => Object.assign({}, L));
       }
       /* senza notte (o senza finestre accese): una o due finestre sotto ogni comignolo */
@@ -994,7 +995,7 @@ class Vista {
     const metti = modo => {
       let n = 0;
       for (const b of lista){
-        if (b.modo !== modo || n >= 64 * 6) continue;
+        if (b.modo !== modo || n >= 96 * 6) continue;
         let u = (b.x - ci[0]) / ci[2], v = (b.y - ci[1]) / ci[3];
         u = (u - .5) / kz + .5; v = (v - .5) / kz + .5;
         u -= lato * .012 * (b.n - .35) + (oc.x || 0) * .065 * (1 - .7 * b.n);
@@ -1041,7 +1042,7 @@ class Vista {
     const imA = pAlberi ? (await pAlberi) || im : im;   /* 8/11: di notte gli alberi si trovano sull'immagine del giorno */
     try { f.aTex = this.texture(); this.carica(f.aTex, mascheraAlberi(imA, dimg)); } catch(e) { f.aTex = null; }
     f.dimg = dimg; await this.caricaFumi(f, comignoli, dimg);
-    this.caricaVita(f, notte, dimg);   /* luci delle case e prati delle lucciole: senza aspettare */
+    this.caricaVita(f, notte, dimg, imA);   /* luci delle case e prati delle lucciole: senza aspettare */
     /* il cielo che scorre (serve la profondità, per sapere dov'è il cielo). Il video resta per quello che
        si muove sotto il cielo (nebbia nelle valli, fumo dei camini): il suo cielo non si usa più */
     if (pCielo && dimg){
