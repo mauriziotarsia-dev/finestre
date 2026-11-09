@@ -48,6 +48,7 @@ uniform float uLato, uT, uAspetto;
 uniform vec3 uOcchio;         /* dov'è chi guarda: x a destra-sinistra (-1..1), z vicinanza (-1 lontano .. 1 vicino) */   /* aspetto = larghezza/altezza della vista */
 uniform vec2 uPix;           /* dimensione del foro in pixel */
 uniform float uCoperto, uNebbia, uPioggia, uNeve, uTempesta, uVento;
+uniform float uTV;            /* 9/11: la strada fatta col vento (somma di vento × tempo), al posto di uT × uVento */
 uniform float uLampo, uLampoX, uLampoS, uLampoB;   /* S: seme della forma del fulmine, B: 1 se il fulmine si vede */
 uniform float uNotteFinta, uLuce, uBuio, uQualita;
 uniform vec3 uColNebbia;
@@ -246,22 +247,22 @@ vec3 paesaggio(sampler2D img, sampler2D imgB, float vk, sampler2D dep, vec4 crop
     neb *= smoothstep(mix(.1, .035, uNotte), mix(.26, .1, uNotte), lS) * smoothstep(-.09, -.01, c.b - c.r);   /* 8/11: di notte le soglie scendono, se no la nebbia notturna (tutta sotto 0,1) spariva (Maurizio: «di notte non c'è un po' di nebbiolina») */
     if (neb > .01){
       vec2 ti = cropD.xy + p * cropD.zw;   /* coordinate dell'immagine intera: la nebbia non dipende dal taglio */
-      float va = .05 + .06 * uVento;   /* ⚠ 5/11: una velocità sola per tutti i punti: moltiplicare il tempo per un valore diverso punto per punto, dopo qualche minuto, dava righe e puntini (G10) */      /* quanto scorre la trama (sue unità al secondo): un banco attraversa sé stesso in 12-25 s (5/11: più viva) */
+      float tva = uT * .05 + uTV * .06;   /* 9/11: era uT * (.05 + .06 × vento): vedi uTV */   /* ⚠ 5/11: una velocità sola per tutti i punti: moltiplicare il tempo per un valore diverso punto per punto, dopo qualche minuto, dava righe e puntini (G10) */      /* quanto scorre la trama (sue unità al secondo): un banco attraversa sé stesso in 12-25 s (5/11: più viva) */
       /* 5/11 (Maurizio: «quella sotto è ancora poco viva»): la nebbia vicina scorre più svelta (come dal vero: più è
          vicina, più strada fa sullo schermo) e ha banchi più grandi e più contrastati */
       float vicinaM = smoothstep(.1, .35, nB);
-      float f2 = fbmP(vec2(ti.x * mix(2.4, 1.6, vicinaM) * 1.7 - tP(uT * va * 1.7) + 5.2, ti.y * mix(10., 6., vicinaM) * 1.7 + 1.3 - tP(uT * .055)));
+      float f2 = fbmP(vec2(ti.x * mix(2.4, 1.6, vicinaM) * 1.7 - tP(tva * 1.7) + 5.2, ti.y * mix(10., 6., vicinaM) * 1.7 + 1.3 - tP(uT * .055)));
       /* ⚠ 5/11 (Maurizio: «è fake e va intorno alle sagome degli oggetti»): niente più spostamento dell'immagine dentro la
          nebbia: spostava anche i bordi di alberi e cipressi e lasciava sagome doppie ondeggianti. La nebbia si muove
          con i veli e i filamenti che passano sopra */
       /* veli: banchi più chiari, lunghi e bassi, che passano e si disfano */
-      float velo = fbmP(vec2(ti.x * mix(3.3, 2.2, vicinaM) - tP(uT * va * 1.6), ti.y * mix(15., 8., vicinaM) + tP(uT * .08))) * .65 + f2 * .35;
+      float velo = fbmP(vec2(ti.x * mix(3.3, 2.2, vicinaM) - tP(tva * 1.6), ti.y * mix(15., 8., vicinaM) + tP(uT * .08))) * .65 + f2 * .35;
       float wv = smoothstep(.38, .7, velo);
       vec3 bianco = vec3(lm) * vec3(.97, .99, 1.03) * mix(1.3, 1.55, uNotte) + .06 * (1. - uNotte) + vec3(.008, .012, .02) * uNotte;   /* dal colore sfocato di qui (non da quello spostato: faceva venature) */
       c = mix(c, bianco, neb * wv * mix(.85, 1., vicinaM));
       c *= 1. - neb * (1. - wv) * (.22 + .12 * vicinaM);   /* fra un velo e l'altro la nebbia si dirada un poco: respira */
       /* filamenti: veli sottili e più svelti che attraversano i banchi (si vede che la nebbia scorre) */
-      float fil = fbmP2(vec2(ti.x * mix(5.5, 3.5, vicinaM) - tP(uT * va * 2.6), ti.y * mix(24., 13., vicinaM) - tP(uT * .03)));
+      float fil = fbmP2(vec2(ti.x * mix(5.5, 3.5, vicinaM) - tP(tva * 2.6), ti.y * mix(24., 13., vicinaM) - tP(uT * .03)));
       c = mix(c, bianco, neb * smoothstep(.5, .85, fil) * .4);
     }
   }
@@ -534,22 +535,22 @@ const METEO_FRAG = `
 precision highp float;
 varying vec2 vUv;
 uniform vec4 uMap;
-uniform float uT, uVento;
+uniform float uT, uTV, uVento;
 float h1(vec2 p){ vec3 p3 = fract(vec3(p.xyx) * .1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
 float rumore(vec2 p){ vec2 i = floor(p), f = fract(p); f = f*f*(3.-2.*f);
   return mix(mix(h1(i), h1(i+vec2(1,0)), f.x), mix(h1(i+vec2(0,1)), h1(i+vec2(1,1)), f.x), f.y); }
 float fbm(vec2 p){ float v = 0., a = .5; for (int i = 0; i < 5; i++){ v += a * rumore(p); p = p * 2.03 + 17.1; a *= .5; } return v / .96875; }
 void main(){
   vec2 uv = uMap.xy + vUv * uMap.zw;
-  float vv = 1. + 1.5 * uVento;
+  float tvv = uT + 1.5 * uTV;   /* 9/11: era uT × (1 + 1,5 × vento) */
   vec2 q = uv * vec2(2., 3.6);
   /* i banchi sono disegnati da un campo che a sua volta è deformato da un altro campo, che si muove
      in un'altra direzione: così non scorrono rigidi ma cambiano forma mentre passano */
   vec2 w = vec2(fbm(q * .7 + vec2(uT * .018, 1.7)), fbm(q * .7 + vec2(4.3, -uT * .014))) - .5;
-  float banchi = fbm(q + w * 1.8 + vec2(uT * .035 * vv, uT * .006));
-  float banchi2 = fbm(uv * vec2(5., 8.) + w - vec2(uT * .06 * vv, -uT * .01));     /* sfilacci più vicini, più veloci */
+  float banchi = fbm(q + w * 1.8 + vec2(tvv * .035, uT * .006));
+  float banchi2 = fbm(uv * vec2(5., 8.) + w - vec2(tvv * .06, -uT * .01));     /* sfilacci più vicini, più veloci */
   float neb = smoothstep(.15, .85, banchi * .9 + banchi2 * .35);
-  float nub = fbm(uv * vec2(3., 6.) + vec2(uT * .012 * (1. + uVento), 0.));
+  float nub = fbm(uv * vec2(3., 6.) + vec2((uT + uTV) * .012, 0.));
   gl_FragColor = vec4(neb, nub, banchi, 1.);
 }`;
 
@@ -563,7 +564,7 @@ precision highp float;
 attribute vec2 aAngolo;       /* angolo del rettangolo: -1..1 */
 attribute vec4 aSeme;         /* quattro numeri a caso, fissi per ogni goccia */
 uniform vec2 uFori;           /* misura del foro in pixel */
-uniform float uT, uVento, uScala, uTipo, uDens, uSale;
+uniform float uT, uTV, uVento, uScala, uTipo, uDens, uSale;
 uniform vec4 uStrato;         /* pioggia: lunghezza, larghezza, velocità, -  ·  neve: raggio, -, velocità, - */
 varying vec2 vQ; varying float vA, vW;
 void main(){
@@ -580,7 +581,7 @@ void main(){
     float x = r.x * (uFori.x + incl * uFori.y) - incl * uFori.y + y * uFori.y * incl;
     c = vec2(x, y * uFori.y);
     float xr = c.x / uFori.y;
-    float raffica = .62 + .38 * (.5 + .5 * sin(xr * 4.1 - uT * .9 * (1. + uVento))) * (.5 + .5 * sin(xr * 1.7 + uT * .31 + 1.3));
+    float raffica = .62 + .38 * (.5 + .5 * sin(xr * 4.1 - (uT + uTV) * .9)) * (.5 + .5 * sin(xr * 1.7 + uT * .31 + 1.3));
     vis = step(fract(r.w * 7.31 + r.z), uDens * raffica);
     vec2 dir = normalize(vec2(incl, 1.)), nrm = vec2(dir.y, -dir.x);
     float hw = W * .5 + 1.;
@@ -593,7 +594,7 @@ void main(){
     float est = R / uFori.y;
     float y = fract(r.y + uT * uStrato.z * (.7 + .6 * r.z)) * (1. + 2. * est) - est;
     float fr = .6 + 1.1 * fract(r.x * 13.7);
-    float x = fract(r.x + uT * uVento * uStrato.z * .25);
+    float x = fract(r.x + uTV * uStrato.z * .25);
     float amp = (2. + 3. * fract(r.y * 9.1)) * R + 4. * uScala;
     c = vec2(x * uFori.x + sin(uT * fr + r.z * 6.283) * amp, y * uFori.y + sin(uT * fr * 1.7 + r.x * 6.283) * R * .5);
     vis = step(fract(r.w * 7.31 + r.z), uDens);
@@ -667,7 +668,7 @@ class Vista {
     this.p = programma(VERT, FRAG, ['aPos']);
     this.fumoDati = new Float32Array(24);
     this.u = posizioni(this.p, ['uOcchio','uImg0b','uVmix','uImg0','uImg1','uDep0','uDep1','uMap','uCrop0','uCrop1','uCropD0','uCropD1','uUccelli','uCielo0','uCielo1','uCieloM0','uCieloM1','uCieloX','uFermo0','uFermo1','uHaFermo0','uHaFermo1','uRap0','uHaRap0','uVentoT','uHaVento','uU','uNU','uUBox','uFumo','uNFumo','uFumoA','uNebV','uNotte','uOmbre','uMeteora','uMeteoraK','uMix','uHaImg','uHaDep0','uHaDep1','uMovimento0','uMovimento1',
-      'uLato','uT','uAspetto','uPix','uCoperto','uNebbia','uPioggia','uNeve','uTempesta','uVento','uLampo','uLampoX','uLampoS','uLampoB',
+      'uLato','uT','uTV','uAspetto','uPix','uCoperto','uNebbia','uPioggia','uNeve','uTempesta','uVento','uLampo','uLampoX','uLampoS','uLampoB',
       'uNotteFinta','uLuce','uBuio','uQualita','uColNebbia','uMeteo']);
     gl.useProgram(this.p);
     gl.uniform1i(this.u.uImg0, 0); gl.uniform1i(this.u.uImg1, 1); gl.uniform1i(this.u.uDep0, 2); gl.uniform1i(this.u.uDep1, 3); gl.uniform1i(this.u.uImg0b, 4); gl.uniform1i(this.u.uMeteo, 5); gl.uniform1i(this.u.uCielo0, 6); gl.uniform1i(this.u.uCielo1, 7); gl.uniform1i(this.u.uFermo0, 8); gl.uniform1i(this.u.uFermo1, 9); gl.uniform1i(this.u.uVentoT, 10); if (this.u.uRap0) gl.uniform1i(this.u.uRap0, 12);
@@ -675,7 +676,7 @@ class Vista {
     this.maxTex = gl.getParameter(gl.MAX_TEXTURE_SIZE) || 4096;       /* Raspberry 4 e telefoni vecchi: 4096; il G10 16384 */
     /* nebbia e nuvole a bassa risoluzione */
     this.pm = programma(VERT, METEO_FRAG, ['aPos']);
-    this.um = posizioni(this.pm, ['uMap','uT','uVento']);
+    this.um = posizioni(this.pm, ['uMap','uT','uTV','uVento']);
     this.pv = programma(VERT, VENTO_FRAG, ['aPos']);
     this.uv = posizioni(this.pv, ['uMap','uT','uCropD','uCieloM','uCieloX','uAlberi','uCielo','uVento']);
     gl.useProgram(this.pv); gl.uniform1i(this.uv.uAlberi, 11); gl.uniform1i(this.uv.uCielo, 6);
@@ -683,7 +684,7 @@ class Vista {
     this.vento = [];
     /* gocce e fiocchi */
     this.pp = programma(PART_VERT, PART_FRAG, ['aAngolo', 'aSeme']);
-    this.up = posizioni(this.pp, ['uFori','uT','uVento','uScala','uTipo','uDens','uSale','uStrato','uColore','uMorb','uAlfa']);
+    this.up = posizioni(this.pp, ['uFori','uT','uTV','uVento','uScala','uTipo','uDens','uSale','uStrato','uColore','uMorb','uAlfa']);
     this.ist = this.gl2 ? {div:(i, d) => gl.vertexAttribDivisor(i, d), disegna:(n) => gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, n)}
       : (() => { const e = gl.getExtension('ANGLE_instanced_arrays'); return e ? {div:(i, d) => e.vertexAttribDivisorANGLE(i, d), disegna:(n) => e.drawArraysInstancedANGLE(gl.TRIANGLE_STRIP, 0, 4, n)} : null; })();
     /* i rettangoli: uno per tutto il foro, uno per goccia; e i numeri a caso delle gocce */
@@ -904,6 +905,12 @@ class Vista {
   /* disegna: fori = [{x,y,w,h, map:[x,y,w,h], aspetto, lato}] in pixel del canvas */
   disegna(fori, s){
     const gl = this.gl, u = this.u;
+    /* ⚠ 9/11 (Maurizio: «la raffica, quando c'è un po' di nebbia, è come se velocizzasse le immagini»): banchi, veli,
+       nuvole e neve scorrevano di tempo × velocità del vento. Col tempo che dopo un'ora vale migliaia di secondi, ogni
+       cambio di vento (la raffica: +0,6 in un secondo) spostava tutto di colpo, come un video mandato avanti veloce.
+       Ora la strada fatta col vento si somma secondo per secondo (tv): il vento cambia la velocità, non la posizione */
+    { const dt = this._tUlt == null ? 0 : s.t - this._tUlt; if (dt > 0 && dt < .5) this._tv = (this._tv || 0) + dt * Math.max(0, Math.min(1.6, s.vento || 0)); else if (dt < -60) this._tv = 0; this._tUlt = s.t; }   /* il tempo ricomincia ogni ora (t % 3588): anche tv, nello stesso istante, così non cresce per giorni */
+    const tVento = this._tv || 0;
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     gl.viewport(0, 0, this.c.width, this.c.height);
     gl.disable(gl.SCISSOR_TEST); gl.disable(gl.BLEND);
@@ -935,7 +942,7 @@ class Vista {
     gl.uniform1f(u.uCieloX, s.cieloX || 0);
     gl.uniform1f(u.uNebV, s.movimento && !sp.has('nebbiolina') ? 1 : 0);
     gl.uniform1f(u.uHaFermo0, haImg && v0 && f0.fTex ? 1 : 0); gl.uniform1f(u.uHaRap0, haImg && v0 && f0.fTex && f0.rTex && this.unita >= 13 ? 1 : 0); gl.uniform1f(u.uHaFermo1, haImg && v1 && f1.fTex ? 1 : 0);
-    gl.uniform1f(u.uT, s.t);
+    gl.uniform1f(u.uT, s.t); gl.uniform1f(u.uTV, tVento);
     for (const k2 of ['Coperto','Nebbia','Pioggia','Neve','Tempesta','Vento','Lampo','LampoX','LampoS','LampoB','NotteFinta','Luce','Buio','Qualita'])
       gl.uniform1f(u['u' + k2], s[k2.charAt(0).toLowerCase() + k2.slice(1)] || 0);
     gl.uniform3fv(u.uColNebbia, s.colNebbia);
@@ -959,7 +966,7 @@ class Vista {
         lega(5, null);
         gl.bindFramebuffer(gl.FRAMEBUFFER, m.fb); gl.disable(gl.SCISSOR_TEST); gl.viewport(0, 0, m.w, m.h);
         gl.useProgram(this.pm);
-        gl.uniform4fv(this.um.uMap, foro.map); gl.uniform1f(this.um.uT, s.t); gl.uniform1f(this.um.uVento, s.vento || 0);
+        gl.uniform4fv(this.um.uMap, foro.map); gl.uniform1f(this.um.uT, s.t); gl.uniform1f(this.um.uTV, tVento); gl.uniform1f(this.um.uVento, s.vento || 0);
         gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
         gl.bindFramebuffer(gl.FRAMEBUFFER, null);
       }
@@ -1010,7 +1017,7 @@ class Vista {
     gl.enable(gl.BLEND); gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
     gl.bindBuffer(gl.ARRAY_BUFFER, this.bQuad); gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0); this.ist.div(0, 0);
     gl.bindBuffer(gl.ARRAY_BUFFER, this.bSemi); gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 4, gl.FLOAT, false, 0, 0); this.ist.div(1, 1);
-    gl.uniform2f(up.uFori, foro.w, foro.h); gl.uniform1f(up.uT, s.t); gl.uniform1f(up.uVento, s.vento || 0);
+    gl.uniform2f(up.uFori, foro.w, foro.h); gl.uniform1f(up.uT, s.t); gl.uniform1f(up.uTV, this._tv || 0); gl.uniform1f(up.uVento, s.vento || 0);
     gl.uniform1f(up.uScala, Math.max(foro.h / 1000, .3));
     const quanti = (foro.w / foro.h) / .4, luce = (s.luce || 0) * (1 - (s.buio || 0)), nf = s.notteFinta || 0, cn = s.colNebbia || [.7, .7, .7];
     const strati = (lista, tipo, dens, colore, alfa) => lista.forEach((L, i) => {
