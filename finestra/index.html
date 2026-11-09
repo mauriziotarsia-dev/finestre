@@ -27,7 +27,7 @@
 <script src="../js/canale.js?v=2.2.0"></script>
 <script src="../js/accesso.js?v=8"></script>
 <script src="../js/qrcode.js?v=1"></script>
-<script src="../js/vista.js?v=5.24"></script>
+<script src="../js/vista.js?v=5.26"></script>
 <script src="../js/inseguitore.js?v=1"></script>
 <script src="../js/uccelli.js?v=3"></script>
 <script src="../js/bard.js?v=6"></script>
@@ -413,7 +413,7 @@ const met = Object.assign({}, METEO.sereno), nebCol = [...NEBBIA_ORA.giorno];
 const stormi = new Stormi();
 let notte = 0, ombre = 0, meteora = null, prossimaMeteora = 0;
 /* 8/11 · effetti a comando dal telefono (Maurizio: «effetti» nella scheda Illusionist): uno stormo, una raffica, la nebbia che sale */
-let stormoFino = 0, rafficaDa = 0, nebbiaDa = 0, rafficaG = 0;
+let stormoFino = 0, rafficaDa = 0, nebbiaDa = 0, rafficaSeme = 0;
 let ultimoParam = null, bancoInCorso = false;
 let fpsMisurati = 60, uccelli = 0, cieloX = Math.random(), notteFinta = 0, luce = .7, lampo = null, prossimoLampo = 0, lampoX = .5;
 
@@ -423,7 +423,7 @@ function effetto(d){
   if (d.tipo === 'meteora'){ const x0 = .1 + r() * .8, y0 = .03 + r() * .15, verso = r() < .5 ? -1 : 1;
     meteora = {t0: ora, dur: 700 + r() * 500, k: 0, da: [x0, y0, x0 + verso * (.25 + r() * .25), y0 + .06 + r() * .1]}; prossimaMeteora = ora + 40000; }
   else if (d.tipo === 'stormo'){ stormoFino = ora + 45000; stormi.nuovoStormo(); }
-  else if (d.tipo === 'raffica'){ rafficaDa = ora; if (bard) bard.raffica(); }
+  else if (d.tipo === 'raffica'){ rafficaDa = ora; rafficaSeme = r() * 50; if (bard) bard.raffica(); }
   else if (d.tipo === 'tuono') scocca({forza: .18 + r() * .12, x: .1 + r() * .8, impulsi: 1, seme: Math.floor(r() * 1e9), tuono: 5 + r() * 4, volTuono: .35 + r() * .15});
   else if (d.tipo === 'nebbia') nebbiaDa = ora;
 }
@@ -874,7 +874,8 @@ function giro(ora){
   /* il cielo panoramico scorre col vento (in giri del panorama al secondo): dal sereno ci mette un paio di minuti
      ad attraversare una finestra, col temporale meno di uno */
   /* raffica dal telefono: sale in 1 s, tiene 4 s, cala in 6 (sopra il vento del tempo, senza la sua lentezza) */
-  { const t = rafficaDa ? (ora - rafficaDa) / 1000 : 99; rafficaG = t < 1 ? t : t < 5 ? 1 : t < 11 ? 1 - (t - 5) / 6 : 0; if (t > 11) rafficaDa = 0; }
+  /* raffica dal telefono: un fronte che attraversa il paesaggio (js/vista.js, «LA RAFFICA»), in tempo col suono (4 s) */
+  const rafficaT = rafficaDa ? (ora - rafficaDa) / 1000 : -1; if (rafficaT > 7) rafficaDa = 0;
   cieloX = (cieloX + dt * (.00209 + .00836 * met.vento)) % 1000;   /* 30/10: +10%, poi -5% (Maurizio) */
   /* i lampi del temporale: dal programma comune (js/bard.js), così TV e finestrelle lampeggiano insieme */
   if (scena.meteo === 'temporale' && scena.acceso !== false){
@@ -900,7 +901,7 @@ function giro(ora){
   const t0d = performance.now();
   const param = {
     t: (ora / 1000) % 3588, trasparente: !!scena.yt, movimento: scena.movimento !== false, prospettiva: scena.prospettiva !== false,
-    coperto: met.coperto, nebbia: met.nebbia, pioggia: met.pioggia, neve: met.neve, tempesta: met.tempesta, vento: Math.min(1, met.vento + .6 * rafficaG),
+    coperto: met.coperto, nebbia: met.nebbia, pioggia: met.pioggia, neve: met.neve, tempesta: met.tempesta, vento: met.vento, raffica: [rafficaT, rafficaSeme, 1],
     lampo: intensitaLampo(ora), lampoX, lampoS: lampo ? lampo.seme || 0 : 0, lampoB: lampo && lampo.fulmine ? 1 : 0, uccelli, stormi: stormi.dati(), notte, ombre, meteora, cieloX, notteFinta, luce, buio: scuro, qualita, colNebbia: nebCol, occhio, margine
   };
   ultimoParam = param;

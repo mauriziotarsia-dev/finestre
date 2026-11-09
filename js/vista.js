@@ -80,6 +80,31 @@ float rumoreP(vec2 p){ vec2 i = floor(p), f = fract(p); f = f*f*(3.-2.*f); vec2 
 float fbmP(vec2 p){ float v = 0., a = .5; for (int i = 0; i < 4; i++){ v += a * rumoreP(p); p = p * 2. + 17.; a *= .5; } return v / .9375; }
 float fbmP2(vec2 p){ return (rumoreP(p) * .667 + rumoreP(p * 2. + 17.) * .333); }   /* morbido: per i filamenti (con 4 ottave facevano fiocchi) */
 float tP(float x){ return mod(x, 256.); }
+/* ⚠ 9/11 · LA RAFFICA (Maurizio: «la raffica non funziona così … sembra solo che stai velocizzando il tempo»).
+   Prima era il vento di tutto il paesaggio alzato di colpo per 11 s: nebbia, nuvole e alberi andavano più svelti
+   tutti insieme, come un video accelerato (e il suono dura 4 s). Una raffica vera è un fronte d'aria che arriva da
+   sopravvento e attraversa il paesaggio: dove passa le chiome si piegano di colpo sottovento, le foglie degli ulivi
+   si girano e luccicano, la nebbia viene spinta e strappata, il fumo si sdraia; poi le piante tornano su
+   oscillando. Le nuvole, in alto, non se ne accorgono. Qui: il fronte (frastagliato, a celle più o meno forti)
+   entra dal lato sopravvento a 0,55 s dal suono e attraversa la finestra in circa 2 s, mentre il suono è al massimo;
+   in ogni punto sale in 0,45 s, tiene 0,75 s e cala in ~1,5 s. uRaf: x = secondi dalla raffica (<0: nessuna),
+   y = seme, z = forza */
+uniform vec3 uRaf;
+float rafTau(vec2 q){
+  float frast = (rumore(vec2(q.y * 3.1 + uRaf.y, uRaf.y * 1.7)) - .5) * .22;
+  return uRaf.x - .55 - (1.25 - q.x + frast) / .72;          /* secondi da quando il fronte è arrivato qui: entra da destra (sopravvento) */
+}
+float rafCella(vec2 q){ return .5 + .5 * rumore(vec2(q.x * 2.6 + uRaf.y * 3.3, q.y * 1.8 - uRaf.y)); }
+float rafEnv(float t){ return t <= 0. ? 0. : smoothstep(0., .45, t) * (t < 1.2 ? 1. : exp(-(t - 1.2) / .7)); }
+/* quanta strada ha fatto l'aria qui (integrale dell'inviluppo): sposta la nebbia sottovento senza farla tornare indietro */
+float rafStrada(float t){
+  if (t <= 0.) return 0.;
+  float u = min(t, .45) / .45, a = .45 * (u * u * u - .5 * u * u * u * u);
+  if (t > .45) a += min(t, 1.2) - .45;
+  if (t > 1.2) a += .7 * (1. - exp(-(t - 1.2) / .7));
+  return a;
+}
+
 
 vec3 foto(sampler2D t, vec4 crop, vec2 uv){ return texture2D(t, clamp(crop.xy + uv * crop.zw, .0005, .9995)).rgb; }
 float prof(sampler2D d, vec4 crop, vec2 uv, float ha){
@@ -184,7 +209,7 @@ vec3 paesaggio(sampler2D img, sampler2D imgB, float vk, sampler2D dep, vec4 crop
     if (sky > .002 && mov > .75){
       float ph = uT / 26.;
       float f1 = fract(ph), f2 = fract(ph + .5);
-      vec2 dir = vec2(.012 + .02 * uVento, .0015);
+      vec2 dir = vec2(-.012 - .02 * uVento, .0015);   /* 9/11: verso sinistra, come tutto il resto */
       vec2 pa = p - dir * (f1 - .5), pb = p - dir * (f2 - .5);
       vec3 a = haR > .5 ? fotoG(fer, crop, pa, gx, gy) : fotoG(img, crop, pa, gx, gy), b = haR > .5 ? fotoG(fer, crop, pb, gx, gy) : fotoG(img, crop, pb, gx, gy);   /* ricolorato: le nuvole sono quelle dipinte di questa luce (nel fermo), non quelle del video */
       /* si prende solo cielo: un pezzo di monte o di castello spostato dentro il cielo darebbe il contorno doppio */
@@ -216,6 +241,15 @@ vec3 paesaggio(sampler2D img, sampler2D imgB, float vk, sampler2D dep, vec4 crop
       float amp = (7.5 + 12.5 * n) * vt.b;   /* 5/11: un po' di più, due volte (Maurizio: «di poco in più», «leggermente più visibile ancora») */
       vec2 osc = vec2((vt.r - .5) * 2.2, (vt.g - .5) * .8) * amp * (.45 + uVento * .55);
       float spinta = amp * uVento * uVento * 2.;
+      float luccica = 0.;
+      if (uRaf.x >= 0.){
+        float rt = rafTau(uv), rc = rafCella(uv) * uRaf.z, rg = rafEnv(rt) * rc;
+        /* il fronte piega le chiome sottovento, più forte dell'ondeggiare; quando passa tornano su oscillando */
+        float torna = rt > 1.2 ? sin((rt - 1.2) * 6.5) * exp(-(rt - 1.2) * 1.4) * .32 * rc : 0.;
+        spinta += amp * .75 * (rg - torna);   /* di più strappava le sagome (cipressi bucati, contorni doppi) */
+        osc *= 1. + rg * .6;
+        luccica = rg;
+      }
       vec2 d = (osc + vec2(spinta, spinta * .12)) * (uPix.y / 1000.) / uPix;
       vec3 mosso = haF > .5 ? fotoG(fer, crop, p + d, gx, gy) : fotoG(img, crop, p + d, gx, gy);
       /* la chioma si sposta davvero, anche oltre il suo contorno: dove adesso c'è un ramo spostato lo si disegna
@@ -225,6 +259,8 @@ vec3 paesaggio(sampler2D img, sampler2D imgB, float vk, sampler2D dep, vec4 crop
       float nS = profG(dep, cropD, p + d, haDep, gx, gy), cieloS = haDep > .5 ? smoothstep(.022, .004, nS) * smoothstep(.85, .45, p.y + d.y) : sky;
       float w = max(verdeS * smoothstep(.1, .4, nS), verde * (1. - cieloS));
       c = mix(c, mosso, w);
+      /* le foglie (ulivi) si rovesciano e mostrano il rovescio chiaro: un luccichio fitto che passa col fronte */
+      if (luccica > .02){ float fl = rumore(uv * uPix / (4.5 * max(1., uPix.y / 1000.)) + vec2(uT * 9., uT * 2.)); c = mix(c, c * 1.18 + vec3(.04, .045, .035), luccica * w * smoothstep(.5, .8, fl) * .7); }
     }
     /* ⚠ 5/11 · NEBBIOLINA VIVA (Maurizio: «nell'abbazia c'è poco movimento della nebbiolina, quasi non si muove più»).
        I video cuciti prendono dal video solo quello che si muove davvero, e nel video dell'AI la nebbia lontana si
@@ -247,23 +283,28 @@ vec3 paesaggio(sampler2D img, sampler2D imgB, float vk, sampler2D dep, vec4 crop
     neb *= smoothstep(mix(.1, .035, uNotte), mix(.26, .1, uNotte), lS) * smoothstep(-.09, -.01, c.b - c.r);   /* 8/11: di notte le soglie scendono, se no la nebbia notturna (tutta sotto 0,1) spariva (Maurizio: «di notte non c'è un po' di nebbiolina») */
     if (neb > .01){
       vec2 ti = cropD.xy + p * cropD.zw;   /* coordinate dell'immagine intera: la nebbia non dipende dal taglio */
-      float tva = uT * .05 + uTV * .06;   /* 9/11: era uT * (.05 + .06 × vento): vedi uTV */   /* ⚠ 5/11: una velocità sola per tutti i punti: moltiplicare il tempo per un valore diverso punto per punto, dopo qualche minuto, dava righe e puntini (G10) */      /* quanto scorre la trama (sue unità al secondo): un banco attraversa sé stesso in 12-25 s (5/11: più viva) */
+      /* ⚠ 9/11: tutto quello che il vento muove va dalla stessa parte, verso sinistra come il cielo che scorre, gli
+         alberi, il fumo e i banchi di nebbia. Andavano a destra la nebbiolina, gli sfilacci dei banchi, la pioggia,
+         la neve e le nuvole dipinte (senza cielo che scorre): due venti opposti nella stessa finestra */
+      float rgM = 0., rsM = 0.;
+      if (uRaf.x >= 0.){ float rt = rafTau(uv), rc = rafCella(uv) * uRaf.z; rgM = rafEnv(rt) * rc; rsM = rafStrada(rt) * rc; }
+      float tva = uT * .05 + uTV * .06 + rsM * .3;   /* 9/11: era uT * (.05 + .06 × vento): vedi uTV */   /* ⚠ 5/11: una velocità sola per tutti i punti: moltiplicare il tempo per un valore diverso punto per punto, dopo qualche minuto, dava righe e puntini (G10) */      /* quanto scorre la trama (sue unità al secondo): un banco attraversa sé stesso in 12-25 s (5/11: più viva) */
       /* 5/11 (Maurizio: «quella sotto è ancora poco viva»): la nebbia vicina scorre più svelta (come dal vero: più è
          vicina, più strada fa sullo schermo) e ha banchi più grandi e più contrastati */
       float vicinaM = smoothstep(.1, .35, nB);
-      float f2 = fbmP(vec2(ti.x * mix(2.4, 1.6, vicinaM) * 1.7 - tP(tva * 1.7) + 5.2, ti.y * mix(10., 6., vicinaM) * 1.7 + 1.3 - tP(uT * .055)));
+      float f2 = fbmP(vec2(ti.x * mix(2.4, 1.6, vicinaM) * 1.7 + tP(tva * 1.7) + 5.2, ti.y * mix(10., 6., vicinaM) * 1.7 + 1.3 - tP(uT * .055)));
       /* ⚠ 5/11 (Maurizio: «è fake e va intorno alle sagome degli oggetti»): niente più spostamento dell'immagine dentro la
          nebbia: spostava anche i bordi di alberi e cipressi e lasciava sagome doppie ondeggianti. La nebbia si muove
          con i veli e i filamenti che passano sopra */
       /* veli: banchi più chiari, lunghi e bassi, che passano e si disfano */
-      float velo = fbmP(vec2(ti.x * mix(3.3, 2.2, vicinaM) - tP(tva * 1.6), ti.y * mix(15., 8., vicinaM) + tP(uT * .08))) * .65 + f2 * .35;
+      float velo = fbmP(vec2(ti.x * mix(3.3, 2.2, vicinaM) + tP(tva * 1.6), ti.y * mix(15., 8., vicinaM) + tP(uT * .08))) * .65 + f2 * .35;
       float wv = smoothstep(.38, .7, velo);
       vec3 bianco = vec3(lm) * vec3(.97, .99, 1.03) * mix(1.3, 1.55, uNotte) + .06 * (1. - uNotte) + vec3(.008, .012, .02) * uNotte;   /* dal colore sfocato di qui (non da quello spostato: faceva venature) */
-      c = mix(c, bianco, neb * wv * mix(.85, 1., vicinaM));
+      c = mix(c, bianco, neb * wv * mix(.85, 1., vicinaM) * (1. - .45 * rgM));   /* raffica: i veli si strappano */
       c *= 1. - neb * (1. - wv) * (.22 + .12 * vicinaM);   /* fra un velo e l'altro la nebbia si dirada un poco: respira */
       /* filamenti: veli sottili e più svelti che attraversano i banchi (si vede che la nebbia scorre) */
-      float fil = fbmP2(vec2(ti.x * mix(5.5, 3.5, vicinaM) - tP(tva * 2.6), ti.y * mix(24., 13., vicinaM) - tP(uT * .03)));
-      c = mix(c, bianco, neb * smoothstep(.5, .85, fil) * .4);
+      float fil = fbmP2(vec2(ti.x * mix(5.5, 3.5, vicinaM) + tP(tva * 2.6), ti.y * mix(24., 13., vicinaM) - tP(uT * .03)));
+      c = mix(c, bianco, neb * smoothstep(.5, .85, fil) * (.4 + .35 * rgM));   /* raffica: i filamenti frustano */
     }
   }
   return c;
@@ -321,15 +362,16 @@ float fumo(vec2 uv){
     float h = -dq.y, L = 34.;
     if (h < -1.5 || h > L || abs(dq.x) > L * 1.3) continue;
     float semi = h1(vec2(float(i) * 7.3, F.x * 91.));
+    float rgF = uRaf.x >= 0. ? rafEnv(rafTau(s)) * rafCella(s) * uRaf.z : 0.;
     float b = .18 + uVento * 1.25;                                    /* quanto si piega */
-    float cx = -b * h * h / L - (rumore(vec2(h * .07 - uT * .3, semi * 40.)) - .5) * h * .35;
-    float wd = .6 + h * .21 * (1. + uVento * .6);
+    float cx = -b * h * h / L - (rumore(vec2(h * .07 - uT * .3, semi * 40.)) - .5) * h * .35 - rgF * h * 1.1;   /* raffica: il pennacchio si sdraia di traverso (piegato a parabola faceva archi) */
+    float wd = .6 + h * .21 * (1. + uVento * .6 + rgF * .7);
     float x = (dq.x - cx) / wd;
     float pr = exp(-x * x * 1.8);
     if (pr < .01) continue;
     vec2 q = vec2(x * .9, h * .2 - uT * .85) + semi * 17.;
     float nn = rumore(q) * .55 + rumore(q * 2.1 + 3.7) * .3 + rumore(q * 4.3 + 9.1) * .15;
-    float d = pr * smoothstep(.3, .72, nn + pr * .25) * smoothstep(-1.5, 1.2, h) * (1. - smoothstep(L * .35, L, h)) * (1. - h / L * .45);
+    float d = pr * smoothstep(.3, .72, nn + pr * .25) * smoothstep(-1.5, 1.2, h) * (1. - smoothstep(L * .35, L, h)) * (1. - h / L * .45) * (1. - rgF * smoothstep(3., 15., h) * .85);   /* e si strappa: resta solo vicino al comignolo */
     tot = max(tot, d);
   }
   return tot * uFumoA;
@@ -423,6 +465,7 @@ void main(){
     float nebbia = uNebbia * (pow(lontano, 1.15) * .9 + .15 + pieno * .35) * mix(.45 + .55 * fm.r, .75 + .25 * fm.r, pieno) * 1.25;
     nebbia += (uPioggia * .32 + uNeve * .3) * pow(lontano, 1.6) * (.8 + .4 * fm.b);   /* la pioggia lontana fa velo, a scrosci */
     nebbia = max(nebbia, pieno * (.62 + .25 * fm.r) * smoothstep(.05, .45, lontano));   /* al 100% copre anche a metà distanza */
+    if (uRaf.x >= 0.) nebbia *= 1. - .12 * rafEnv(rafTau(uv)) * uRaf.z * (1. - pieno * .6);   /* appena: dove passa si dirada un poco, uniforme */
     nebbia = clamp(nebbia, 0., mix(.9, .97, pieno));
     col = mix(col, uColNebbia, nebbia);
     alfa = max(alfa, nebbia);
@@ -539,6 +582,31 @@ uniform float uT, uTV, uVento;
 float h1(vec2 p){ vec3 p3 = fract(vec3(p.xyx) * .1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
 float rumore(vec2 p){ vec2 i = floor(p), f = fract(p); f = f*f*(3.-2.*f);
   return mix(mix(h1(i), h1(i+vec2(1,0)), f.x), mix(h1(i+vec2(0,1)), h1(i+vec2(1,1)), f.x), f.y); }
+
+/* (stessa raffica del disegno principale) 9/11 · LA RAFFICA (Maurizio: «la raffica non funziona così … sembra solo che stai velocizzando il tempo»).
+   Prima era il vento di tutto il paesaggio alzato di colpo per 11 s: nebbia, nuvole e alberi andavano più svelti
+   tutti insieme, come un video accelerato (e il suono dura 4 s). Una raffica vera è un fronte d'aria che arriva da
+   sopravvento e attraversa il paesaggio: dove passa le chiome si piegano di colpo sottovento, le foglie degli ulivi
+   si girano e luccicano, la nebbia viene spinta e strappata, il fumo si sdraia; poi le piante tornano su
+   oscillando. Le nuvole, in alto, non se ne accorgono. Qui: il fronte (frastagliato, a celle più o meno forti)
+   entra dal lato sopravvento a 0,55 s dal suono e attraversa la finestra in circa 2 s, mentre il suono è al massimo;
+   in ogni punto sale in 0,45 s, tiene 0,75 s e cala in ~1,5 s. uRaf: x = secondi dalla raffica (<0: nessuna),
+   y = seme, z = forza */
+uniform vec3 uRaf;
+float rafTau(vec2 q){
+  float frast = (rumore(vec2(q.y * 3.1 + uRaf.y, uRaf.y * 1.7)) - .5) * .22;
+  return uRaf.x - .55 - (1.25 - q.x + frast) / .72;          /* secondi da quando il fronte è arrivato qui: entra da destra (sopravvento) */
+}
+float rafCella(vec2 q){ return .5 + .5 * rumore(vec2(q.x * 2.6 + uRaf.y * 3.3, q.y * 1.8 - uRaf.y)); }
+float rafEnv(float t){ return t <= 0. ? 0. : smoothstep(0., .45, t) * (t < 1.2 ? 1. : exp(-(t - 1.2) / .7)); }
+/* quanta strada ha fatto l'aria qui (integrale dell'inviluppo): sposta la nebbia sottovento senza farla tornare indietro */
+float rafStrada(float t){
+  if (t <= 0.) return 0.;
+  float u = min(t, .45) / .45, a = .45 * (u * u * u - .5 * u * u * u * u);
+  if (t > .45) a += min(t, 1.2) - .45;
+  if (t > 1.2) a += .7 * (1. - exp(-(t - 1.2) / .7));
+  return a;
+}
 float fbm(vec2 p){ float v = 0., a = .5; for (int i = 0; i < 5; i++){ v += a * rumore(p); p = p * 2.03 + 17.1; a *= .5; } return v / .96875; }
 void main(){
   vec2 uv = uMap.xy + vUv * uMap.zw;
@@ -547,9 +615,11 @@ void main(){
   /* i banchi sono disegnati da un campo che a sua volta è deformato da un altro campo, che si muove
      in un'altra direzione: così non scorrono rigidi ma cambiano forma mentre passano */
   vec2 w = vec2(fbm(q * .7 + vec2(uT * .018, 1.7)), fbm(q * .7 + vec2(4.3, -uT * .014))) - .5;
-  float banchi = fbm(q + w * 1.8 + vec2(tvv * .035, uT * .006));
-  float banchi2 = fbm(uv * vec2(5., 8.) + w - vec2(tvv * .06, -uT * .01));     /* sfilacci più vicini, più veloci */
-  float neb = smoothstep(.15, .85, banchi * .9 + banchi2 * .35);
+  float rs = 0., rg = 0.;
+  if (uRaf.x >= 0.){ float rt = rafTau(uv), rc = rafCella(uv) * uRaf.z; rs = rafStrada(rt) * rc; rg = rafEnv(rt) * rc; }
+  float banchi = fbm(q + w * 1.8 + vec2(tvv * .035 + rs * .55, uT * .006));
+  float banchi2 = fbm(uv * vec2(5., 8.) + w + vec2(tvv * .06 + rs * 1.1, uT * .01));   /* 9/11: verso sinistra come i banchi (andavano a destra) */     /* sfilacci più vicini, più veloci */
+  float neb = smoothstep(.15, .85, banchi * .9 + banchi2 * .35);   /* (la raffica sposta i banchi: diradarli a chiazze scopriva colline scure, sembravano fumo nero) */
   float nub = fbm(uv * vec2(3., 6.) + vec2((uT + uTV) * .012, 0.));
   gl_FragColor = vec4(neb, nub, banchi, 1.);
 }`;
@@ -564,6 +634,7 @@ precision highp float;
 attribute vec2 aAngolo;       /* angolo del rettangolo: -1..1 */
 attribute vec4 aSeme;         /* quattro numeri a caso, fissi per ogni goccia */
 uniform vec2 uFori;           /* misura del foro in pixel */
+uniform float uRafG, uRafS;   /* raffica al centro della finestra: quanto soffia, quanta strada (9/11) */
 uniform float uT, uTV, uVento, uScala, uTipo, uDens, uSale;
 uniform vec4 uStrato;         /* pioggia: lunghezza, larghezza, velocità, -  ·  neve: raggio, -, velocità, - */
 varying vec2 vQ; varying float vA, vW;
@@ -574,16 +645,16 @@ void main(){
   if (uTipo < .5){
     /* pioggia: cade inclinata dal vento; le raffiche (uDens che ondeggia lungo la finestra) la fanno
        più fitta e più rada a ondate */
-    float incl = .1 + .25 * uVento;
+    float incl = .1 + .25 * uVento + .45 * uRafG;   /* la raffica piega la pioggia */
     float L = uStrato.x * uScala * (.7 + .6 * r.w), W = max(uStrato.y * uScala, .7);
     float est = L / uFori.y;
     float y = fract(r.y + uT * uStrato.z * (.85 + .3 * r.z)) * (1. + 2. * est) - est;
     float x = r.x * (uFori.x + incl * uFori.y) - incl * uFori.y + y * uFori.y * incl;
-    c = vec2(x, y * uFori.y);
+    c = vec2(uFori.x - x, y * uFori.y);   /* 9/11: cade verso sinistra, col vento (pendeva a destra) */
     float xr = c.x / uFori.y;
-    float raffica = .62 + .38 * (.5 + .5 * sin(xr * 4.1 - (uT + uTV) * .9)) * (.5 + .5 * sin(xr * 1.7 + uT * .31 + 1.3));
-    vis = step(fract(r.w * 7.31 + r.z), uDens * raffica);
-    vec2 dir = normalize(vec2(incl, 1.)), nrm = vec2(dir.y, -dir.x);
+    float raffica = .62 + .38 * (.5 + .5 * sin(xr * 4.1 + (uT + uTV) * .9)) * (.5 + .5 * sin(xr * 1.7 + uT * .31 + 1.3));
+    vis = step(fract(r.w * 7.31 + r.z), uDens * raffica * (1. + .35 * uRafG));
+    vec2 dir = normalize(vec2(-incl, 1.)), nrm = vec2(dir.y, -dir.x);
     float hw = W * .5 + 1.;
     pos = c + dir * (aAngolo.y * L * .5) + nrm * (aAngolo.x * hw);
     vQ = vec2(aAngolo.x * hw, aAngolo.y * .5 + .5); vW = W;
@@ -594,7 +665,7 @@ void main(){
     float est = R / uFori.y;
     float y = fract(r.y + uT * uStrato.z * (.7 + .6 * r.z)) * (1. + 2. * est) - est;
     float fr = .6 + 1.1 * fract(r.x * 13.7);
-    float x = fract(r.x + uTV * uStrato.z * .25);
+    float x = fract(r.x - (uTV + uRafS * 2.5) * uStrato.z * .25);   /* verso sinistra */   /* la raffica porta via i fiocchi */
     float amp = (2. + 3. * fract(r.y * 9.1)) * R + 4. * uScala;
     c = vec2(x * uFori.x + sin(uT * fr + r.z * 6.283) * amp, y * uFori.y + sin(uT * fr * 1.7 + r.x * 6.283) * R * .5);
     vis = step(fract(r.w * 7.31 + r.z), uDens);
@@ -668,7 +739,7 @@ class Vista {
     this.p = programma(VERT, FRAG, ['aPos']);
     this.fumoDati = new Float32Array(24);
     this.u = posizioni(this.p, ['uOcchio','uImg0b','uVmix','uImg0','uImg1','uDep0','uDep1','uMap','uCrop0','uCrop1','uCropD0','uCropD1','uUccelli','uCielo0','uCielo1','uCieloM0','uCieloM1','uCieloX','uFermo0','uFermo1','uHaFermo0','uHaFermo1','uRap0','uHaRap0','uVentoT','uHaVento','uU','uNU','uUBox','uFumo','uNFumo','uFumoA','uNebV','uNotte','uOmbre','uMeteora','uMeteoraK','uMix','uHaImg','uHaDep0','uHaDep1','uMovimento0','uMovimento1',
-      'uLato','uT','uTV','uAspetto','uPix','uCoperto','uNebbia','uPioggia','uNeve','uTempesta','uVento','uLampo','uLampoX','uLampoS','uLampoB',
+      'uLato','uT','uTV','uRaf','uAspetto','uPix','uCoperto','uNebbia','uPioggia','uNeve','uTempesta','uVento','uLampo','uLampoX','uLampoS','uLampoB',
       'uNotteFinta','uLuce','uBuio','uQualita','uColNebbia','uMeteo']);
     gl.useProgram(this.p);
     gl.uniform1i(this.u.uImg0, 0); gl.uniform1i(this.u.uImg1, 1); gl.uniform1i(this.u.uDep0, 2); gl.uniform1i(this.u.uDep1, 3); gl.uniform1i(this.u.uImg0b, 4); gl.uniform1i(this.u.uMeteo, 5); gl.uniform1i(this.u.uCielo0, 6); gl.uniform1i(this.u.uCielo1, 7); gl.uniform1i(this.u.uFermo0, 8); gl.uniform1i(this.u.uFermo1, 9); gl.uniform1i(this.u.uVentoT, 10); if (this.u.uRap0) gl.uniform1i(this.u.uRap0, 12);
@@ -676,7 +747,7 @@ class Vista {
     this.maxTex = gl.getParameter(gl.MAX_TEXTURE_SIZE) || 4096;       /* Raspberry 4 e telefoni vecchi: 4096; il G10 16384 */
     /* nebbia e nuvole a bassa risoluzione */
     this.pm = programma(VERT, METEO_FRAG, ['aPos']);
-    this.um = posizioni(this.pm, ['uMap','uT','uTV','uVento']);
+    this.um = posizioni(this.pm, ['uMap','uT','uTV','uRaf','uVento']);
     this.pv = programma(VERT, VENTO_FRAG, ['aPos']);
     this.uv = posizioni(this.pv, ['uMap','uT','uCropD','uCieloM','uCieloX','uAlberi','uCielo','uVento']);
     gl.useProgram(this.pv); gl.uniform1i(this.uv.uAlberi, 11); gl.uniform1i(this.uv.uCielo, 6);
@@ -684,7 +755,7 @@ class Vista {
     this.vento = [];
     /* gocce e fiocchi */
     this.pp = programma(PART_VERT, PART_FRAG, ['aAngolo', 'aSeme']);
-    this.up = posizioni(this.pp, ['uFori','uT','uTV','uVento','uScala','uTipo','uDens','uSale','uStrato','uColore','uMorb','uAlfa']);
+    this.up = posizioni(this.pp, ['uFori','uT','uTV','uRafG','uRafS','uVento','uScala','uTipo','uDens','uSale','uStrato','uColore','uMorb','uAlfa']);
     this.ist = this.gl2 ? {div:(i, d) => gl.vertexAttribDivisor(i, d), disegna:(n) => gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, n)}
       : (() => { const e = gl.getExtension('ANGLE_instanced_arrays'); return e ? {div:(i, d) => e.vertexAttribDivisorANGLE(i, d), disegna:(n) => e.drawArraysInstancedANGLE(gl.TRIANGLE_STRIP, 0, 4, n)} : null; })();
     /* i rettangoli: uno per tutto il foro, uno per goccia; e i numeri a caso delle gocce */
@@ -911,6 +982,12 @@ class Vista {
        Ora la strada fatta col vento si somma secondo per secondo (tv): il vento cambia la velocità, non la posizione */
     { const dt = this._tUlt == null ? 0 : s.t - this._tUlt; if (dt > 0 && dt < .5) this._tv = (this._tv || 0) + dt * Math.max(0, Math.min(1.6, s.vento || 0)); else if (dt < -60) this._tv = 0; this._tUlt = s.t; }   /* il tempo ricomincia ogni ora (t % 3588): anche tv, nello stesso istante, così non cresce per giorni */
     const tVento = this._tv || 0;
+    /* raffica: [secondi da quando è partita (-1 nessuna), seme, forza]; per pioggia e neve basta quella al centro */
+    const raf = s.raffica && s.raffica[0] >= 0 && s.raffica[0] < 8 ? s.raffica : [-1, 0, 0];
+    { const rt = raf[0] - .55 - .75 / .72, env = t => t <= 0 ? 0 : (t < .45 ? (t / .45) ** 2 * (3 - 2 * t / .45) : 1) * (t < 1.2 ? 1 : Math.exp(-(t - 1.2) / .7));
+      this._rafG = raf[0] >= 0 ? env(rt) * raf[2] : 0;
+      if (raf[0] < 0) this._rafS = 0; else if (this._rafT != null && s.t > this._rafT) this._rafS = (this._rafS || 0) + (s.t - this._rafT) * this._rafG;
+      this._rafT = s.t; }
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     gl.viewport(0, 0, this.c.width, this.c.height);
     gl.disable(gl.SCISSOR_TEST); gl.disable(gl.BLEND);
@@ -942,7 +1019,7 @@ class Vista {
     gl.uniform1f(u.uCieloX, s.cieloX || 0);
     gl.uniform1f(u.uNebV, s.movimento && !sp.has('nebbiolina') ? 1 : 0);
     gl.uniform1f(u.uHaFermo0, haImg && v0 && f0.fTex ? 1 : 0); gl.uniform1f(u.uHaRap0, haImg && v0 && f0.fTex && f0.rTex && this.unita >= 13 ? 1 : 0); gl.uniform1f(u.uHaFermo1, haImg && v1 && f1.fTex ? 1 : 0);
-    gl.uniform1f(u.uT, s.t); gl.uniform1f(u.uTV, tVento);
+    gl.uniform1f(u.uT, s.t); gl.uniform1f(u.uTV, tVento); gl.uniform3fv(u.uRaf, raf);
     for (const k2 of ['Coperto','Nebbia','Pioggia','Neve','Tempesta','Vento','Lampo','LampoX','LampoS','LampoB','NotteFinta','Luce','Buio','Qualita'])
       gl.uniform1f(u['u' + k2], s[k2.charAt(0).toLowerCase() + k2.slice(1)] || 0);
     gl.uniform3fv(u.uColNebbia, s.colNebbia);
@@ -966,7 +1043,7 @@ class Vista {
         lega(5, null);
         gl.bindFramebuffer(gl.FRAMEBUFFER, m.fb); gl.disable(gl.SCISSOR_TEST); gl.viewport(0, 0, m.w, m.h);
         gl.useProgram(this.pm);
-        gl.uniform4fv(this.um.uMap, foro.map); gl.uniform1f(this.um.uT, s.t); gl.uniform1f(this.um.uTV, tVento); gl.uniform1f(this.um.uVento, s.vento || 0);
+        gl.uniform4fv(this.um.uMap, foro.map); gl.uniform1f(this.um.uT, s.t); gl.uniform1f(this.um.uTV, tVento); gl.uniform3fv(this.um.uRaf, raf); gl.uniform1f(this.um.uVento, s.vento || 0);
         gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
         gl.bindFramebuffer(gl.FRAMEBUFFER, null);
       }
@@ -1017,7 +1094,7 @@ class Vista {
     gl.enable(gl.BLEND); gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
     gl.bindBuffer(gl.ARRAY_BUFFER, this.bQuad); gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0); this.ist.div(0, 0);
     gl.bindBuffer(gl.ARRAY_BUFFER, this.bSemi); gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 4, gl.FLOAT, false, 0, 0); this.ist.div(1, 1);
-    gl.uniform2f(up.uFori, foro.w, foro.h); gl.uniform1f(up.uT, s.t); gl.uniform1f(up.uTV, this._tv || 0); gl.uniform1f(up.uVento, s.vento || 0);
+    gl.uniform2f(up.uFori, foro.w, foro.h); gl.uniform1f(up.uT, s.t); gl.uniform1f(up.uTV, this._tv || 0); gl.uniform1f(up.uRafG, this._rafG || 0); gl.uniform1f(up.uRafS, this._rafS || 0); gl.uniform1f(up.uVento, s.vento || 0);
     gl.uniform1f(up.uScala, Math.max(foro.h / 1000, .3));
     const quanti = (foro.w / foro.h) / .4, luce = (s.luce || 0) * (1 - (s.buio || 0)), nf = s.notteFinta || 0, cn = s.colNebbia || [.7, .7, .7];
     const strati = (lista, tipo, dens, colore, alfa) => lista.forEach((L, i) => {
