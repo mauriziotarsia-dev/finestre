@@ -330,7 +330,7 @@ let avvisatoPronta = null, paesaggioInVista = null, inCambio = false, attesa = n
 function applica(nuova, salva = true){
   scena = Object.assign({}, PREDEFINITA, nuova);
   if (paesaggioInVista === null) saleK = scena.nebbiaSale ? 1 : 0;   /* appena aperta (anteprima nell'app, pagina dal vivo): la nebbia è già dov'è sugli schermi */
-  if (salva) scrivi('finestre-scena', scena);
+  if (salva){ scrivi('finestre-scena', scena); salvaInRete(); }
   if (bard) bard.suScena(scena);
   if (paesaggioDi(scena) !== paesaggioInVista){
     /* paesaggio nuovo: si spegne, cambia, si riaccende */
@@ -484,6 +484,34 @@ function applicaUscita(){
   const u = bard.stato.uscitaTv, c = u && (casse.find(x => x.id === u.id) || casse.find(x => x.nome === u.nome));
   bard.uscita(c ? c.id : '');
 }
+/* ⚠ 9/11 · L'ULTIMA SCENA ANCHE IN RETE (scambio Ally/G10: tutti e due neri dopo il riavvio). Edge in modalità chiosco apre
+   sempre una finestra InPrivate, che a ogni riavvio dimentica la scena salvata; se ripartono tutti gli schermi insieme
+   (riavvio, mancanza di corrente) nessuno ha una scena da passare agli altri e restano neri finché non si apre l'app.
+   Ora ogni schermo, qualche secondo dopo un cambio, copia scena e Bard in finestre/banco/scena-<casa>.json; uno schermo
+   che parte senza scena la riprende da lì. La scena porta l'ora del telefono (quando), quindi l'app sa sempre chi è più nuovo. */
+const salvaRete = {}; let daRete = false;
+const copiaRete = nome => SUPABASE_URL + '/storage/v1/object/dmaster-media/finestre/banco/' + nome + '-' + casa + '.json';
+function inRete(nome, dati){
+  if (!casa || anteprima || spettatore || daRete) return;
+  clearTimeout(salvaRete[nome]);
+  salvaRete[nome] = setTimeout(() => {
+    try { fetch(copiaRete(nome), {method: 'POST',
+      headers: {apikey: SUPABASE_CHIAVE_PUBBLICA, Authorization: 'Bearer ' + SUPABASE_CHIAVE_PUBBLICA, 'Content-Type': 'image/png', 'x-upsert': 'true'},
+      body: JSON.stringify({chi: mio, salvata: new Date().toISOString(), dati: dati()})}).catch(() => {}); } catch(e) {}
+  }, 5000);
+}
+/* la scena la copia ogni schermo; Bard solo chi lo suona (le finestrelle non hanno lo stato di Bard) */
+function salvaInRete(){ if (scena.immagini || scena.yt) inRete('scena', () => scena); }
+function salvaBardInRete(){ if (bard) inRete('bard', () => bard.stato); }
+const daCopia = nome => fetch(copiaRete(nome).replace('/object/', '/object/public/') + '?t=' + Date.now(), {cache: 'no-store'}).then(r => r.ok ? r.json() : null).catch(() => null);
+if (casa && !anteprima && !spettatore){
+  if (!scena.immagini && !scena.yt) daCopia('scena').then(d => {
+    if (d && d.dati && (d.dati.immagini || d.dati.yt) && !scena.immagini && !scena.yt){ daRete = true; applica(d.dati); daRete = false; }
+  });
+  if (bard && !leggi('bard-stato', null)) daCopia('bard').then(d => {
+    if (d && d.dati && (d.dati.rev || 0) >= (bard.stato.rev || 0)){ scrivi('bard-stato', d.dati); bard.applica(d.dati); bard.imposta({qui: d.dati.dove === 'stanza'}); if (typeof applicaUscita === 'function') applicaUscita(); }
+  });
+}
 if (bard){ leggiCasse(); navigator.mediaDevices && navigator.mediaDevices.addEventListener && navigator.mediaDevices.addEventListener('devicechange', () => setTimeout(leggiCasse, 800)); }
 function intensitaLampo(ora){
   if (!lampo) return 0;
@@ -593,7 +621,7 @@ if (anteprima){
   const gestore = rispondi => ({
     suMessaggio(evento, dati){
       if (evento === 'dmaster'){ dmasterFino = dati.attivo ? Date.now() + 30000 : 0; serataFino = dati.attivo && dati.serata ? Date.now() + 30000 : 0; if (bard) bard.imposta({muto: Date.now() < serataFino}); return; }
-      if (evento === 'bard'){ if (bard && (dati.rev || 0) >= (bard.stato.rev || 0)){ scrivi('bard-stato', dati); bard.applica(dati); bard.imposta({qui: dati.dove === 'stanza'}); applicaUscita(); } return; }
+      if (evento === 'bard'){ if (bard && (dati.rev || 0) >= (bard.stato.rev || 0)){ scrivi('bard-stato', dati); bard.applica(dati); bard.imposta({qui: dati.dove === 'stanza'}); applicaUscita(); salvaBardInRete(); } return; }
       if (evento === 'bardEffetto'){ if (bard) bard.effetto(dati); return; }
       const daDM = dati && dati.da === 'dmaster';
       if (comandaDM() && !daDM && (evento === 'scena' || evento === 'lampo' || evento === 'occhio')) return;
