@@ -9,7 +9,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
 const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 const euro = n => (n < .1 ? n.toFixed(3) : n.toFixed(2)).replace('.', ',') + ' $';
-const VERSIONE = '6.8';
+const VERSIONE = '6.9';
 /* 8/11 · l'app si aggiorna da sola (Maurizio: «vedo ancora il quadrato con la doppia finestra»: sul telefono restava la
    versione vecchia anche dopo averla chiusa). Quando torna in primo piano, e ogni 10 minuti, chiede al server quale
    app.js c'è adesso; se è un'altra, ricarica (mai mentre un lavoro AI è in corso) */
@@ -115,7 +115,13 @@ const gestoreCanale = {
     if (d.schermo){ schermi[d.lato || 'sinistra'] = Object.assign({}, d.schermo, d.prestazioni ? {fps: d.prestazioni.fps, scala: d.prestazioni.scala} : {}); scrivi('finestre-schermi', schermi); schermo = schermoDi('sinistra'); }
     if (!leggi('finestre-scena', null) && d.scena){ scena = Object.assign({}, SCENA_PRED, d.scena); scrivi('finestre-scena', scena); postaAnteprima({tipo:'scena', scena}); lettore.suScena(scena); }   /* 8/11: anche all'anteprima (su un telefono nuovo restava nera) */
     else if (rimanda){ rimanda = false; canale.manda('scena', scena); canale.manda('fori', Object.assign({mostra: mostraBordi}, assettoOPredefinito())); }   /* dopo «Ricarica», la scena di questo telefono */
-    else if (d.scena && diversa(d.scena, scena)) canale.manda('scena', scena);   /* la finestra mostra altro (es. rimasta spenta): vale quello che dice il telefono */
+    else if (d.scena && diversa(d.scena, scena)){
+      /* ⚠ 9/11 · prima valeva sempre il telefono: un telefono rimasto indietro di giorni, riaperto, rimetteva sugli schermi
+         la sua scena vecchia (così stanotte TV e finestrelle sono finite sulla città eliminata il 5/11). Ora vince la più
+         recente; a pari merito (scene vecchie, senza data) vincono gli schermi */
+      if ((scena.quando || 0) > (d.scena.quando || 0)) canale.manda('scena', scena);
+      else { scena = Object.assign({}, SCENA_PRED, d.scena); scrivi('finestre-scena', scena); postaAnteprima({tipo:'scena', scena}); lettore.suScena(scena); if (scheda === 'finestre') aggiornaFinestre(); }
+    }
     aggiornaSpia(); impaginaAnteprima(); if (scheda === 'finestre') aggiornaFinestre(); if (scheda === 'impostazioni') disegnaScheda();
   },
   suStato(ok){ aggiornaSpia(); if (ok) canale.manda('chi'); }
@@ -157,6 +163,7 @@ function aggiornaSpia(){
 
 let invio = null;
 function mandaScena(subito = true){
+  scena.quando = Date.now();   /* 9/11: per capire chi ha la scena più recente, il telefono o gli schermi */
   scrivi('finestre-scena', scena);
   lettore.suScena(scena);
   postaAnteprima({tipo:'scena', scena});
@@ -570,7 +577,7 @@ function aggiornaFinestre(){
   $('#btnAccendi').innerHTML = icona('accensione', 20) + '<span>' + (scena.acceso ? 'Accese' : 'Spente') + '</span>';
   $('#btnAccendi').classList.toggle('oro', !!scena.acceso);
   const p = libreria.find(x => x.id === scena.paesaggio);
-  $('#nomeInOnda').textContent = p ? p.nome : scena.yt ? 'Video di YouTube' : scena.immagini ? 'Paesaggio' : 'Nessun paesaggio';
+  $('#nomeInOnda').textContent = p ? p.nome : scena.yt ? 'Video di YouTube' : scena.immagini ? (libreriaStato === 'ok' && scena.paesaggio ? 'Paesaggio eliminato: scegline un altro' : 'Paesaggio') : 'Nessun paesaggio';
   $('#sottoInOnda').textContent = [NOME_ORA[scena.ora], (METEO.find(m => m[0] === scena.meteo) || [,,''])[2].toLowerCase()].filter(Boolean).join(' · ');
 }
 
@@ -1725,7 +1732,8 @@ const AZIONI = {
     if (b.dataset.conferma !== '1'){ b.dataset.conferma = '1'; b.innerHTML = icona('avviso', 18) + 'Non si recupera più: tocca ancora per eliminarlo';
       setTimeout(() => { if (b.isConnected && b.dataset.conferma === '1'){ b.dataset.conferma = ''; b.innerHTML = icona('cestino', 18) + 'Elimina questo paesaggio'; } }, 5000); return; }
     b.disabled = true; b.innerHTML = icona('cestino', 18) + 'Elimino…';
-    try { await togliPaesaggio(casa, p); libreria = libreria.filter(x => x.id !== p.id); chiudiFoglio(); disegnaPaesaggi(); avviso('Eliminato'); }
+    try { await togliPaesaggio(casa, p); libreria = libreria.filter(x => x.id !== p.id); chiudiFoglio(); disegnaPaesaggi(); avviso('Eliminato');
+      if (scena.paesaggio === p.id && libreria[0]) mostraPaesaggio(libreria[0]); }   /* 9/11: se era in onda, va in onda un altro (prima gli schermi restavano su file che non c'erano più) */
     catch(e) { b.disabled = false; b.dataset.conferma = ''; b.innerHTML = icona('cestino', 18) + 'Elimina questo paesaggio'; avviso(e.message, true); }
   },
   rifaiLargo: async (v, b) => {
