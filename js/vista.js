@@ -52,6 +52,7 @@ uniform float uTV;            /* 9/11: la strada fatta col vento (somma di vento
 uniform float uLampo, uLampoX, uLampoS, uLampoB;   /* S: seme della forma del fulmine, B: 1 se il fulmine si vede */
 uniform float uNotteFinta, uLuce, uBuio, uQualita;
 uniform vec3 uColNebbia;
+uniform vec2 uSale;           /* 9/11 · nebbia che sale: x = fin dove è arrivata (0 in basso, 1 in alto), y = quanta */
 uniform sampler2D uMeteo;     /* nebbia e nuvole, calcolate a bassa risoluzione (r: banchi di nebbia, g: nuvole, b: velo) */
 uniform sampler2D uVentoT;    /* il vento sugli alberi, calcolato a un quarto di risoluzione (r, g: spostamento, b: raffica sugli alberi, a: ombra delle nuvole) */
 uniform vec4 uU[24];          /* gli uccelli (js/uccelli.js): per ognuno (x, y, grandezza, ali) (inclinazione, chiarezza, tipo, -) */
@@ -470,6 +471,21 @@ void main(){
     col = mix(col, uColNebbia, nebbia);
     alfa = max(alfa, nebbia);
   }
+  /* ⚠ 9/11 · NEBBIA CHE SALE (Maurizio: «ho provato nebbia che sale ma non ho capito come funziona»). Prima alzava
+     piano (40 s) la nebbia di tutto il paesaggio fino a 0,75: con la nebbia già scelta, che è di più, non faceva
+     niente, e col sereno sembrava solo il tempo che cambia. Ora è uno strato denso che sale dal fondo delle valli:
+     il bordo in alto, sfilacciato e mosso dal vento, si arrampica sulle colline in ~25 s fin quasi all'abbazia (il
+     soggetto ne emerge), resta un minuto e poi ridiscende diradandosi. Vale sopra qualunque tempo */
+  if (uSale.y > .001){
+    float hq = 1. - uv.y;                                             /* quanto è in alto nella finestra */
+    vec2 sq = vec2(uv.x * 3.2 + uTV * .07 + uT * .012, hq * 7. - uT * .05);
+    float fs = fbm(sq) , bordo = (fbm(vec2(uv.x * 5.5 + uTV * .11 + uT * .02, uT * .07)) - .5) * .16;
+    float strato = smoothstep(uSale.x + .07 + bordo, uSale.x - .1 + bordo, hq);   /* sotto il bordo è piena, sopra niente */
+    float sale = uSale.y * strato * (.45 + .55 * smoothstep(.0, .35, lontano)) * (.62 + .38 * fs);
+    sale = clamp(sale, 0., .93);
+    col = mix(col, uColNebbia * (.96 + .1 * fs), sale);
+    alfa = max(alfa, sale);
+  }
 
   /* lampo: le nuvole si accendono da dentro (si vede la loro forma), poi il paesaggio ne prende il riflesso */
   /* ⚠ 4/11 (Maurizio: «coi lampi sopra l'orizzonte si vedono dei puntini»): prima la luce del lampo moltiplicava
@@ -740,7 +756,7 @@ class Vista {
     this.fumoDati = new Float32Array(24);
     this.u = posizioni(this.p, ['uOcchio','uImg0b','uVmix','uImg0','uImg1','uDep0','uDep1','uMap','uCrop0','uCrop1','uCropD0','uCropD1','uUccelli','uCielo0','uCielo1','uCieloM0','uCieloM1','uCieloX','uFermo0','uFermo1','uHaFermo0','uHaFermo1','uRap0','uHaRap0','uVentoT','uHaVento','uU','uNU','uUBox','uFumo','uNFumo','uFumoA','uNebV','uNotte','uOmbre','uMeteora','uMeteoraK','uMix','uHaImg','uHaDep0','uHaDep1','uMovimento0','uMovimento1',
       'uLato','uT','uTV','uRaf','uAspetto','uPix','uCoperto','uNebbia','uPioggia','uNeve','uTempesta','uVento','uLampo','uLampoX','uLampoS','uLampoB',
-      'uNotteFinta','uLuce','uBuio','uQualita','uColNebbia','uMeteo']);
+      'uNotteFinta','uLuce','uBuio','uQualita','uColNebbia','uMeteo','uSale']);
     gl.useProgram(this.p);
     gl.uniform1i(this.u.uImg0, 0); gl.uniform1i(this.u.uImg1, 1); gl.uniform1i(this.u.uDep0, 2); gl.uniform1i(this.u.uDep1, 3); gl.uniform1i(this.u.uImg0b, 4); gl.uniform1i(this.u.uMeteo, 5); gl.uniform1i(this.u.uCielo0, 6); gl.uniform1i(this.u.uCielo1, 7); gl.uniform1i(this.u.uFermo0, 8); gl.uniform1i(this.u.uFermo1, 9); gl.uniform1i(this.u.uVentoT, 10); if (this.u.uRap0) gl.uniform1i(this.u.uRap0, 12);
     this.unita = gl.getParameter(gl.MAX_TEXTURE_IMAGE_UNITS) || 8;   /* il fermo vuole 10 unità (il Raspberry 4 ne ha 16) */
@@ -1023,6 +1039,7 @@ class Vista {
     for (const k2 of ['Coperto','Nebbia','Pioggia','Neve','Tempesta','Vento','Lampo','LampoX','LampoS','LampoB','NotteFinta','Luce','Buio','Qualita'])
       gl.uniform1f(u['u' + k2], s[k2.charAt(0).toLowerCase() + k2.slice(1)] || 0);
     gl.uniform3fv(u.uColNebbia, s.colNebbia);
+    gl.uniform2fv(u.uSale, s.sale || [0, 0]);
     gl.uniform1f(u.uUccelli, haImg && !sp.has('uccelli') ? (s.uccelli || 0) : 0);
     const uc = s.stormi || {dati: new Float32Array(96), n: 0};
     gl.uniform4fv(u.uU, uc.dati); gl.uniform1f(u.uNU, sp.has('uccelli') ? 0 : uc.n); gl.uniform4fv(u.uUBox, uc.box || [0, 0, 1, 1]);

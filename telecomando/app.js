@@ -9,7 +9,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
 const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 const euro = n => (n < .1 ? n.toFixed(3) : n.toFixed(2)).replace('.', ',') + ' $';
-const VERSIONE = '6.10';
+const VERSIONE = '6.11';
 /* 8/11 · l'app si aggiorna da sola (Maurizio: «vedo ancora il quadrato con la doppia finestra»: sul telefono restava la
    versione vecchia anche dopo averla chiusa). Quando torna in primo piano, e ogni 10 minuti, chiede al server quale
    app.js c'è adesso; se è un'altra, ricarica (mai mentre un lavoro AI è in corso) */
@@ -375,7 +375,7 @@ let avvisoT = null;
 function avviso(testo, male = false){
   const a = $('#avviso'); a.className = 'avviso su' + (male ? ' male' : '');
   a.innerHTML = icona(male ? 'avviso' : 'spunta', 18) + '<span>' + esc(testo) + '</span>';
-  clearTimeout(avvisoT); avvisoT = setTimeout(() => a.classList.remove('su'), male ? 5200 : 2600);
+  clearTimeout(avvisoT); avvisoT = setTimeout(() => a.classList.remove('su'), male ? 5200 : Math.max(2600, testo.length * 55));   /* 9/11: i messaggi lunghi restano il tempo di leggerli */
 }
 function apriFoglio(html, dopo){ $('#foglioDentro').innerHTML = html; $('#foglio').classList.add('aperto'); $('#velo').classList.add('aperto'); dopo && dopo($('#foglioDentro')); }
 function chiudiFoglio(){ $('#foglio').classList.remove('aperto'); $('#velo').classList.remove('aperto'); if (foglioAperto === 'benvenuto') scrivi('atm-benvenuto-visto', true); foglioAperto = null; fermaCamera(); }
@@ -1702,7 +1702,7 @@ const AZIONI = {
     if (v === 'meteora' && ['nebbia', 'pioggia', 'temporale', 'neve'].includes(scena.meteo)) return avviso('Col cielo coperto la stella cadente non si vedrebbe');
     if (v === 'stormo' && eNotte()) return avviso('Di notte gli uccelli dormono');
     const d = {tipo: v, seme: Math.floor(Math.random() * 1e9)};
-    if (canale.manda('effetto', d)) avviso((EFFETTI.find(e => e[0] === v) || [, , 'Effetto'])[2]);
+    if (canale.manda('effetto', d)) avviso(v === 'nebbia' ? 'La nebbia sale dalle valli: in mezzo minuto arriva sotto l\'abbazia, resta un minuto e poi se ne va' : (EFFETTI.find(e => e[0] === v) || [, , 'Effetto'])[2]);   /* 9/11: «non ho capito come funziona» */
     postaAnteprima({tipo: 'effetto', effetto: d});
     if (suonoQui()){ if (v === 'tuono') lettore.tuono(6, .4); if (v === 'raffica' && lettore.raffica) lettore.raffica(); }
   },
