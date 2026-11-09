@@ -27,7 +27,7 @@
 <script src="../js/canale.js?v=2.2.0"></script>
 <script src="../js/accesso.js?v=8"></script>
 <script src="../js/qrcode.js?v=1"></script>
-<script src="../js/vista.js?v=5.29"></script>
+<script src="../js/vista.js?v=5.30"></script>
 <script src="../js/inseguitore.js?v=1"></script>
 <script src="../js/uccelli.js?v=3"></script>
 <script src="../js/bard.js?v=6"></script>
@@ -834,8 +834,8 @@ function giro(ora){
   if (lento > .6 && qualita && !disegnoUrl && scala <= Math.max(scalaMin, .5)) qualita = 0; else if (lento < .1 && !qualita) qualita = 1;   /* con &disegno fisso nessun effetto si spegne (5/11) */
   const k = 1 - Math.exp(-dt * .45);
   const o = oraDi(scena), tgt = METEO[scena.meteo] || METEO.sereno, base = scena.intensita == null ? .75 : scena.intensita;
-  /* 9/11: con la nebbia che sale sale anche la nebbia di tutto il paesaggio (fino all'85%), come il cursore nell'app */
-  const intens = scena.meteo === 'nebbia' && saleK > 0 ? base + (Math.max(base, .85) - base) * saleK * saleK * (3 - 2 * saleK) : base;
+  /* 9/11: con la nebbia che sale sale anche la nebbia di tutto il paesaggio (fino al 70%), come il cursore nell'app */
+  const intens = scena.meteo === 'nebbia' && saleK > 0 ? base + (Math.max(base, .7) - base) * saleK * saleK * (3 - 2 * saleK) : base;
   for (const key in tgt){
     let v = tgt[key];
     if (key === 'pioggia' || key === 'neve') v *= .35 + intens * .9;

@@ -9,7 +9,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
 const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 const euro = n => (n < .1 ? n.toFixed(3) : n.toFixed(2)).replace('.', ',') + ' $';
-const VERSIONE = '6.13';
+const VERSIONE = '6.14';
 /* 8/11 · l'app si aggiorna da sola (Maurizio: «vedo ancora il quadrato con la doppia finestra»: sul telefono restava la
    versione vecchia anche dopo averla chiusa). Quando torna in primo piano, e ogni 10 minuti, chiede al server quale
    app.js c'è adesso; se è un'altra, ricarica (mai mentre un lavoro AI è in corso) */
@@ -566,14 +566,14 @@ function disegnaStrip(){
     + `<button class="mini-paes nuovo" data-fai="aggiungiPaesaggio">${icona('piu', 20)}<span>Nuovo</span></button>`;
 }
 /* ⚠ 9/11 (Maurizio: «facciamo salire e scendere il cursore della %»): con la nebbia che sale anche la percentuale
-   della nebbia sale (fino all'85%, o resta dov'è se è già più su) e torna dov'era quando la fai scendere. Stessi
+   della nebbia sale (fino al 70%, o resta dov'è se è già più su: più in alto l'abbazia spariva) e torna dov'era quando la fai scendere. Stessi
    tempi degli schermi: 25 s su, 30 s giù. Il valore scelto da te resta in scena.intensita */
 const liscio = x => x * x * (3 - 2 * x);
 function salita(){
   const k0 = scena.nebbiaSaleK0 ?? (scena.nebbiaSale ? 1 : 0), t = (Date.now() - (scena.nebbiaSaleDa || 0)) / 1000;
   return scena.nebbiaSale ? Math.min(1, k0 + t / 25) : Math.max(0, k0 - t / 30);
 }
-function intensitaVista(){ const b = scena.intensita ?? .75; if (scena.meteo !== 'nebbia') return b; return b + (Math.max(b, .85) - b) * liscio(salita()); }
+function intensitaVista(){ const b = scena.intensita ?? .75; if (scena.meteo !== 'nebbia') return b; return b + (Math.max(b, .7) - b) * liscio(salita()); }
 function mostraIntensita(){
   const ri = $('#intensita'), iv = Math.round(intensitaVista() * 100);
   if (ri && document.activeElement !== ri && +ri.value !== iv){ ri.value = iv; riempi(ri); const o = $('#intensita-o'); if (o) o.textContent = iv + '%'; }
