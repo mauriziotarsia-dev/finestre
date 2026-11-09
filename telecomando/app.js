@@ -9,7 +9,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
 const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 const euro = n => (n < .1 ? n.toFixed(3) : n.toFixed(2)).replace('.', ',') + ' $';
-const VERSIONE = '6.12';
+const VERSIONE = '6.13';
 /* 8/11 · l'app si aggiorna da sola (Maurizio: «vedo ancora il quadrato con la doppia finestra»: sul telefono restava la
    versione vecchia anche dopo averla chiusa). Quando torna in primo piano, e ogni 10 minuti, chiede al server quale
    app.js c'è adesso; se è un'altra, ricarica (mai mentre un lavoro AI è in corso) */
@@ -536,7 +536,7 @@ function disegnaFinestre(){
       <div class="sezione">${titolo('orologio', 'Ora')}<div class="pads c5" id="sceltaOra">${ORE.map(([v, , t]) => pad('ora', v, v, t, false, 40)).join('')}</div></div>
       <div class="sezione">${titolo('nuvola', 'Tempo')}<div class="pads c6" id="sceltaMeteo">${METEO.map(([v, , t]) => pad('meteo', v, MED_METEO[v], t, false, 38)).join('')}</div>
         <div class="pannello" id="pannelloTempo" style="margin-top:10px">
-          <div id="rigaIntensita">${cursore('intensita', 'goccia', 'Intensità', 0, 100, Math.round(scena.intensita * 100), Math.round(scena.intensita * 100) + '%')}</div>
+          <div id="rigaIntensita">${cursore('intensita', 'goccia', 'Intensità', 0, 100, Math.round(intensitaVista() * 100), Math.round(intensitaVista() * 100) + '%')}</div>
         </div></div>
       <div class="sezione">${titolo('scintilla', 'Effetti')}<div class="pads c5" id="sceltaEffetti">${EFFETTI.map(([v, med, t]) => pad('effetto', v, med, v === 'nebbia' && scena.nebbiaSale ? 'Fai scendere la nebbia' : t, v === 'nebbia' && !!scena.nebbiaSale, 38)).join('')}</div></div>
       <div class="sezione">${titolo('quadro', 'Paesaggi')}<div class="striscia-paesaggi" id="stripPaesaggi"></div></div>`;   /* 8/11: il vento va col tempo (calmo con sereno e nebbia, brezza con nuvoloso, pioggia e neve, forte col temporale); la luce sta in Impostazioni → Avanzate */
@@ -544,7 +544,9 @@ function disegnaFinestre(){
     anteprimaFrame.onload = () => { anteprimaPronta = true; impaginaAnteprima(); postaAnteprima({tipo:'scena', scena}); };
     anteprimaTvFrame = $('#anteprimaTvFrame');
     anteprimaTvFrame.onload = () => { anteprimaTvPronta = true; anteprimaTvFrame.contentWindow.postMessage({tipo:'scena', scena}, '*'); if (ultimoTv) anteprimaTvFrame.contentWindow.postMessage({tipo:'tv', tv: ultimoTv}, '*'); };
-    legaCursore('intensita', (v, o) => { o.textContent = v + '%'; cambia({intensita: v / 100}, false); });
+    legaCursore('intensita', (v, o) => { o.textContent = v + '%';
+      /* mentre la nebbia sale il cursore la segue: se lo muovi tu, comandi tu (la nebbia che sale si ferma e torna giù) */
+      cambia(salita() > 0 && scena.meteo === 'nebbia' ? {intensita: v / 100, nebbiaSale: false, nebbiaSaleDa: Date.now(), nebbiaSaleK0: 0} : {intensita: v / 100}, false); });
 
     impaginaAnteprima();
   }
@@ -563,6 +565,20 @@ function disegnaStrip(){
       return `<button class="mini-paes" data-fai="mostra" data-v="${p.id}" aria-pressed="${p.id === scena.paesaggio}"><img alt="" loading="lazy" src="${esc(img)}"><span>${esc(p.nome)}</span></button>`; }).join('')
     + `<button class="mini-paes nuovo" data-fai="aggiungiPaesaggio">${icona('piu', 20)}<span>Nuovo</span></button>`;
 }
+/* ⚠ 9/11 (Maurizio: «facciamo salire e scendere il cursore della %»): con la nebbia che sale anche la percentuale
+   della nebbia sale (fino all'85%, o resta dov'è se è già più su) e torna dov'era quando la fai scendere. Stessi
+   tempi degli schermi: 25 s su, 30 s giù. Il valore scelto da te resta in scena.intensita */
+const liscio = x => x * x * (3 - 2 * x);
+function salita(){
+  const k0 = scena.nebbiaSaleK0 ?? (scena.nebbiaSale ? 1 : 0), t = (Date.now() - (scena.nebbiaSaleDa || 0)) / 1000;
+  return scena.nebbiaSale ? Math.min(1, k0 + t / 25) : Math.max(0, k0 - t / 30);
+}
+function intensitaVista(){ const b = scena.intensita ?? .75; if (scena.meteo !== 'nebbia') return b; return b + (Math.max(b, .85) - b) * liscio(salita()); }
+function mostraIntensita(){
+  const ri = $('#intensita'), iv = Math.round(intensitaVista() * 100);
+  if (ri && document.activeElement !== ri && +ri.value !== iv){ ri.value = iv; riempi(ri); const o = $('#intensita-o'); if (o) o.textContent = iv + '%'; }
+}
+setInterval(() => { if (scheda === 'finestre' && !document.hidden) mostraIntensita(); }, 250);
 const eNotte = () => (scena.ora === 'vera' ? oraVera() : scena.ora) === 'notte';
 const luceAdesso = () => Math.round(eNotte() ? (scena.luceNotte ?? 30) : (scena.luceGiorno ?? 70));
 function aggiornaFinestre(){
@@ -574,8 +590,7 @@ function aggiornaFinestre(){
   disegnaStrip();
   $('#rigaIntensita').hidden = scena.meteo === 'sereno'; $('#pannelloTempo').hidden = scena.meteo === 'sereno';
   /* 9/11: l'intensità segue la scena anche quando la cambia un altro telefono o la riprendo dagli schermi */
-  const ri = $('#intensita'), iv = Math.round((scena.intensita ?? .75) * 100);
-  if (ri && document.activeElement !== ri && +ri.value !== iv){ ri.value = iv; riempi(ri); const o = $('#intensita-o'); if (o) o.textContent = iv + '%'; }
+  mostraIntensita();
   /* 9/11: le stelle cadenti si vedono solo di notte e a cielo sgombro, gli uccelli di notte dormono: il pulsante lo dice */
   const notte = eNotte(), coperto = ['nebbia', 'pioggia', 'temporale', 'neve'].includes(scena.meteo);
   const pn = s.querySelector('[data-fai="effetto"][data-v="nebbia"]');
@@ -1702,7 +1717,7 @@ const AZIONI = {
   effetto: v => {
     /* ⚠ 9/11 (Maurizio: «la nebbia che sale non deve poi scendere da sola, non si capisce; al massimo un tasto per farla
        scendere»): non è più un effetto che passa ma uno stato della scena. Un tocco: sale e resta; un altro: scende */
-    if (v === 'nebbia'){ const su = !scena.nebbiaSale; cambia({nebbiaSale: su});
+    if (v === 'nebbia'){ const su = !scena.nebbiaSale; cambia({nebbiaSale: su, nebbiaSaleDa: Date.now(), nebbiaSaleK0: salita()});
       avviso(su ? 'La nebbia sale dalle valli e resta. Tocca di nuovo per farla scendere' : 'La nebbia scende nelle valli'); return; }
     if (v === 'meteora' && !eNotte()) return avviso('Le stelle cadenti si vedono solo di notte');
     if (v === 'meteora' && ['nebbia', 'pioggia', 'temporale', 'neve'].includes(scena.meteo)) return avviso('Col cielo coperto la stella cadente non si vedrebbe');
