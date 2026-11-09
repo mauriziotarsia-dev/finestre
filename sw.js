@@ -12,7 +12,7 @@ const PAGINE = VERSIONE + '-pagine', DEPOSITO = VERSIONE + '-deposito', MAX_DEPO
 
 /* pagina e programmi delle finestre e del TV: si tengono subito, così anche il primo riavvio senza rete riparte */
 const SUBITO = ['finestra/', 'finestra/index.html', 'js/supabase.js', 'js/canale.js', 'js/accesso.js', 'js/qrcode.js', 'js/vista.js',
-  'js/inseguitore.js', 'js/uccelli.js', 'js/bard.js', 'js/icone.js'];
+  'js/inseguitore.js', 'js/uccelli.js', 'js/vita.js', 'js/bard.js', 'js/icone.js'];
 self.addEventListener('install', e => {
   self.skipWaiting();
   e.waitUntil(caches.open(PAGINE).then(c => Promise.all(SUBITO.map(f => c.add(new URL(f, self.registration.scope)).catch(() => {})))));

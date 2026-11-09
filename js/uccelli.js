@@ -24,17 +24,20 @@
   const giro = a => ((a + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
 
   class Stormi {
-    constructor(){ this.u = []; this.A = .4; this.prossimoStormo = caso(3, 12); this.prossimoRapace = caso(40, 90); this.t = 0; }
+    constructor(){ this.u = []; this.A = .4; this.prossimoStormo = caso(3, 12); this.prossimoRapace = caso(40, 90); this.prossimoPip = caso(4, 15); this.t = 0; }
 
-    aggiorna(dt, A, quanti){
+    /* pip: 0..1, quanti pipistrelli (9/11: al tramonto e di notte, js/vita.js) */
+    aggiorna(dt, A, quanti, pip = 0){
       this.A = A || this.A; this.t += dt; dt = Math.min(dt, .05);
       if (quanti > .3){
         if ((this.prossimoStormo -= dt) <= 0){ this.nuovoStormo(); this.prossimoStormo = caso(18, 55) / quanti; }
         if ((this.prossimoRapace -= dt) <= 0){ this.nuovoRapace(); this.prossimoRapace = caso(110, 220) / quanti; }
       }
+      if (pip > .1 && (this.prossimoPip -= dt) <= 0){ this.nuovoPipistrello(); this.prossimoPip = caso(8, 30) / pip; }
       const u = this.u;
       for (const b of u){
         if (b.rapace){ this.volaRapace(b, dt); continue; }
+        if (b.pip){ this.volaPipistrello(b, dt); continue; }
         const st = b.st;
         /* la rotta dello stormo curva piano, anche verso chi guarda o lontano */
         st.psi += st.curva * dt; st.curva += (Math.random() - .5) * dt * .5; st.curva *= 1 - dt * .3;
@@ -70,7 +73,7 @@
         if (sxp < -.3 || sxp > this.A + .3 || b.z > 4 || syp > .6 || syp < -.1) b.via = true;
       }
       this.u = u.filter(b => !b.via);
-      if (quanti < .3) for (const b of this.u) if (!b.rapace) b.st.vel = Math.min(b.st.vel * (1 + dt * .5), .2);
+      if (quanti < .3) for (const b of this.u) if (!b.rapace && !b.pip) b.st.vel = Math.min(b.st.vel * (1 + dt * .5), .2);
     }
 
     nuovoStormo(){
@@ -99,6 +102,31 @@
         x: 0, y: 0, z, bank: 0, scala: caso(2, 2.5), fase: 0, freq: 5, forza: 0, ali: 0, vita: caso(55, 90)});
     }
 
+    /* ⚠ 9/11 · PIPISTRELLI: uno o due, vicini; volo a zig-zag (cambiano direzione ogni poco, di scatto, su e giù),
+       battito fitto, restano a cacciare davanti alla finestra 10-25 s e poi se ne vanno da un lato */
+    nuovoPipistrello(){
+      if (this.u.length >= MAX || this.u.filter(b => b.pip).length >= 2) return;
+      const dir = Math.random() < .5 ? 1 : -1, z = caso(.7, 1.4);
+      this.u.push({pip: true, x: -dir * (this.A / 2 + .05) * z, y: (ORIZZONTE - caso(.05, .22)) * z, z, vx: dir * caso(.12, .2), vy: 0, vz: 0,
+        cambio: caso(.15, .5), quota: (ORIZZONTE - caso(.06, .24)) * z, vita: caso(10, 25), dir, scala: caso(1.3, 1.7), fase: caso(0, 6.28), freq: caso(13, 17), ali: 0, bank: 0});
+    }
+    volaPipistrello(b, dt){
+      b.vita -= dt;
+      if ((b.cambio -= dt) <= 0){
+        b.cambio = caso(.12, .55);
+        const cx = b.vita > 0 ? -b.x / b.z * .5 : b.dir * .6;           /* resta davanti alla finestra, poi esce */
+        b.vx = Math.max(-.32, Math.min(.32, b.vx * .3 + caso(-.25, .25) + cx * .3));
+        b.vy = caso(-.12, .12) + (b.quota - b.y) * .8;
+        b.vz = caso(-.08, .08) + (1 - b.z) * .2;
+      }
+      b.x += b.vx * dt; b.y += b.vy * dt; b.z = Math.max(.5, b.z + b.vz * dt);
+      b.fase += dt * b.freq; b.ali = Math.sin(b.fase);
+      b.bank += (Math.max(-.6, Math.min(.6, b.vy * 3)) - b.bank) * Math.min(1, dt * 6);
+      const sxp = this.A / 2 + b.x / b.z, syp = ORIZZONTE - b.y / b.z;
+      if (b.vita < 0 && (sxp < -.2 || sxp > this.A + .2)) b.via = true;
+      if (b.vita < -15 || syp < -.15 || syp > .7) b.via = true;
+    }
+
     volaRapace(b, dt){
       b.vita -= dt;
       b.th += b.om * dt; b.cx += b.deriva * dt; b.cy += .004 * dt;              /* sale piano nella corrente */
@@ -117,7 +145,7 @@
       this.u.slice(0, MAX).forEach((b, i) => {
         const z = Math.max(.35, b.z), sx = this.A / 2 + b.x / z, sy = ORIZZONTE - b.y / z;
         const alfa = Math.max(.35, Math.min(1, 1.25 - z * .28));          /* più lontano = più chiaro nella foschia */
-        d.set([sx / this.A, sy, b.scala * 1.35 / z, b.ali, b.bank, alfa, b.rapace ? 1 : 0, 0], i * 8);
+        d.set([sx / this.A, sy, b.scala * 1.35 / z, b.ali, b.bank, b.pip ? 1 : alfa, b.rapace ? 1 : b.pip ? 2 : 0, 0], i * 8);
       });
       /* il riquadro che li contiene tutti (con margine per le ali): il disegno lavora solo lì dentro */
       let x0 = 9, y0 = 9, x1 = -9, y1 = -9;

@@ -140,7 +140,8 @@ const caricaAnimazione = (casa, p, ora, blob) => carica(casa, p, 'anim-' + ora, 
 /* l'animazione della vista del TV (4/11): …_est-anim-giorno.mp4, …_est-fermo-giorno.jpg, …_est-maschera-giorno.png */
 /* 4/11 · dove sale il fumo: …_comignoli.json (vista nord) e …_est-comignoli.json (TV), {v:1, punti:[{x, y, w}]} in
    frazioni dell'immagine. Il fumo lo disegna la finestra (js/vista.js) */
-const caricaComignoli = (casa, p, est, punti) => carica(casa, p, (est ? 'est-' : '') + 'comignoli', new Blob([JSON.stringify({v:1, punti})], {type:'image/png'}), 'json');
+/* 9/11: con i fuochi lontani, {v:1, punti, fuochi:[{x, y, w}]} (js/vita.js) */
+const caricaComignoli = (casa, p, est, punti, fuochi = punti && punti.fuochi || []) => carica(casa, p, (est ? 'est-' : '') + 'comignoli', new Blob([JSON.stringify({v:1, punti: Array.from(punti || []), fuochi})], {type:'image/png'}), 'json');
 const caricaEstAnimazione = (casa, p, ora, blob) => carica(casa, p, 'est-anim-' + ora, blob, 'mp4');
 const caricaEstFermo = (casa, p, ora, blob) => carica(casa, p, 'est-fermo-' + ora, blob, 'jpg');
 const caricaEstMaschera = (casa, p, ora, blob) => carica(casa, p, 'est-maschera-' + ora, blob, 'png');

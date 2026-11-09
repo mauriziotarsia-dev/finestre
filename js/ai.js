@@ -169,11 +169,16 @@ const Ai = {
     c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
     const jpg = await new Promise(r => c.toBlob(r, 'image/jpeg', .88)), b64 = await this.inBase64(jpg);
     const domanda = `This is a painted landscape. Find the places where chimney smoke would rise: every visible chimney on a house, farmhouse, village or castle roof; for houses whose chimney is not visible, the point on the roof ridge where a chimney would be. Only real inhabited buildings (houses, farms, villages), not towers, bell towers, churches, ruins, rocks or trees. At most 6, preferring the most visible ones (near and middle distance); if there are none, return an empty list.
-Answer ONLY with JSON: {"comignoli":[{"x":<0-1000>,"y":<0-1000>,"w":<0-1000>}]} where x,y is the top of the chimney (0,0 = top-left of the image, 1000,1000 = bottom-right) and w is the width of that building's roof in the same units.`;
+Also find up to 3 places where a small bonfire or a pile of burning brushwood could plausibly be lit by farmers: open fields, meadows, clearings or farmyards, in the middle distance or far, well visible; never on roofs, trees, water, roads, rocks, walls or in the sky.
+Answer ONLY with JSON: {"comignoli":[{"x":<0-1000>,"y":<0-1000>,"w":<0-1000>}],"fuochi":[{"x":<0-1000>,"y":<0-1000>,"w":<0-1000>}]} where for comignoli x,y is the top of the chimney (0,0 = top-left of the image, 1000,1000 = bottom-right) and w is the width of that building's roof in the same units; for fuochi x,y is the point on the ground where the fire burns and w is about the width a farmhouse would have at that distance.`;
+    /* 9/11: nella stessa domanda anche dove si può accendere un fuoco lontano (js/vita.js): arriva come .fuochi della lista */
     const leggi = t => {
       const j = JSON.parse(String(t).replace(/^[^{]*/, '').replace(/[^}]*$/, ''));
-      return (j.comignoli || []).filter(q => q && isFinite(q.x) && isFinite(q.y)).slice(0, 6)
+      const punti = l => (l || []).filter(q => q && isFinite(q.x) && isFinite(q.y))
         .map(q => ({x: Math.min(1, Math.max(0, q.x / 1000)), y: Math.min(1, Math.max(0, q.y / 1000)), w: Math.min(.3, Math.max(.008, (+q.w || 30) / 1000))}));
+      const v = punti(j.comignoli).slice(0, 6);
+      v.fuochi = punti(j.fuochi).slice(0, 3).map(q => Object.assign(q, {w: Math.min(.05, q.w)}));
+      return v;
     };
     let ultimo = null;
     if (ch.google){

@@ -63,7 +63,8 @@ uniform float uOmbre;         /* quanto si vedono le ombre delle nuvole (giorno 
 uniform vec4 uMeteora;        /* stella cadente: da (x, y) a (z, w), nella vista */
 uniform float uMeteoraK;      /* a che punto è (0 = nessuna) */
 uniform float uHaVento;   /* (il passaggio a bassa risoluzione scrive dal basso: si legge capovolto) */
-uniform vec4 uFumo[6];        /* fumo dai comignoli: (x, y nella vista, larghezza del tetto in larghezze della vista, profondità) */
+uniform vec4 uFumo[8];        /* fumo dai comignoli: (x, y nella vista, larghezza del tetto in larghezze della vista, profondità) */
+uniform float uFumoI[8];      /* 9/11: quanto fuma ognuno (i comignoli 1, i fuochi lontani quando sono accesi: js/vita.js) */
 uniform float uNFumo, uFumoA; /* quanti, e quanto si vedono (sfumano col paesaggio) */
 uniform float uNebV;          /* la nebbiolina viva (0 spenta) */
 
@@ -365,6 +366,13 @@ float uccello(vec2 q, float s, float ali, float rapace, float sc){
   d = min(d, length(q * vec2(1., rapace > .5 ? 1.2 : 1.6)) - (rapace > .5 ? .7 : .45) * sc);
   return 1. - smoothstep(.35 * sc, .35 * sc + .9, d);
 }
+/* 9/11 · pipistrelli (al tramonto e di notte): ali larghe di membrana che battono fitte, corpo tozzo */
+float pipistrello(vec2 q, float s, float ali, float sc){
+  q.x = abs(q.x);
+  float d = ala(q, s * 1.05, .12 + .55 * ali, .02 + .6 * ali) - .3 * sc;
+  d = min(d, length(q * vec2(1., 1.3)) - .55 * sc);
+  return 1. - smoothstep(.35 * sc, .35 * sc + .9, d);
+}
 float uccelli(vec2 uv){
   float a = 0., sc = uPix.y / 1000.;
   for (int i = 0; i < 12; i++){
@@ -375,7 +383,7 @@ float uccelli(vec2 uv){
     if (abs(d.x) > s * 2.6 || abs(d.y) > s * 2.2) continue;
     float cb = cos(c.x), sb = sin(c.x);
     vec2 q = vec2(d.x * cb - d.y * sb, d.x * sb + d.y * cb);
-    a = max(a, uccello(q, s, b.w, c.z, sc) * c.y);
+    a = max(a, (c.z > 1.5 ? pipistrello(q, s, b.w, sc) : uccello(q, s, b.w, c.z, sc)) * c.y);
   }
   return a;
 }
@@ -388,9 +396,10 @@ float uccelli(vec2 uv){
 float fumo(vec2 uv){
   float tot = 0.;
   float k = 1. + uOcchio.z * .07;
-  for (int i = 0; i < 6; i++){
+  for (int i = 0; i < 8; i++){
     if (float(i) >= uNFumo) break;
     vec4 F = uFumo[i];
+    float forzaF = uFumoI[i];
     /* dove appare il comignolo con la prospettiva (lo stesso spostamento del paesaggio a quella profondità) */
     vec2 s = F.xy; float sh = uLato * .012 * (F.w - .35) + uOcchio.x * .065 * (1. - .7 * F.w);
     s = (s - .5) / k + .5; s.x -= sh;
@@ -409,7 +418,7 @@ float fumo(vec2 uv){
     vec2 q = vec2(x * .9, h * .2 - uT * .85) + semi * 17.;
     float nn = rumore(q) * .55 + rumore(q * 2.1 + 3.7) * .3 + rumore(q * 4.3 + 9.1) * .15;
     float d = pr * smoothstep(.3, .72, nn + pr * .25) * smoothstep(-1.5, 1.2, h) * (1. - smoothstep(L * .35, L, h)) * (1. - h / L * .45) * (1. - rgF * smoothstep(3., 15., h) * .85);   /* e si strappa: resta solo vicino al comignolo */
-    tot = max(tot, d);
+    tot = max(tot, d * forzaF);
   }
   return tot * uFumoA;
 }
@@ -722,7 +731,7 @@ void main(){
     pos = c + dir * (aAngolo.y * L * .5) + nrm * (aAngolo.x * hw);
     vQ = vec2(aAngolo.x * hw, aAngolo.y * .5 + .5); vW = W;
     vA = vis * min(1., W);
-  } else {
+  } else if (uTipo < 1.5){
     /* neve: ogni fiocco ha la sua grandezza, la sua velocità e il suo dondolio; il vento li porta di lato */
     float R = uStrato.x * uScala * (.5 + .9 * r.w);
     float est = R / uFori.y;
@@ -736,6 +745,19 @@ void main(){
     pos = c + aAngolo * hw;
     vQ = aAngolo * hw; vW = R;
     vA = vis * (.55 + .45 * fract(r.z * 5.3));
+  } else {
+    /* 9/11 · pulviscolo nella luce: granelli che il vento porta piano verso sinistra, salgono e scendono appena, e
+       si accendono quando girano nella luce (ognuno col suo ritmo); i semi piumosi (strato grande) vanno più lenti */
+    float R = uStrato.x * uScala * (.5 + .9 * r.w);
+    float x = fract(r.x - (uTV * .35 + uT * .006) * uStrato.z * 10. * (.6 + .8 * r.z) - uRafS * .4);
+    float y = fract(r.y + sin(uT * (.07 + .09 * r.z) + r.x * 6.283) * .035 + uT * uStrato.z * .15 * (r.w - .45));
+    c = vec2(x * uFori.x + sin(uT * (.4 + .5 * r.y) + r.z * 6.283) * 6. * uScala, y * uFori.y);
+    vis = step(fract(r.w * 7.31 + r.z), uDens);
+    float luccica = .5 + .5 * sin(uT * (.6 + 1.6 * r.z) + r.y * 40.);
+    float hw = R + 1.5;
+    pos = c + aAngolo * hw;
+    vQ = aAngolo * hw; vW = R;
+    vA = vis * (.2 + .8 * luccica * luccica * luccica);
   }
   gl_Position = vis > .5 ? vec4(pos.x / uFori.x * 2. - 1., 1. - pos.y / uFori.y * 2., 0., 1.) : vec4(2., 2., 2., 1.);
 }`;
@@ -768,6 +790,35 @@ const NEVE = [
   {n:20,   raggio:13,  morb:.05, vel:.2,  alfa:.3}
 ];
 const SEMI = 40000;
+
+/* ── 9/11 · bagliori: luci delle case, falò e lucciole (js/vita.js) ───────────
+   Ognuno è un quadratino intorno al suo punto: un nucleo piccolo e un alone morbido, sommati alla luce che c'è
+   («piu»); oppure, per una finestra che di notte si spegne, un'ombra che moltiplica («per»). Costano solo i pixel
+   che coprono */
+const BAG_VERT = `
+precision highp float;
+attribute vec2 aPos;          /* pixel nel foro, dall'alto */
+attribute vec2 aQ;            /* -1..1 dentro il quadratino */
+attribute vec4 aCol;          /* colore già moltiplicato per la forza, e quanto è grande il nucleo rispetto all'alone */
+uniform vec2 uFori;
+varying vec2 vQ; varying vec4 vCol;
+void main(){ vQ = aQ; vCol = aCol; gl_Position = vec4(aPos.x / uFori.x * 2. - 1., 1. - aPos.y / uFori.y * 2., 0., 1.); }`;
+const BAG_FRAG = `
+precision highp float;
+uniform float uModo;
+varying vec2 vQ; varying vec4 vCol;
+void main(){
+  float d = length(vQ), cr = max(vCol.a, .02);
+  float nucleo = exp(-d * d / (cr * cr) * 1.6), alone = exp(-d * d * 4.5) * (1. - smoothstep(.8, 1., d));
+  if (uModo < .5) gl_FragColor = vec4(vCol.rgb * (nucleo + alone * .32), 1.);
+  else gl_FragColor = vec4(mix(vec3(1.), vCol.rgb, exp(-d * d * 1.8)), 1.);
+}`;
+/* il pulviscolo nella luce (alba, giorno, tramonto): granelli fini e qualche seme piumoso che il vento porta */
+const PULVISCOLO = [
+  {n:260, raggio:.8,  morb:.2, vel:.012, alfa:.5,  fine:true},
+  {n:70,  raggio:1.5, morb:.3, vel:.018, alfa:.55},
+  {n:5,   raggio:5,   morb:.75, vel:.025, alfa:.4}
+];
 
 /* ─────────────────────────────────────────────────────────────────────────── */
 
@@ -807,8 +858,8 @@ class Vista {
     const posizioni = (p, nomi) => { const u = {}; for (const n of nomi) u[n] = gl.getUniformLocation(p, n); return u; };
     /* il programma principale: paesaggio, cielo, nebbia, lampo, luce */
     this.p = programma(VERT, FRAG, ['aPos']);
-    this.fumoDati = new Float32Array(24);
-    this.u = posizioni(this.p, ['uOcchio','uImg0b','uVmix','uImg0','uImg1','uDep0','uDep1','uMap','uCrop0','uCrop1','uCropD0','uCropD1','uUccelli','uCielo0','uCielo1','uCieloM0','uCieloM1','uCieloX','uFermo0','uFermo1','uHaFermo0','uHaFermo1','uRap0','uHaRap0','uVentoT','uHaVento','uU','uNU','uUBox','uFumo','uNFumo','uFumoA','uNebV','uNotte','uOmbre','uMeteora','uMeteoraK','uMix','uHaImg','uHaDep0','uHaDep1','uMovimento0','uMovimento1',
+    this.fumoDati = new Float32Array(32); this.fumoForza = new Float32Array(8);
+    this.u = posizioni(this.p, ['uOcchio','uImg0b','uVmix','uImg0','uImg1','uDep0','uDep1','uMap','uCrop0','uCrop1','uCropD0','uCropD1','uUccelli','uCielo0','uCielo1','uCieloM0','uCieloM1','uCieloX','uFermo0','uFermo1','uHaFermo0','uHaFermo1','uRap0','uHaRap0','uVentoT','uHaVento','uU','uNU','uUBox','uFumo','uFumoI','uNFumo','uFumoA','uNebV','uNotte','uOmbre','uMeteora','uMeteoraK','uMix','uHaImg','uHaDep0','uHaDep1','uMovimento0','uMovimento1',
       'uLato','uT','uTV','uRaf','uAspetto','uPix','uCoperto','uNebbia','uPioggia','uNeve','uTempesta','uVento','uLampo','uLampoX','uLampoS','uLampoB',
       'uNotteFinta','uLuce','uBuio','uQualita','uColNebbia','uMeteo','uSale']);
     gl.useProgram(this.p);
@@ -834,6 +885,11 @@ class Vista {
     const semi = new Float32Array(SEMI * 4); for (let i = 0; i < semi.length; i++) semi[i] = Math.random();
     this.bSemi = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, this.bSemi); gl.bufferData(gl.ARRAY_BUFFER, semi, gl.STATIC_DRAW);
     this.vuota = this.texture(); this.carica(this.vuota, new Uint8Array([0,0,0,255]), 1, 1);
+    /* bagliori (luci, falò, lucciole) e la vita del paesaggio che li decide */
+    this.pb = programma(BAG_VERT, BAG_FRAG, ['aPos', 'aQ', 'aCol']);
+    this.ub = posizioni(this.pb, ['uFori', 'uModo']);
+    this.bBag = gl.createBuffer(); this.datiBag = new Float32Array(64 * 6 * 8);
+    this.vita = typeof Vita !== 'undefined' ? new Vita() : null;
     this.meteo = [];   /* per ogni foro: la sua piccola immagine di nebbia e nuvole */
     /* le due «fonti» (quella che si vede e quella da cui si sfuma): immagine, profondità, eventuale video */
     this.fonti = [this.fonteVuota(), this.fonteVuota()];
@@ -873,10 +929,10 @@ class Vista {
     c.width = Math.floor(w * k); c.height = Math.floor(h * k); c.getContext('2d').drawImage(im, 0, 0, c.width, c.height);
     return c;
   }
-  fonteVuota(){ return {fumi:[], fumiUrl:null, dimg:null, img:null, tex:null, dep:null, depTex:null, video:null, cTex:null, cm:[0,0,0,0], fTex:null, iw:1, ih:1, url:null, ok:false}; }
+  fonteVuota(){ return {fumi:[], fuochi:[], luci:[], prati:[], fumiUrl:null, dimg:null, img:null, tex:null, dep:null, depTex:null, video:null, cTex:null, cm:[0,0,0,0], fTex:null, iw:1, ih:1, url:null, ok:false}; }
 
   /* nuova immagine (o video in loop), con la sua profondità; sfuma da quella di prima in `dur` secondi */
-  async mostra({url, profondita = null, video = null, fuoco = null, cielo = null, fermo = null, maschera = null, comignoli = null, alberi = null, ricolora = false}, dur = 0){
+  async mostra({url, profondita = null, video = null, fuoco = null, cielo = null, fermo = null, maschera = null, comignoli = null, alberi = null, ricolora = false, notte = null}, dur = 0){
     if (this.fonti[0].ok && this.fonti[0].url === url + '|' + (video || '')){
       this.fonti[0].fuoco = fuoco;
       if ((comignoli || null) !== (this.fonti[0].fumiUrl || null)) this.caricaFumi(this.fonti[0], comignoli, this.fonti[0].dimg);   /* spostati dal telefono */
@@ -886,7 +942,7 @@ class Vista {
     const chiave = url + '|' + (video || '');
     if (this.inArrivo === chiave) return;
     this.inArrivo = chiave;
-    try { await this._mostra(chiave, url, profondita, video, dur, fuoco, cielo, fermo, maschera, comignoli, alberi, ricolora && !!video); } finally { if (this.inArrivo === chiave) this.inArrivo = null; }
+    try { await this._mostra(chiave, url, profondita, video, dur, fuoco, cielo, fermo, maschera, comignoli, alberi, ricolora && !!video, notte); } finally { if (this.inArrivo === chiave) this.inArrivo = null; }
   }
   /* dove sale il fumo: i punti dell'AI (o messi a mano dal telefono), con la profondità di ciascuno per la prospettiva */
   async caricaFumi(f, url, dimg){
@@ -899,11 +955,75 @@ class Vista {
         const c = document.createElement('canvas'); c.width = W; c.height = H; const x = c.getContext('2d', {willReadFrequently:true});
         x.drawImage(dimg, 0, 0, W, H); dd = x.getImageData(0, 0, W, H).data; }
       if (f.fumiUrl !== url) return;
-      f.fumi = (j.punti || []).slice(0, 6).map(q => ({x:+q.x, y:+q.y, w:+q.w || .04,
-        n: dd ? dd[(Math.min(H - 1, Math.max(0, Math.round(q.y * H))) * W + Math.min(W - 1, Math.max(0, Math.round(q.x * W)))) * 4] / 255 : .5}));
-    } catch(e) { f.fumi = []; }
+      const pr = q => dd ? dd[(Math.min(H - 1, Math.max(0, Math.round(q.y * H))) * W + Math.min(W - 1, Math.max(0, Math.round(q.x * W)))) * 4] / 255 : .5;
+      f.fumi = (j.punti || []).slice(0, 6).map(q => ({x:+q.x, y:+q.y, w:+q.w || .04, n: pr(q)}));
+      /* 9/11: dove si può accendere un fuoco lontano (un prato, un campo, una radura): js/vita.js */
+      f.fuochi = (j.fuochi || []).slice(0, 4).map(q => ({x:+q.x, y:+q.y, w:+q.w || .02, n: pr(q)}));
+    } catch(e) { f.fumi = []; f.fuochi = []; }
   }
-  async _mostra(chiave, url, profondita, video, dur, fuoco, cielo, fermo, maschera, comignoli = null, alberi = null, ricolora = false){
+  /* 9/11 · luci delle case (dall'immagine della notte) e prati delle lucciole (dalla profondità): js/vita.js.
+     Le finestre accese si cercano una volta sola per immagine */
+  async caricaVita(f, notte, dimg){
+    if (typeof trovaLuci === 'undefined') return;
+    try {
+      const pr = profonditaDi(dimg);
+      f.prati = pratiVita(dimg);
+      let luci = [];
+      if (notte){
+        const cache = Vista.luciTrovate || (Vista.luciTrovate = new Map());
+        if (!cache.has(notte)) cache.set(notte, trovaLuci(await caricaImg(notte)));
+        luci = cache.get(notte).map(L => Object.assign({}, L));
+      }
+      /* senza notte (o senza finestre accese): una o due finestre sotto ogni comignolo */
+      if (!luci.length) (f.fumi || []).forEach((q, i) => {
+        const r = q.w * .05 * f.iw / f.ih;
+        luci.push({x: q.x - q.w * .18, y: q.y + q.w * .5 * f.iw / f.ih, r, seme: (i * .37 + .11) % 1, inImg: false});
+        if (i % 2 === 0) luci.push({x: q.x + q.w * .16, y: q.y + q.w * .55 * f.iw / f.ih, r, seme: (i * .61 + .53) % 1, inImg: false});
+      });
+      luci.forEach(L => { L.n = pr(L.x, L.y); });
+      f.luci = luci;
+    } catch(e) { f.luci = []; }
+  }
+  /* i bagliori della vita del paesaggio, nel foro: stessa inquadratura e stessa prospettiva del paesaggio */
+  disegnaBagliori(foro, s, lista, f0, marg){
+    const gl = this.gl, ci = this.crop(f0, foro.aspetto, marg, f0.fuoco, foro.striscia, f0.fuoco), map = foro.map;
+    const oc = s.occhio || {x: 0, z: 0}, kz = 1 + (oc.z || 0) * .07, lato = s.prospettiva ? foro.lato : 0;
+    const scala = (foro.h / map[3]) / 1000;   /* pixel della vista intera su 1000 */
+    const luce = (.45 + .55 * Math.sqrt(Math.max(0, s.luce || 0))) * (1 - (s.buio || 0));
+    const d = this.datiBag;
+    const metti = modo => {
+      let n = 0;
+      for (const b of lista){
+        if (b.modo !== modo || n >= 64 * 6) continue;
+        let u = (b.x - ci[0]) / ci[2], v = (b.y - ci[1]) / ci[3];
+        u = (u - .5) / kz + .5; v = (v - .5) / kz + .5;
+        u -= lato * .012 * (b.n - .35) + (oc.x || 0) * .065 * (1 - .7 * b.n);
+        const px = (u - map[0]) / map[2] * foro.w, py = (v - map[1]) / map[3] * foro.h;
+        const R = Math.max(2, b.alone * scala), cr = Math.min(1, Math.max(.6, b.core * scala) / R);
+        if (px < -R || py < -R || px > foro.w + R || py > foro.h + R) continue;
+        const k = modo === 'piu' ? b.forza * luce : 1;
+        const col = modo === 'piu' ? b.col.map(c => c * k) : b.col.map(c => 1 + (c - 1) * b.forza);
+        for (const [qx, qy] of [[-1,-1],[1,-1],[-1,1],[-1,1],[1,-1],[1,1]]){
+          d.set([px + qx * R, py + qy * R, qx, qy, col[0], col[1], col[2], cr], n * 8); n++;
+        }
+      }
+      if (!n) return;
+      gl.bufferData(gl.ARRAY_BUFFER, d.subarray(0, n * 8), gl.DYNAMIC_DRAW);
+      gl.uniform1f(this.ub.uModo, modo === 'piu' ? 0 : 1);
+      if (modo === 'piu') gl.blendFuncSeparate(gl.ONE, gl.ONE, gl.ZERO, gl.ONE); else gl.blendFuncSeparate(gl.DST_COLOR, gl.ZERO, gl.ZERO, gl.ONE);
+      gl.drawArrays(gl.TRIANGLES, 0, n);
+    };
+    gl.useProgram(this.pb); gl.uniform2f(this.ub.uFori, foro.w, foro.h);
+    if (this.ist){ this.ist.div(1, 0); this.ist.div(2, 0); }
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.bBag);
+    gl.enableVertexAttribArray(0); gl.enableVertexAttribArray(1); gl.enableVertexAttribArray(2);
+    gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 32, 0); gl.vertexAttribPointer(1, 2, gl.FLOAT, false, 32, 8); gl.vertexAttribPointer(2, 4, gl.FLOAT, false, 32, 16);
+    gl.enable(gl.BLEND);
+    metti('per'); metti('piu');
+    gl.disable(gl.BLEND); gl.disableVertexAttribArray(1); gl.disableVertexAttribArray(2);
+    gl.useProgram(this.p); this.quad();
+  }
+  async _mostra(chiave, url, profondita, video, dur, fuoco, cielo, fermo, maschera, comignoli = null, alberi = null, ricolora = false, notte = null){
     const f = this.fonteVuota(); f.url = chiave; f.fuoco = fuoco;
     /* 8/11: tutti i file partono insieme (prima uno dopo l'altro: immagine, profondità, cielo, video, fermo…
        e nell'app si restava al nero per molti secondi); poi si montano nello stesso ordine di prima */
@@ -920,6 +1040,7 @@ class Vista {
     const imA = pAlberi ? (await pAlberi) || im : im;   /* 8/11: di notte gli alberi si trovano sull'immagine del giorno */
     try { f.aTex = this.texture(); this.carica(f.aTex, mascheraAlberi(imA, dimg)); } catch(e) { f.aTex = null; }
     f.dimg = dimg; await this.caricaFumi(f, comignoli, dimg);
+    this.caricaVita(f, notte, dimg);   /* luci delle case e prati delle lucciole: senza aspettare */
     /* il cielo che scorre (serve la profondità, per sapere dov'è il cielo). Il video resta per quello che
        si muove sotto il cielo (nebbia nelle valli, fumo dei camini): il suo cielo non si usa più */
     if (pCielo && dimg){
@@ -1103,7 +1224,14 @@ class Vista {
     const oc = s.occhio || {x:0, z:0}; gl.uniform3f(u.uOcchio, oc.x || 0, 0, oc.z || 0);
     const marg = s.margine || 1.04;
     const tempo = (s.nebbia || 0) + (s.pioggia || 0) + (s.neve || 0) > .005 || (s.coperto || 0) > .01 || (s.lampo || 0) > .001;
-    const gocce = this.ist && ((s.pioggia || 0) > .01 || (s.neve || 0) > .01);
+    const gocce = this.ist && ((s.pioggia || 0) > .01 || (s.neve || 0) > .01 || (!sp.has('vita') && (s.pulviscolo || 0) > .01));
+    /* 9/11 · la vita del paesaggio a quest'ora (js/vita.js): luci delle case, fuochi lontani, lucciole */
+    let vitaBagliori = [], vitaFumi = [];
+    if (this.vita && haImg && s.vita && !sp.has('vita')){
+      const adesso = performance.now(), dtv = this._vitaT ? Math.min(.25, (adesso - this._vitaT) / 1000) : 0; this._vitaT = adesso;
+      this.vita.aggiorna(dtv, f0, s.vita.o, s.vita.k, s);
+      vitaBagliori = this.vita.bagliori(s); vitaFumi = s.movimento ? this.vita.fumi() : [];
+    }
     this.quad();
     fori.forEach((foro, i) => {
       const y = this.c.height - foro.y - foro.h;              /* WebGL conta dal basso */
@@ -1147,15 +1275,18 @@ class Vista {
       gl.uniform4fv(u.uCrop0, c0); gl.uniform4fv(u.uCrop1, c1);
       gl.uniform4fv(u.uCropD0, v0 ? this.cropProfondita(f0, c0) : c0); gl.uniform4fv(u.uCropD1, v1 ? this.cropProfondita(f1, c1) : c1);
       /* il fumo dei comignoli di quello che si vede (quello nuovo, mentre sfuma dal vecchio) */
-      const fumi = haImg && f0.ok && s.movimento && !sp.has('fumo') ? (f0.fumi || []) : [];
+      /* 9/11: e quello dei fuochi lontani accesi (js/vita.js), dopo i comignoli, al massimo 8 in tutto */
+      const fumi = haImg && f0.ok && s.movimento && !sp.has('fumo') ? (f0.fumi || []).slice(0, 6).concat(sp.has('vita') ? [] : vitaFumi).slice(0, 8) : [];
       if (fumi.length){
         const ci = this.crop(f0, foro.aspetto, marg, f0.fuoco, foro.striscia, f0.fuoco);
-        fumi.forEach((q, j) => { this.fumoDati[j * 4] = (q.x - ci[0]) / ci[2]; this.fumoDati[j * 4 + 1] = (q.y - ci[1]) / ci[3]; this.fumoDati[j * 4 + 2] = q.w / ci[2]; this.fumoDati[j * 4 + 3] = q.n; });
-        gl.uniform4fv(u.uFumo, this.fumoDati);
+        fumi.forEach((q, j) => { this.fumoDati[j * 4] = (q.x - ci[0]) / ci[2]; this.fumoDati[j * 4 + 1] = (q.y - ci[1]) / ci[3]; this.fumoDati[j * 4 + 2] = q.w / ci[2]; this.fumoDati[j * 4 + 3] = q.n; this.fumoForza[j] = q.forza == null ? 1 : q.forza; });
+        gl.uniform4fv(u.uFumo, this.fumoDati); gl.uniform1fv(u.uFumoI, this.fumoForza);
       }
       gl.uniform1f(u.uNFumo, fumi.length); gl.uniform1f(u.uFumoA, 1 - (this.mix || 0));
       gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-      /* 3. pioggia e neve, goccia per goccia, sopra */
+      /* 2b. luci delle case, falò e lucciole: piccoli bagliori sopra il paesaggio (js/vita.js) */
+      if (vitaBagliori.length) this.disegnaBagliori(foro, s, vitaBagliori, f0, marg);
+      /* 3. pioggia e neve (e il pulviscolo nella luce), goccia per goccia, sopra */
       if (gocce) this.disegnaGocce(foro, s);
     });
   }
@@ -1185,6 +1316,10 @@ class Vista {
     if ((s.neve || 0) > .01){
       const g = [.94, .96, 1].map(v => v * (1 - nf * .6) * luce);
       strati(NEVE, 1, Math.min(1, s.neve * 1.1), g, .4 + .6 * s.neve);
+    }
+    if ((s.pulviscolo || 0) > .01 && !(this.spegni && this.spegni.has('vita'))){
+      const g = (s.vita && s.vita.o === 'giorno' ? [1, .97, .88] : [1, .86, .62]).map(v => v * Math.min(1, luce * 1.25));
+      strati(PULVISCOLO, 2, Math.min(1, s.pulviscolo), g, Math.min(1, s.pulviscolo * 1.2));
     }
     this.ist.div(1, 0); gl.disableVertexAttribArray(1);
     gl.disable(gl.BLEND);

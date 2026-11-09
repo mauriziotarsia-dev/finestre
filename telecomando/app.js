@@ -9,7 +9,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
 const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 const euro = n => (n < .1 ? n.toFixed(3) : n.toFixed(2)).replace('.', ',') + ' $';
-const VERSIONE = '6.16';
+const VERSIONE = '6.17';
 /* 8/11 · l'app si aggiorna da sola (Maurizio: «vedo ancora il quadrato con la doppia finestra»: sul telefono restava la
    versione vecchia anche dopo averla chiusa). Quando torna in primo piano, e ogni 10 minuti, chiede al server quale
    app.js c'è adesso; se è un'altra, ricarica (mai mentre un lavoro AI è in corso) */
@@ -830,7 +830,7 @@ function disegnaEditorFumo(){
     const box = el.querySelector('#fumoImg');
     box.onclick = ev => {
       const r = box.getBoundingClientRect(), t = ev.target.closest('i[data-i]');
-      const lista = E.punti[E.vista] = (E.punti[E.vista] || []).slice();
+      const prima = E.punti[E.vista] || [], lista = E.punti[E.vista] = prima.slice(); lista.fuochi = prima.fuochi;   /* 9/11: i fuochi lontani restano */
       if (t) lista.splice(+t.dataset.i, 1);
       else if (lista.length < 6) lista.push({x: (ev.clientX - r.left) / r.width, y: (ev.clientY - r.top) / r.height, w: est ? .04 : .06});
       else { avviso('Al massimo 6 comignoli per vista.', true); return; }
@@ -1822,7 +1822,7 @@ const AZIONI = {
   /* 4/11 · dove sale il fumo: tocca l'immagine per aggiungere un comignolo, tocca un punto per toglierlo */
   fumo: async v => {
     const p = libreria.find(x => x.id === v); if (!p) return;
-    const leggiPunti = async u => { if (!u) return null; try { return ((await (await fetch(u, {cache:'no-cache'})).json()).punti) || []; } catch(e) { return null; } };
+    const leggiPunti = async u => { if (!u) return null; try { const j = await (await fetch(u, {cache:'no-cache'})).json(); const v = j.punti || []; v.fuochi = j.fuochi || []; return v; } catch(e) { return null; } };   /* 9/11: i fuochi lontani restano */
     editorFumo = {p, vista: 'nord', punti: {nord: await leggiPunti(p.immagini.comignoli), est: await leggiPunti(p.immagini['est-comignoli'])}, cambiati: {}};
     disegnaEditorFumo();
   },
@@ -1839,7 +1839,8 @@ const AZIONI = {
     const E = editorFumo; if (!E) return;
     try {
       for (const vv of Object.keys(E.cambiati)){ const est = vv === 'est';
-        E.p.immagini[(est ? 'est-' : '') + 'comignoli'] = await caricaComignoli(casa, E.p, est, E.punti[vv] || []) + '?v=' + Date.now().toString(36); }
+        const pv = E.punti[vv] || [], fu = pv.fuochi || (E.fuochi && E.fuochi[vv]) || [];
+        E.p.immagini[(est ? 'est-' : '') + 'comignoli'] = await caricaComignoli(casa, E.p, est, pv, fu) + '?v=' + Date.now().toString(36); }
       aggiornaInLibreria(E.p); avviso('Comignoli salvati'); E.cambiati = {}; apriPaesaggio(E.p); editorFumo = null;
     } catch(e) { avviso(e.message, true); }
   },
