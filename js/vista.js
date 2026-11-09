@@ -91,6 +91,14 @@ float tP(float x){ return mod(x, 256.); }
    in ogni punto sale in 0,45 s, tiene 0,75 s e cala in ~1,5 s. uRaf: x = secondi dalla raffica (<0: nessuna),
    y = seme, z = forza */
 uniform vec3 uRaf;
+#ifdef LEGGERO
+/* 9/11: sul Raspberry (scheda video V3D) la raffica non si disegna: da quando c'è, il suo processo grafico cade e
+   Chromium spegne WebGL. Con queste funzioni costanti il compilatore la toglie del tutto */
+float rafTau(vec2 q){ return -1.; }
+float rafCella(vec2 q){ return 0.; }
+float rafEnv(float t){ return 0.; }
+float rafStrada(float t){ return 0.; }
+#else
 float rafTau(vec2 q){
   float frast = (rumore(vec2(q.y * 3.1 + uRaf.y, uRaf.y * 1.7)) - .5) * .22;
   return uRaf.x - .55 - (1.25 - q.x + frast) / .72;          /* secondi da quando il fronte è arrivato qui: entra da destra (sopravvento) */
@@ -105,6 +113,7 @@ float rafStrada(float t){
   if (t > 1.2) a += .7 * (1. - exp(-(t - 1.2) / .7));
   return a;
 }
+#endif
 
 
 vec3 foto(sampler2D t, vec4 crop, vec2 uv){ return texture2D(t, clamp(crop.xy + uv * crop.zw, .0005, .9995)).rgb; }
@@ -476,6 +485,7 @@ void main(){
      niente, e col sereno sembrava solo il tempo che cambia. Ora è uno strato denso che sale dal fondo delle valli:
      il bordo in alto, sfilacciato e mosso dal vento, si arrampica sulle colline in ~25 s fin quasi all'abbazia (il
      soggetto ne emerge), resta un minuto e poi ridiscende diradandosi. Vale sopra qualunque tempo */
+#ifndef LEGGERO
   if (uSale.y > .001){
     float hq = 1. - uv.y;                                             /* quanto è in alto nella finestra */
     vec2 sq = vec2(uv.x * 3.2 + uTV * .07 + uT * .012, hq * 7. - uT * .05);
@@ -486,6 +496,7 @@ void main(){
     col = mix(col, uColNebbia * (.96 + .1 * fs), sale);
     alfa = max(alfa, sale);
   }
+#endif
 
   /* lampo: le nuvole si accendono da dentro (si vede la loro forma), poi il paesaggio ne prende il riflesso */
   /* ⚠ 4/11 (Maurizio: «coi lampi sopra l'orizzonte si vedono dei puntini»): prima la luce del lampo moltiplicava
@@ -609,6 +620,14 @@ float rumore(vec2 p){ vec2 i = floor(p), f = fract(p); f = f*f*(3.-2.*f);
    in ogni punto sale in 0,45 s, tiene 0,75 s e cala in ~1,5 s. uRaf: x = secondi dalla raffica (<0: nessuna),
    y = seme, z = forza */
 uniform vec3 uRaf;
+#ifdef LEGGERO
+/* 9/11: sul Raspberry (scheda video V3D) la raffica non si disegna: da quando c'è, il suo processo grafico cade e
+   Chromium spegne WebGL. Con queste funzioni costanti il compilatore la toglie del tutto */
+float rafTau(vec2 q){ return -1.; }
+float rafCella(vec2 q){ return 0.; }
+float rafEnv(float t){ return 0.; }
+float rafStrada(float t){ return 0.; }
+#else
 float rafTau(vec2 q){
   float frast = (rumore(vec2(q.y * 3.1 + uRaf.y, uRaf.y * 1.7)) - .5) * .22;
   return uRaf.x - .55 - (1.25 - q.x + frast) / .72;          /* secondi da quando il fronte è arrivato qui: entra da destra (sopravvento) */
@@ -623,6 +642,7 @@ float rafStrada(float t){
   if (t > 1.2) a += .7 * (1. - exp(-(t - 1.2) / .7));
   return a;
 }
+#endif
 float fbm(vec2 p){ float v = 0., a = .5; for (int i = 0; i < 5; i++){ v += a * rumore(p); p = p * 2.03 + 17.1; a *= .5; } return v / .96875; }
 void main(){
   vec2 uv = uMap.xy + vUv * uMap.zw;
@@ -740,10 +760,17 @@ class Vista {
     if (!gl) gl = canvas.getContext('webgl', opz) || canvas.getContext('experimental-webgl');
     if (!gl) throw new Error('WebGL non disponibile');
     this.gl = gl;
+    /* ⚠ 9/11 · scheda video del Raspberry (V3D): dopo la raffica (5.26) e la nebbia che sale (5.27) il suo processo grafico
+       cadeva e Chromium spegneva WebGL («WebGL non disponibile» anche dopo il riavvio). Lì quelle due parti non si
+       compilano. ?leggero=1 / ?leggero=0 per forzare */
+    try { const di = gl.getExtension('WEBGL_debug_renderer_info'); this.scheda = di ? gl.getParameter(di.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER); } catch(e) { this.scheda = '?'; }
+    const ql = new URLSearchParams(location.search).get('leggero');
+    this.leggero = ql != null ? ql === '1' : /V3D|VideoCore|Broadcom/i.test(this.scheda || '');
     /* con WebGL2 i programmi passano alla lingua GLSL 3: servono le letture col livello di dettaglio esplicito */
     const in3 = (src, vert) => '#version 300 es\n' + (vert ? src.replace(/\battribute /g, 'in ').replace(/\bvarying /g, 'out ')
       : src.replace(/\bvarying /g, 'in ').replace(/gl_FragColor/g, 'fragColor').replace(/(precision \w+ float;)/, '$1\nout vec4 fragColor;')).replace(/texture2D\(/g, 'texture(');
     const sh = (tipo, src) => { if (this.gl2) src = in3(src.trim(), tipo === gl.VERTEX_SHADER);
+      if (this.leggero) src = /^#version[^\n]*\n/.test(src) ? src.replace(/^(#version[^\n]*\n)/, '$1#define LEGGERO\n') : '#define LEGGERO\n' + src;
       const s = gl.createShader(tipo); gl.shaderSource(s, src); gl.compileShader(s);
       if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s)); return s; };
     const programma = (v, f, attr) => { const p = gl.createProgram();
