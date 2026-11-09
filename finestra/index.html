@@ -159,7 +159,16 @@ let mostraBordi = false;
 
 const c = document.getElementById('c');
 let vista = null;
-try { vista = new Vista(c); } catch(e) { document.body.innerHTML = '<p style="color:#d4af37;font:20px system-ui;padding:40px">Questa finestra non riesce a usare la grafica (WebGL): ' + e.message + '</p>'; throw e; }
+try { vista = new Vista(c); } catch(e) {
+  document.body.innerHTML = '<p style="color:#d4af37;font:20px system-ui;padding:40px">Questa finestra non riesce a usare la grafica (WebGL): ' + e.message + '<br><small>Riprovo da sola fra un minuto.</small></p>';
+  /* ⚠ 9/11: il Raspberry è rimasto così ore senza che da lontano si sapesse (non rispondeva e basta). Ora lo dice nello
+     stato (finestre/banco/stato-<chi>.json, con il motivo) e riprova da solo ogni minuto */
+  try { fetch(SUPABASE_URL + '/storage/v1/object/dmaster-media/finestre/banco/stato-' + mio + '.json', {method: 'POST',
+    headers: {apikey: SUPABASE_CHIAVE_PUBBLICA, Authorization: 'Bearer ' + SUPABASE_CHIAVE_PUBBLICA, 'Content-Type': 'image/png', 'x-upsert': 'true'},
+    body: JSON.stringify({chi: mio, quando: new Date().toISOString(), errore: 'WebGL: ' + e.message, ua: navigator.userAgent,
+      versione: ([...document.scripts].map(x => x.src).find(x => /vista\.js/.test(x)) || '').split('?')[1] || ''})}); } catch(e2) {}
+  setTimeout(() => location.reload(), 60000);
+  throw e; }
 
 /* ⚠ 5/11 · SCHEDA VIDEO PERSA (Raspberry sul TV: «tutto nero»). Se la scheda video butta via il disegno (memoria finita,
    reset), la pagina non lo ritrova da sola e resta nera: si ricarica dopo 3 s. Al massimo 4 volte in 10 minuti, poi
