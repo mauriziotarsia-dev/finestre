@@ -27,7 +27,7 @@
 <script src="../js/canale.js?v=2.2.0"></script>
 <script src="../js/accesso.js?v=8"></script>
 <script src="../js/qrcode.js?v=1"></script>
-<script src="../js/vista.js?v=5.27"></script>
+<script src="../js/vista.js?v=5.28"></script>
 <script src="../js/inseguitore.js?v=1"></script>
 <script src="../js/uccelli.js?v=3"></script>
 <script src="../js/bard.js?v=6"></script>
@@ -57,8 +57,9 @@ const scrivi = (k, v) => { if (anteprima || spettatore) return; try { localStora
 
 /* ── la scena: quello che il telecomando manda ─────────────────────────────── */
 const PREDEFINITA = {acceso:true, yt:'', t:0, immagini:null, animati:null, paesaggio:'', ora:'vera', meteo:'sereno',
-  intensita:.75, vento:null, fps:60, fuoco:null, prospettivaViva:false, movimento:true, luceGiorno:70, luceNotte:30, prospettiva:true, zoom:1, vx:0};
+  intensita:.75, vento:null, nebbiaSale:false, fps:60, fuoco:null, prospettivaViva:false, movimento:true, luceGiorno:70, luceNotte:30, prospettiva:true, zoom:1, vx:0};
 let scena = Object.assign({}, PREDEFINITA, leggi('finestre-scena', null) || {});
+let saleK = scena.nebbiaSale ? 1 : 0;   /* nebbia che sale: 0 giù, 1 su (ricaricando la pagina resta dov'era) */
 if (!leggi('finestre-scena', null) || q.get('forza')){
   if (q.get('yt')) scena.yt = q.get('yt');
   if (q.get('ora')) scena.ora = q.get('ora');
@@ -319,6 +320,7 @@ function paesaggioDi(s){ return s.yt ? 'yt:' + s.yt + ':' + (s.t || 0) : s.immag
 let avvisatoPronta = null, paesaggioInVista = null, inCambio = false, attesa = null, scuroVerso = 1, scuro = 1, assettoVideo = null;
 function applica(nuova, salva = true){
   scena = Object.assign({}, PREDEFINITA, nuova);
+  if (paesaggioInVista === null) saleK = scena.nebbiaSale ? 1 : 0;   /* appena aperta (anteprima nell'app, pagina dal vivo): la nebbia è già dov'è sugli schermi */
   if (salva) scrivi('finestre-scena', scena);
   if (bard) bard.suScena(scena);
   if (paesaggioDi(scena) !== paesaggioInVista){
@@ -413,7 +415,7 @@ const met = Object.assign({}, METEO.sereno), nebCol = [...NEBBIA_ORA.giorno];
 const stormi = new Stormi();
 let notte = 0, ombre = 0, meteora = null, prossimaMeteora = 0;
 /* 8/11 · effetti a comando dal telefono (Maurizio: «effetti» nella scheda Illusionist): uno stormo, una raffica, la nebbia che sale */
-let stormoFino = 0, rafficaDa = 0, nebbiaDa = 0, rafficaSeme = 0;
+let stormoFino = 0, rafficaDa = 0, rafficaSeme = 0;
 let ultimoParam = null, bancoInCorso = false;
 let fpsMisurati = 60, uccelli = 0, cieloX = Math.random(), notteFinta = 0, luce = .7, lampo = null, prossimoLampo = 0, lampoX = .5;
 
@@ -425,7 +427,7 @@ function effetto(d){
   else if (d.tipo === 'stormo'){ stormoFino = ora + 45000; stormi.nuovoStormo(); }
   else if (d.tipo === 'raffica'){ rafficaDa = ora; rafficaSeme = r() * 50; if (bard) bard.raffica(); }
   else if (d.tipo === 'tuono') scocca({forza: .18 + r() * .12, x: .1 + r() * .8, impulsi: 1, seme: Math.floor(r() * 1e9), tuono: 5 + r() * 4, volTuono: .35 + r() * .15});
-  else if (d.tipo === 'nebbia') nebbiaDa = ora;
+  /* 'nebbia' (nebbia che sale): dal 9/11 è nella scena (nebbiaSale), non è più un effetto che passa */
 }
 function scocca(l){
   l = l || {forza: .75 + Math.random() * .5, x: .15 + Math.random() * .7, impulsi: 1 + Math.floor(Math.random() * 3), seme: Math.floor(Math.random() * 1e9), tuono: null, volTuono: null};
@@ -874,13 +876,11 @@ function giro(ora){
   /* raffica dal telefono: sale in 1 s, tiene 4 s, cala in 6 (sopra il vento del tempo, senza la sua lentezza) */
   /* raffica dal telefono: un fronte che attraversa il paesaggio (js/vista.js, «LA RAFFICA»), in tempo col suono (4 s) */
   const rafficaT = rafficaDa ? (ora - rafficaDa) / 1000 : -1; if (rafficaT > 7) rafficaDa = 0;
-  /* nebbia che sale (js/vista.js, «NEBBIA CHE SALE»): sale in 25 s, resta 40 s, ridiscende e si dirada in 45 s */
+  /* nebbia che sale (js/vista.js, «NEBBIA CHE SALE»), dalla scena: sale in 25 s e resta finché il telefono non la
+     fa scendere (30 s, poi si dirada) */
+  saleK = (scena.nebbiaSale && scena.acceso !== false) ? Math.min(1, saleK + dt / 25) : Math.max(0, saleK - dt / 30);
   let sale = [0, 0];
-  if (nebbiaDa){ const t = (ora - nebbiaDa) / 1000, liscio = x => x * x * (3 - 2 * x), cima = .52;
-    if (t < 25) sale = [cima * liscio(t / 25) - .02, Math.min(1, t / 3)];
-    else if (t < 65) sale = [cima + .015 * Math.sin((t - 25) * .25), 1];
-    else if (t < 110){ const k = liscio((t - 65) / 45); sale = [cima * (1 - k * .8), 1 - k]; }
-    else nebbiaDa = 0; }
+  if (saleK > 0){ const l = saleK * saleK * (3 - 2 * saleK), cima = .52; sale = [cima * l - .02 + .012 * Math.sin(ora / 4000) * l, Math.min(1, saleK * 6)]; }
   cieloX = (cieloX + dt * (.00209 + .00836 * met.vento)) % 1000;   /* 30/10: +10%, poi -5% (Maurizio) */
   /* i lampi del temporale: dal programma comune (js/bard.js), così TV e finestrelle lampeggiano insieme */
   if (scena.meteo === 'temporale' && scena.acceso !== false){
