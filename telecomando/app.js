@@ -9,7 +9,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
 const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 const euro = n => (n < .1 ? n.toFixed(3) : n.toFixed(2)).replace('.', ',') + ' $';
-const VERSIONE = '6.21';
+const VERSIONE = '6.22';
 /* 8/11 · l'app si aggiorna da sola (Maurizio: «vedo ancora il quadrato con la doppia finestra»: sul telefono restava la
    versione vecchia anche dopo averla chiusa). Quando torna in primo piano, e ogni 10 minuti, chiede al server quale
    app.js c'è adesso; se è un'altra, ricarica (mai mentre un lavoro AI è in corso) */
@@ -646,7 +646,7 @@ async function profonditaInSottofondo(){
 async function caricaLibreria(){
   if (!casa && !CASA_PRIVATA){ libreriaStato = 'Collega il telefono alla tua stanza (Impostazioni → Stanza e schermi) per vedere i tuoi paesaggi.'; if (scheda === 'paesaggi') disegnaPaesaggi(); return; }
   libreriaStato = 'carico';
-  try { libreria = await leggiLibreria(casa); libreriaStato = 'ok'; setTimeout(profonditaInSottofondo, 1500); }
+  try { libreria = await leggiLibreria(casa); libreriaStato = 'ok'; setTimeout(profonditaInSottofondo, 1500); setTimeout(richiestaInRete, 2500); }
   catch(e) { libreriaStato = e.message; }
   if (scheda === 'paesaggi') disegnaPaesaggi(); if (scheda === 'finestre') aggiornaFinestre();
 }
@@ -1207,6 +1207,11 @@ function rapportoLavoro(extra = {}){
     passi: (L.passi || []).map(x => x.cls + ' · ' + x.testo)}, extra);
   fetch(SUPABASE_URL + '/storage/v1/object/dmaster-media/finestre/banco/lavoro-telefono.json', {method: 'POST',
     headers: {apikey: SUPABASE_CHIAVE_PUBBLICA, Authorization: 'Bearer ' + SUPABASE_CHIAVE_PUBBLICA, 'Content-Type': 'image/png', 'x-upsert': 'true'}, body: JSON.stringify(st)}).catch(() => {});
+}
+/* la stessa richiesta si legge anche dalla rete all'apertura dell'app (se il telefono era chiuso quando Claude l'ha mandata) */
+async function richiestaInRete(){
+  try { const r = await fetch(SUPABASE_URL + '/storage/v1/object/public/dmaster-media/finestre/banco/richiesta-telefono.json?t=' + Date.now(), {cache: 'no-store'});
+    if (!r.ok) return; const j = await r.json(); if (j && j.aggiornaVecchi && foglioAperto !== 'aggiorna' && !(lavoro && !lavoro.finito)) chiediAggiornaVecchi(j.aggiornaVecchi); } catch(e) {}
 }
 async function chiediAggiornaVecchi(d){
   if (!d || !Array.isArray(d.ids) || !d.chiave || aggiornaFatti.has(d.chiave)) return;
