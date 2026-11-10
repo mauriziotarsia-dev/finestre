@@ -34,7 +34,8 @@ public class Schermi {
   [DllImport("user32.dll", CharSet = CharSet.Ansi)] public static extern int ChangeDisplaySettingsEx(string lpszDeviceName, ref DEVMODE lpDevMode, IntPtr hwnd, int dwflags, IntPtr lParam);
 }
 "@
-Add-Type -TypeDefinition $codice -ErrorAction SilentlyContinue
+$Error.Clear()
+if (-not ('Schermi' -as [type])) { Add-Type -TypeDefinition $codice }
 
 function Schermi-Attivi {
   $l = @()
@@ -69,7 +70,9 @@ if ($Azione -eq 'imposta') {
   Start-Sleep -Seconds 3
 }
 
-$st = [ordered]@{ quando = (Get-Date).ToUniversalTime().ToString('o'); pc = $env:COMPUTERNAME; azione = $Azione; esito = $esito; schermi = @(Schermi-Attivi) }
+$sch = @(); try { $sch = @(Schermi-Attivi) } catch { $esito += ' errore: ' + $_.Exception.Message }
+$vc = @(Get-CimInstance Win32_VideoController | ForEach-Object { "$($_.Name): $($_.CurrentHorizontalResolution)x$($_.CurrentVerticalResolution)@$($_.CurrentRefreshRate)" })
+$st = [ordered]@{ quando = (Get-Date).ToUniversalTime().ToString('o'); pc = $env:COMPUTERNAME; azione = $Azione; esito = $esito; schermi = $sch; schede = $vc; errori = @($Error | ForEach-Object { $_.ToString() } | Select-Object -First 8) }
 $json = $st | ConvertTo-Json -Depth 5
 $chiave = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9sY2Z2Z2hqZnp5YXpvZ2ZzamJrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU4NTEyMjAsImV4cCI6MjA5MTQyNzIyMH0.hw1jx9Jzoi2YVdEghS4nT4BW4RKSmv6qLT93buxeoUc'
 $nome = ($env:COMPUTERNAME -replace '[^A-Za-z0-9-]', '').ToLower()
