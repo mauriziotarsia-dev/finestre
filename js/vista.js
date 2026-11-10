@@ -290,7 +290,11 @@ vec3 paesaggio(sampler2D img, sampler2D imgB, float vk, sampler2D dep, vec4 crop
          fogliame() non trovava niente. Dove sono le chiome lo sa già il vento (vt.b, dalla maschera fatta sull'immagine
          del giorno): di notte lì si muove quello che è scuro */
       float notteA = smoothstep(.5, 1., uNotte);
-      float verde = mix(fogliame(c), smoothstep(.4, .12, dot(c, vec3(.299, .587, .114))), notteA) * vicino;   /* anche gli ulivi grigio-verdi e i cipressi scuri; non la pietra, non la nebbia */
+      /* ⚠ 10/11 (Maurizio: «su tramonto si muovono poco gli alberi»): al tramonto e all'alba le chiome sono arancio o
+         rosate, non verdi, e fogliame() ne trovava poche. Dove sono le chiome lo dice già il vento (vt.b, dal giorno):
+         lì si muove anche quello che è scuro, a ogni ora */
+      float scuroC = smoothstep(.45, .15, dot(c, vec3(.299, .587, .114)));
+      float verde = max(mix(fogliame(c), smoothstep(.4, .12, dot(c, vec3(.299, .587, .114))), notteA), scuroC * .85) * vicino;   /* anche gli ulivi grigio-verdi e i cipressi scuri; non la pietra, non la nebbia */
       /* ⚠ 30/10: il vento (raffiche e rami) arriva già calcolato a un quarto di risoluzione: sul Raspberry
          calcolarlo per ogni pixel costava un terzo delle immagini al secondo */
       /* quanto si muovono (pixel su un foro alto 1000). Due parti, alla stessa velocità con ogni vento:
@@ -314,7 +318,7 @@ vec3 paesaggio(sampler2D img, sampler2D imgB, float vk, sampler2D dep, vec4 crop
       /* la chioma si sposta davvero, anche oltre il suo contorno: dove adesso c'è un ramo spostato lo si disegna
          (anche contro il cielo); dove la chioma se n'è andata si vede quello che c'era accanto, ma mai il cielo
          dipinto al posto del cielo che scorre */
-      float verdeS = mix(fogliame(mosso), smoothstep(.4, .12, dot(mosso, vec3(.299, .587, .114))), notteA);
+      float verdeS = max(mix(fogliame(mosso), smoothstep(.4, .12, dot(mosso, vec3(.299, .587, .114))), notteA), smoothstep(.45, .15, dot(mosso, vec3(.299, .587, .114))) * .85);
       vec2 nmS = profCG(dep, cropD, p + d, haDep, gx, gy);
       float nS = nmS.x, cieloS = haDep > .5 ? nmS.y * smoothstep(.85, .45, p.y + d.y) : sky;
       float w = max(verdeS * smoothstep(.1, .4, nS), verde * (1. - cieloS));
@@ -1305,7 +1309,7 @@ class Vista {
     gl.uniform1f(u.uMovimento0, mov ? ((v0 && !f0.rTex) || f0.cTex ? .5 : 1) : 0);   /* ricolorato: il cielo è il dipinto, le nuvole le muove la pagina */ gl.uniform1f(u.uMovimento1, mov ? (v1 || f1.cTex ? .5 : 1) : 0);
     gl.uniform4fv(u.uCieloM0, haImg && f0.cTex && s.movimento && !sp.has('cielo') ? f0.cm : [0,0,0,0]); gl.uniform4fv(u.uCieloM1, haImg && f1.cTex && s.movimento ? f1.cm : [0,0,0,0]);
     gl.uniform1f(u.uCieloX, s.cieloX || 0);
-    gl.uniform2f(u.uChiar, this.chiarezza ? this.chiarezza[0] : 1.2, this.chiarezza ? this.chiarezza[1] : .6);
+    gl.uniform2f(u.uChiar, this.chiarezza ? this.chiarezza[0] : .5, this.chiarezza ? this.chiarezza[1] : 0);
     gl.uniform1f(u.uNebV, s.movimento && !sp.has('nebbiolina') ? (s.nebViva == null ? 1 : s.nebViva) : 0);   /* 9/11: quanta, secondo l'ora e il tempo (finestra/index.html) */
     gl.uniform1f(u.uHaFermo0, haImg && v0 && f0.fTex ? 1 : 0); gl.uniform1f(u.uHaRap0, haImg && v0 && f0.fTex && f0.rTex && this.unita >= 13 ? 1 : 0); gl.uniform1f(u.uHaFermo1, haImg && v1 && f1.fTex ? 1 : 0);
     gl.uniform1f(u.uT, s.t); gl.uniform1f(u.uTV, tVento); gl.uniform3fv(u.uRaf, raf);
