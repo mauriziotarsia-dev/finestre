@@ -36,7 +36,8 @@ Passo "ffmpeg: $ff"
 Rapporto 'programmi'
 
 Passo 'Pacchetti Python (opencv, numpy, ingrandimento AI)'
-$pyArgs = if ($py -like '*py.exe') { @('-3.12') } else { @() }
+# @(...) fuori dall'if: altrimenti PowerShell lo srotola in una stringa e lo splatting la spezza in lettere (- 3 . 1 2)
+$pyArgs = @(if ($py -like '*py.exe') { '-3.12' })
 & $py @pyArgs -m pip install --upgrade --quiet opencv-python numpy realesrgan-ncnn-py 2>&1 | Select-Object -Last 3 | ForEach-Object { Passo "  pip: $_" }
 & $py @pyArgs -c "import cv2, numpy; from realesrgan_ncnn_py import Realesrgan; print('ok', cv2.__version__)" 2>&1 | ForEach-Object { Passo "  prova: $_" }
 Rapporto 'pacchetti'
