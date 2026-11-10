@@ -123,9 +123,15 @@ float prof(sampler2D d, vec4 crop, vec2 uv, float ha){
   /* senza mappa: il cielo è lontano in alto, il terreno si avvicina scendendo */
   return pow(clamp((uv.y - .38) / .62, 0., 1.), 1.4);
 }
-float cielo(vec3 c, float n, float y, float ha){
+/* ⚠ 10/11 · CIELO (Maurizio, foto della TV: «sullo sfondo si vedono tutti questi puntini»). Prima il cielo era «dove la
+   profondità è quasi nera» (sotto 0,022), punto per punto: ma i monti più lontani stanno a 0,004-0,016, cioè nero anche
+   loro, e a gradini di 1/255. Il cielo che scorre copriva le colline lontane a chiazze e a puntini (scure sulla TV, fra
+   le nuvole sopra l'abbazia; bianche a onde sulle finestrelle). Ora la maschera del cielo si fa una volta sola, al
+   caricamento (mascheraCielo, sotto): una linea del cielo per colonna, solo cielo attaccato al bordo alto, i crinali neri
+   tolti, una sfumatura verso l'orizzonte; sta nel canale verde della texture della profondità. Qui «m» è quella */
+float cielo(vec3 c, float m, float y, float ha){
   float l = dot(c, vec3(.299, .587, .114));
-  if (ha > .5) return smoothstep(.022, .004, n) * smoothstep(.85, .45, y);   /* il cielo della mappa è quasi nero: i monti lontani (appena più chiari) no */
+  if (ha > .5) return m * smoothstep(.85, .45, y);
   /* senza mappa: in alto, chiaro e poco saturo o azzurro */
   float az = clamp((c.b - c.r) * 2.5 + .3, 0., 1.);
   return smoothstep(.55, .2, y) * smoothstep(.25, .55, l) * max(az, smoothstep(.6, .85, l));
@@ -145,6 +151,15 @@ vec3 fotoG(sampler2D t, vec4 crop, vec2 uv, vec2 gx, vec2 gy){
 /* (5/11: con textureLod il processo grafico del Raspberry si chiudeva all'avvio: si usa la lettura con «bias», sempre
    fuori dagli «if» che cambiano da pixel a pixel) */
 vec3 fotoL(sampler2D t, vec4 crop, vec2 uv, float lod){ return texture2D(t, clamp(crop.xy + uv * crop.zw, .0005, .9995), lod).rgb; }
+/* profondità (x) e maschera del cielo (y) insieme */
+vec2 profCG(sampler2D d, vec4 crop, vec2 uv, float ha, vec2 gx, vec2 gy){
+  if (ha < .5) return vec2(pow(clamp((uv.y - .38) / .62, 0., 1.), 1.4), 0.);
+#if __VERSION__ >= 300
+  return textureGrad(d, clamp(crop.xy + uv * crop.zw, .0005, .9995), gx, gy).rg;
+#else
+  return texture2D(d, clamp(crop.xy + uv * crop.zw, .0005, .9995)).rg;
+#endif
+}
 float profG(sampler2D d, vec4 crop, vec2 uv, float ha, vec2 gx, vec2 gy){
   if (ha < .5) return pow(clamp((uv.y - .38) / .62, 0., 1.), 1.4);
 #if __VERSION__ >= 300
@@ -173,7 +188,7 @@ vec3 paesaggio(sampler2D img, sampler2D imgB, float vk, sampler2D dep, vec4 crop
   /* ⚠ 5/11 · il passaggio al giro del video sfuma SOLO il video (prima si sfumava verso un secondo paesaggio disegnato
      senza vento e senza nebbiolina: a ogni giro i cipressi tornavano dritti e i veli sparivano, «si vede il loop») */
   if (vk > .001) c = mix(c, foto(imgB, crop, p), vk);
-  sky = cielo(c, haDep > .5 ? fotoL(dep, cropD, p, 2.).r : n, p.y, haDep);   /* ⚠ 5/11: profondità un po' sfocata: quella nitida è granulosa vicino all'orizzonte e il cielo che scorre ci lasciava puntini (G10) */
+  sky = cielo(c, haDep > .5 ? fotoL(dep, cropD, p, 0.).g : 0., p.y, haDep);   /* ⚠ 5/11: profondità un po' sfocata: quella nitida è granulosa vicino all'orizzonte e il cielo che scorre ci lasciava puntini (G10) */
   /* video non ancora cucito: fermo dappertutto, video solo dove si muove davvero e solo dove è chiaro e poco
      colorato (nebbia, fumo, acqua che luccica: i cipressi scuri dentro un banco di nebbia restano fermi);
      il cielo dal video, se non c'è il panorama */
@@ -224,7 +239,7 @@ vec3 paesaggio(sampler2D img, sampler2D imgB, float vk, sampler2D dep, vec4 crop
       vec2 pa = p - dir * (f1 - .5), pb = p - dir * (f2 - .5);
       vec3 a = haR > .5 ? fotoG(fer, crop, pa, gx, gy) : fotoG(img, crop, pa, gx, gy), b = haR > .5 ? fotoG(fer, crop, pb, gx, gy) : fotoG(img, crop, pb, gx, gy);   /* ricolorato: le nuvole sono quelle dipinte di questa luce (nel fermo), non quelle del video */
       /* si prende solo cielo: un pezzo di monte o di castello spostato dentro il cielo darebbe il contorno doppio */
-      float sa = cielo(a, profG(dep, cropD, pa, haDep, gx, gy), pa.y, haDep), sb = cielo(b, profG(dep, cropD, pb, haDep, gx, gy), pb.y, haDep);
+      float sa = cielo(a, profCG(dep, cropD, pa, haDep, gx, gy).y, pa.y, haDep), sb = cielo(b, profCG(dep, cropD, pb, haDep, gx, gy).y, pb.y, haDep);
       float w = abs(f1 - .5) * 2., wa = (1. - w) * sa, wb = w * sb, tot = wa + wb;
       vec3 cs = tot > .001 ? (a * wa + b * wb) / tot : c;
       c = mix(c, cs, sky * clamp(tot * 1.5, 0., 1.));
@@ -268,7 +283,8 @@ vec3 paesaggio(sampler2D img, sampler2D imgB, float vk, sampler2D dep, vec4 crop
          (anche contro il cielo); dove la chioma se n'è andata si vede quello che c'era accanto, ma mai il cielo
          dipinto al posto del cielo che scorre */
       float verdeS = mix(fogliame(mosso), smoothstep(.4, .12, dot(mosso, vec3(.299, .587, .114))), notteA);
-      float nS = profG(dep, cropD, p + d, haDep, gx, gy), cieloS = haDep > .5 ? smoothstep(.022, .004, nS) * smoothstep(.85, .45, p.y + d.y) : sky;
+      vec2 nmS = profCG(dep, cropD, p + d, haDep, gx, gy);
+      float nS = nmS.x, cieloS = haDep > .5 ? nmS.y * smoothstep(.85, .45, p.y + d.y) : sky;
       float w = max(verdeS * smoothstep(.1, .4, nS), verde * (1. - cieloS));
       c = mix(c, mosso, w);
       /* ⚠ 9/11 (Maurizio: «con la nebbia c'è ancora la sensazione di alone, intorno a cipresso e campanile»): la chioma
@@ -313,7 +329,14 @@ vec3 paesaggio(sampler2D img, sampler2D imgB, float vk, sampler2D dep, vec4 crop
     float lm = dot(cbm, vec3(.299, .587, .114)), mxm = max(cbm.r, max(cbm.g, cbm.b));
     float satm = (mxm - min(cbm.r, min(cbm.g, cbm.b))) / max(mxm, .01), sogliaM = mix(.4, .1, uNotte) - mix(.2, .06, uNotte) * smoothstep(.05, .3, nB);   /* 8/11: di notte la nebbia è grigio-blu scura (~0,1–0,2) */   /* 5/11: la nebbia vicina, in ombra, è più scura (grigio-azzurro ~0,35): prima restava fuori */
     /* la nebbia è azzurrina o grigia (blu almeno quanto il rosso): la pietra chiara del castello, calda, resta ferma */
-    float neb = smoothstep(sogliaM - .06, sogliaM + .22, lm) * (1. - smoothstep(.1, .34, satm)) * smoothstep(-.05, .03, cbm.b - cbm.r) * (1. - smoothstep(.75, .95, nB)) * (1. - (haDep > .5 ? smoothstep(.03, .006, nB) * smoothstep(.85, .45, p.y) : sky)) * uNebV;   /* cielo anche lui dalla profondità sfocata: sulle colline lontane quella nitida faceva fiocchi */   /* 5/11: anche la nebbia in primo piano (Maurizio: «sotto l'abbazia sembra immobile») */
+    float neb = smoothstep(sogliaM - .06, sogliaM + .22, lm) * (1. - smoothstep(.1, .34, satm)) * smoothstep(-.05, .03, cbm.b - cbm.r) * (1. - smoothstep(.75, .95, nB)) * (haDep > .5 ? smoothstep(.05, .1, fotoL(dep, cropD, pS, 2.5).r) : 1. - sky) * uNebV;   /* cielo anche lui dalla profondità sfocata: sulle colline lontane quella nitida faceva fiocchi */   /* 5/11: anche la nebbia in primo piano (Maurizio: «sotto l'abbazia sembra immobile») */
+    /* ⚠ 10/11 (Maurizio, foto della TV: «sullo sfondo si vedono tutti questi puntini»): la nebbiolina arrivava fino alle
+       colline più lontane (profondità 0,03-0,07) e alla pietra in ombra dell'abbazia (grigio-azzurra come la nebbia):
+       lì il colore passa da «nebbia» a «non nebbia» a chiazze, e i veli facevano cavolfiori bianchi sopra i crinali e
+       macchie scure sul fianco dell'abbazia. Ora sotto 0,05 di profondità niente nebbiolina, piena da 0,1 (la soglia
+       sulla profondità molto sfocata: niente gradini): la foschia sull'orizzonte resta quella dipinta, ferma e pulita;
+       quella nelle valli e sul fiume (più vicina) si muove come prima */
+    if (haDep > .5) neb *= 1. - fotoL(dep, cropD, pS, 1.).b;   /* 10/11: niente veli sugli oggetti (abbazia, castello, torri) */
     neb = min(1., neb * 1.5);   /* 5/11 (Maurizio: «le nebbioline mi sembrano ferme davanti e dietro»): più decisa */
     /* ⚠ 5/11: la maschera sfocata «sborda» di qualche pixel sugli oggetti scuri e caldi (cipressi, alberi, pietra) e i
        veli facevano un alone intorno alle sagome: si spegne dove il pixel nitido è scuro o caldo */
@@ -483,7 +506,9 @@ void main(){
       }
     }
     /* uccelli (js/uccelli.js) */
-    if (uUccelli > .01 && uNU > .5 && sky > .2 && uv.x > uUBox.x && uv.y > uUBox.y && uv.x < uUBox.z && uv.y < uUBox.w){ float b = uccelli(uv) * uUccelli * smoothstep(.2, .7, sky); col = mix(col, col * .3 + vec3(.035, .035, .045), b * .8); }
+    /* 10/11: gli uccelli passano anche davanti alle colline lontane (il cielo nuovo si ferma al crinale, prima no) */
+    float dietroU = uHaDep0 > .5 ? max(sky, smoothstep(.035, .012, n) * smoothstep(.85, .45, uv.y)) : sky;
+    if (uUccelli > .01 && uNU > .5 && dietroU > .2 && uv.x > uUBox.x && uv.y > uUBox.y && uv.x < uUBox.z && uv.y < uUBox.w){ float b = uccelli(uv) * uUccelli * smoothstep(.2, .7, dietroU); col = mix(col, col * .3 + vec3(.035, .035, .045), b * .8); }
     if (uNFumo > .5 && uFumoA > .01){
       float fm = fumo(uv) * (1. - uPioggia * .6) * (1. - uTempesta * .3);
       if (fm > .001){
@@ -1078,7 +1103,7 @@ class Vista {
     const im = await caricaImg(url);
     f.img = im; f.iw = im.naturalWidth; f.ih = im.naturalHeight; f.tex = this.texture(); this.carica(f.tex, this.entro(im)); this.mip(f.tex);
     let dimg = null;
-    if (pDep){ dimg = await pDep; if (dimg){ f.depTex = this.texture(); this.carica(f.depTex, dimg); this.mip(f.depTex); } }
+    if (pDep){ dimg = await pDep; if (dimg){ f.depTex = this.texture(); let dc = dimg; try { dc = mascheraCielo(dimg); } catch(e) { /* senza maschera: niente cielo che scorre, ma il resto va */ } this.carica(f.depTex, dc); this.mip(f.depTex); } }   /* 10/11: verde = maschera del cielo */
     const imA = pAlberi ? (await pAlberi) || im : im;   /* 8/11: di notte gli alberi si trovano sull'immagine del giorno */
     try { f.aTex = this.texture(); this.carica(f.aTex, mascheraAlberi(imA, dimg)); } catch(e) { f.aTex = null; }
     f.dimg = dimg; await this.caricaFumi(f, comignoli, dimg);
@@ -1393,6 +1418,105 @@ function mascheraAlberi(img, dimg){
   }
   return o;
 }
+/* ⚠ 10/11 · la maschera del cielo, una volta per immagine (vedi cielo() nel disegno). Torna una tela grande come la mappa
+   di profondità: rosso (e blu) = la profondità di prima, verde = quanto è cielo (0..1, già sfumato).
+   · cielo = il nero della mappa in alto (la soglia la dà il bordo alto stesso, +1,5/255: i monti lontani a 2-4/255 no)
+   · per colonna, la linea del cielo: la prima riga dall'alto che non è cielo e non lo sono le 3 dopo (un puntino non la
+     ferma); sotto non c'è più cielo, anche se la mappa è nera (un crinale lontano): niente isole, niente puntini
+   · le gobbe di cielo strette (un pezzo di crinale nero come il cielo) si tolgono; la torre, che è il contrario, resta
+   · verso l'orizzonte generale (mediana larga: la torre non conta) il cielo che scorre sfuma nel dipinto, su 5% d'altezza
+   · un filo di sfocatura per il bordo, poi niente più soglie da un pixel all'altro */
+function mascheraCielo(dimg){
+  const W = Math.min(dimg.naturalWidth, 2048), H = Math.round(W * dimg.naturalHeight / dimg.naturalWidth);
+  const c = document.createElement('canvas'); c.width = W; c.height = H;
+  const x = c.getContext('2d', {willReadFrequently:true}); x.drawImage(dimg, 0, 0, W, H);
+  const im = x.getImageData(0, 0, W, H), d = im.data;
+  const m = mascheraCieloDa(d, W, H), o = mascheraOggettiDa(d, W, H);
+  for (let i = 0; i < W * H; i++){ d[i * 4 + 1] = Math.round(m[i] * 255); d[i * 4 + 2] = Math.round(o[i] * 255); d[i * 4 + 3] = 255; }
+  x.putImageData(im, 0, 0);
+  return c;
+}
+/* ⚠ 10/11 · gli OGGETTI (blu): abbazia, castello, torri, cipressi, cioè quello che sulla sua riga sta molto più vicino
+   di quello che ha intorno (profondità meno la sua «apertura» lungo la riga, finestra 60% dell'altezza: un oggetto più
+   stretto sparisce, il terreno resta). La nebbiolina viva lì non va: la pietra in ombra è grigio-azzurra come la nebbia
+   e i veli ci facevano aloni e macchie (Maurizio: alone sul campanile, macchie scure sul fianco del castello).
+   Solo da metà distanza in là (sotto 0,3): la nebbia vicina fra gli alberi in primo piano resta viva */
+function mascheraOggettiDa(d, W, H){
+  const o = new Float32Array(W * H), w = Math.min(W, Math.max(3, Math.round(H * .6))) | 1, h = w >> 1;
+  const riga = new Float32Array(W), a = new Float32Array(W), g = new Float32Array(W + w), sx = new Float32Array(W + w), dx = new Float32Array(W + w);
+  /* minimo (o massimo) su una finestra scorrevole, in tempo lineare (van Herk / Gil-Werman) */
+  const scorri = (src, out, f, vuoto) => {
+    const n = W + w; for (let i = 0; i < n; i++){ const k = i - h; g[i] = k >= 0 && k < W ? src[k] : src[k < 0 ? 0 : W - 1]; }
+    for (let i = 0; i < n; i++) sx[i] = i % w === 0 ? g[i] : f(sx[i - 1], g[i]);
+    for (let i = n - 1; i >= 0; i--) dx[i] = (i % w === w - 1 || i === n - 1) ? g[i] : f(dx[i + 1], g[i]);
+    for (let k = 0; k < W; k++) out[k] = f(dx[k], sx[k + w - 1]);
+    return vuoto;
+  };
+  const ap = new Float32Array(W), mn = new Float32Array(W);
+  for (let y = 0; y < H; y++){
+    for (let i = 0; i < W; i++) riga[i] = d[(y * W + i) * 4] / 255;
+    scorri(riga, mn, Math.min); scorri(mn, ap, Math.max);
+    for (let i = 0; i < W; i++){
+      const pr = riga[i] - ap[i]; let v = Math.min(1, Math.max(0, (pr - .03) / .03));
+      v *= 1 - Math.min(1, Math.max(0, (riga[i] - .3) / .15));
+      o[y * W + i] = v;
+    }
+  }
+  /* allargata di ~1% dell'altezza prima di sfocarla: il bordo morbido sta fuori dalla sagoma, non dentro (se no un filo
+     di velo restava attaccato al campanile) */
+  const rD = Math.max(1, Math.round(H * .01)), t2 = new Float32Array(W * H);
+  for (let y = 0; y < H; y++) for (let i = 0; i < W; i++){ let v = 0; for (let k = Math.max(0, i - rD); k <= Math.min(W - 1, i + rD); k++) v = Math.max(v, o[y * W + k]); t2[y * W + i] = v; }
+  for (let y = 0; y < H; y++) for (let i = 0; i < W; i++){ let v = 0; for (let k = Math.max(0, y - rD); k <= Math.min(H - 1, y + rD); k++) v = Math.max(v, t2[k * W + i]); o[y * W + i] = v; }
+  sfoca2(o, W, H, Math.max(1, Math.round(H * .004)));
+  return o;
+}
+function sfoca2(m, W, H, r){   /* tre passate di media mobile (quasi una gaussiana), in orizzontale e in verticale */
+  const tmp = new Float32Array(W * H);
+  for (let p = 0; p < 3; p++){
+    for (let y = 0; y < H; y++){ let acc = 0; for (let i = -r; i <= r; i++) acc += m[y * W + Math.min(W - 1, Math.max(0, i))];
+      for (let i = 0; i < W; i++){ tmp[y * W + i] = acc / (2 * r + 1); acc += m[y * W + Math.min(W - 1, i + r + 1)] - m[y * W + Math.max(0, i - r)]; } }
+    for (let i = 0; i < W; i++){ let acc = 0; for (let y = -r; y <= r; y++) acc += tmp[Math.min(H - 1, Math.max(0, y)) * W + i];
+      for (let y = 0; y < H; y++){ m[y * W + i] = acc / (2 * r + 1); acc += tmp[Math.min(H - 1, y + r + 1) * W + i] - tmp[Math.max(0, y - r) * W + i]; } }
+  }
+}
+/* il calcolo, su RGBA (solo il rosso): a parte, per provarlo fuori dal browser */
+function mascheraCieloDa(d, W, H){
+  const m = new Float32Array(W * H);
+  const alto = [];
+  for (let y = 0; y < Math.max(2, Math.floor(H / 20)); y++) for (let i = 0; i < W; i++) alto.push(d[(y * W + i) * 4]);
+  alto.sort((a, b) => a - b);
+  const t0 = alto[Math.floor(alto.length * .95)];
+  if (t0 > 5) return m;                                                    /* in alto non c'è cielo */
+  const T = t0 + 1.5, eC = (y, i) => d[(y * W + i) * 4] <= T;
+  const sl = new Float32Array(W);
+  for (let i = 0; i < W; i++){
+    let y = 0;
+    while (y < H){
+      if (!eC(y, i)){ let ok = true; for (let k = 1; k <= 3 && y + k < H; k++) if (eC(y + k, i)){ ok = false; break; } if (ok) break; }
+      y++;
+    }
+    sl[i] = y;
+  }
+  /* apertura (minimo poi massimo, finestra 3% della larghezza): via le gobbe strette verso il basso */
+  const fin = (a, w, f) => { const r = new Float32Array(W), h = w >> 1; for (let i = 0; i < W; i++){ let v = a[i]; for (let k = Math.max(0, i - h); k <= Math.min(W - 1, i + h); k++) v = f(v, a[k]); r[i] = v; } return r; };
+  const w = Math.max(3, Math.round(W * .03)) | 1;
+  const ap = fin(fin(sl, w, Math.min), w, Math.max);
+  for (let i = 0; i < W; i++) ap[i] = Math.min(ap[i], sl[i]);
+  /* l'orizzonte generale: mediana larga (25%), poi lisciata, così la sfumatura non fa gradini */
+  const hw = Math.max(5, Math.round(W * .25)) | 1, hs = new Float32Array(W);
+  for (let i = 0; i < W; i++){ const v = Array.from(ap.slice(Math.max(0, i - (hw >> 1)), Math.min(W, i + (hw >> 1) + 1))).sort((a, b) => a - b); hs[i] = v[v.length >> 1]; }
+  const hl = sfoca1(hs, Math.max(2, Math.round(W * .04)));
+  const F = H * .05;
+  for (let y = 0; y < H; y++) for (let i = 0; i < W; i++){
+    if (y >= ap[i]) continue;
+    let f = Math.min(1, Math.max(0, (hl[i] - y) / F)); f = f * f * (3 - 2 * f);
+    m[y * W + i] = y < hl[i] - F ? 1 : f;
+  }
+  /* il bordo: sfocatura leggera (raggio ~0,25% dell'altezza) */
+  sfoca2(m, W, H, Math.max(1, Math.round(H * .0025)));
+  return m;
+}
+function sfoca1(a, r){ const n = a.length, o = new Float32Array(n); for (let i = 0; i < n; i++){ let s = 0, k = 0; for (let j = Math.max(0, i - r); j <= Math.min(n - 1, i + r); j++){ s += a[j]; k++; } o[i] = s / k; } return o; }
 function orizzonte(dimg){
   const W = 48, H = Math.max(8, Math.round(W * dimg.naturalHeight / dimg.naturalWidth));
   const c = document.createElement('canvas'); c.width = W; c.height = H;
