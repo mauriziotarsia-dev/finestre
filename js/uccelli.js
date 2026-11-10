@@ -102,29 +102,53 @@
         x: 0, y: 0, z, bank: 0, scala: caso(2, 2.5), fase: 0, freq: 5, forza: 0, ali: 0, vita: caso(55, 90)});
     }
 
-    /* ⚠ 9/11 · PIPISTRELLI: uno o due, vicini; volo a zig-zag (cambiano direzione ogni poco, di scatto, su e giù),
-       battito fitto, restano a cacciare davanti alla finestra 10-25 s e poi se ne vanno da un lato */
+    /* ⚠ 10/11 · PIPISTRELLI rifatti (Maurizio: «il volo dei pipistrelli mi sembrava finto»). Prima: velocità costante a
+       tratti dritti, con un cambio di direzione secco ogni mezzo secondo (un robot a zig-zag). Dal vero un pipistrello
+       che caccia: gira di continuo e stretto (curve morbide ma rapide, mai un tratto dritto), ronza in una zona
+       davanti a sé facendo anelli e otto, ogni tanto scarta di colpo e cala per prendere un insetto; il battito è
+       fittissimo e irregolare e la velocità sobbalza col battito (il volo «sfarfallante»). Qui: direzione e velocità
+       in curva continua (la velocità di rotazione cambia piano verso valori sempre nuovi), un richiamo morbido verso
+       la sua zona di caccia, gli scarti, il sobbalzo a ogni colpo d'ala. Poi se ne va da un lato */
     nuovoPipistrello(){
       if (this.u.length >= MAX || this.u.filter(b => b.pip).length >= 2) return;
-      const dir = Math.random() < .5 ? 1 : -1, z = caso(.7, 1.4);
-      this.u.push({pip: true, x: -dir * (this.A / 2 + .05) * z, y: (ORIZZONTE - caso(.05, .22)) * z, z, vx: dir * caso(.12, .2), vy: 0, vz: 0,
-        cambio: caso(.15, .5), quota: (ORIZZONTE - caso(.06, .24)) * z, vita: caso(10, 25), dir, scala: caso(1.3, 1.7), fase: caso(0, 6.28), freq: caso(13, 17), ali: 0, bank: 0});
+      const dir = Math.random() < .5 ? 1 : -1, z = caso(.75, 1.3);
+      const sx = dir > 0 ? -.05 : this.A + .05, sy = ORIZZONTE - caso(.1, .26);
+      this.u.push({pip: true, sx, sy, z, x: (sx - this.A / 2) * z, y: (ORIZZONTE - sy) * z,
+        h: dir > 0 ? caso(-.4, .4) : Math.PI + caso(-.4, .4), v: caso(.2, .28), w: 0, wt: 0, cambio: 0,
+        cx: caso(.25, .75) * this.A, cy: ORIZZONTE - caso(.1, .24), raggio: caso(.08, .16), scarto: 0,
+        vita: caso(12, 28), dir, scala: caso(1.2, 1.55), fase: caso(0, 6.28), freq: caso(11, 15), amp: 1, ali: 0, bank: 0, zt: z});
     }
     volaPipistrello(b, dt){
       b.vita -= dt;
       if ((b.cambio -= dt) <= 0){
-        b.cambio = caso(.12, .55);
-        const cx = b.vita > 0 ? -b.x / b.z * .5 : b.dir * .6;           /* resta davanti alla finestra, poi esce */
-        b.vx = Math.max(-.32, Math.min(.32, b.vx * .3 + caso(-.25, .25) + cx * .3));
-        b.vy = caso(-.12, .12) + (b.quota - b.y) * .8;
-        b.vz = caso(-.08, .08) + (1 - b.z) * .2;
+        b.cambio = caso(.15, .45);
+        b.wt = caso(-7, 7);                                            /* nuova voglia di girare, rad/s */
+        if (Math.random() < .2) b.zt = caso(.7, 1.35);
+        b.amp = caso(.75, 1.05);
       }
-      b.x += b.vx * dt; b.y += b.vy * dt; b.z = Math.max(.5, b.z + b.vz * dt);
-      b.fase += dt * b.freq; b.ali = Math.sin(b.fase);
-      b.bank += (Math.max(-.6, Math.min(.6, b.vy * 3)) - b.bank) * Math.min(1, dt * 6);
-      const sxp = this.A / 2 + b.x / b.z, syp = ORIZZONTE - b.y / b.z;
-      if (b.vita < 0 && (sxp < -.2 || sxp > this.A + .2)) b.via = true;
-      if (b.vita < -15 || syp < -.15 || syp > .7) b.via = true;
+      /* la zona di caccia: finché caccia ci torna (curva verso il centro se si allontana), poi esce dal suo lato */
+      const tx = b.vita > 0 ? b.cx : (b.dir > 0 ? this.A + .4 : -.4), ty = b.vita > 0 ? b.cy : b.sy - .05;
+      const dx = tx - b.sx, dy = ty - b.sy, dist = Math.hypot(dx, dy);
+      let verso = Math.atan2(dy, dx) - b.h; verso = Math.atan2(Math.sin(verso), Math.cos(verso));
+      const richiamo = b.vita > 0 ? Math.min(1, Math.max(0, (dist - b.raggio) / b.raggio)) : .8;
+      /* scarto per un insetto: di colpo, un quarto di giro e giù */
+      if (b.vita > 0 && b.scarto <= 0 && Math.random() < dt * .45){ b.scarto = .22; b.w = (Math.random() < .5 ? -1 : 1) * caso(9, 14); b.v = caso(.3, .38); }
+      b.scarto -= dt;
+      if (b.scarto <= 0) b.w += ((b.wt * (1 - richiamo) + verso * 6 * richiamo) - b.w) * Math.min(1, dt * 7);
+      b.h += b.w * dt;
+      b.fase += dt * b.freq * (1 + Math.abs(b.w) * .03);
+      const colpo = Math.sin(b.fase);
+      b.ali = colpo * b.amp;
+      b.v += (caso(.18, .3) - b.v) * Math.min(1, dt * 1.5);
+      const vv = b.v * (1 + .22 * colpo);                               /* il sobbalzo a ogni colpo d'ala */
+      b.sx += Math.cos(b.h) * vv * dt;
+      b.sy += Math.sin(b.h) * vv * dt * .75 + (b.scarto > 0 ? .12 * dt : 0) - colpo * .006 * dt * b.freq * .1;
+      b.sy = Math.min(ORIZZONTE - .02, Math.max(.03, b.sy));
+      b.z += (b.zt - b.z) * Math.min(1, dt * .8);
+      b.x = (b.sx - this.A / 2) * b.z; b.y = (ORIZZONTE - b.sy) * b.z;
+      b.bank += (Math.max(-.7, Math.min(.7, -b.w * .07)) - b.bank) * Math.min(1, dt * 8);
+      if (b.vita < 0 && (b.sx < -.25 || b.sx > this.A + .25)) b.via = true;
+      if (b.vita < -20) b.via = true;
     }
 
     volaRapace(b, dt){
