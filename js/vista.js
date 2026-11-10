@@ -67,6 +67,7 @@ uniform vec4 uFumo[8];        /* fumo dai comignoli: (x, y nella vista, larghezz
 uniform float uFumoI[8];      /* 9/11: quanto fuma ognuno (i comignoli 1, i fuochi lontani quando sono accesi: js/vita.js) */
 uniform float uNFumo, uFumoA; /* quanti, e quanto si vedono (sfumano col paesaggio) */
 uniform float uNebV;          /* la nebbiolina viva (0 spenta) */
+uniform vec2 uChiar;          /* 10/11 · ricolorato: nitidezza fine (x) e «chiarezza», il contrasto locale largo (y) */
 
 /* hash senza seno: sulle schede dei Raspberry il seno costa caro */
 float h1(vec2 p){ vec3 p3 = fract(vec3(p.xyx) * .1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
@@ -197,7 +198,16 @@ vec3 paesaggio(sampler2D img, sampler2D imgB, float vk, sampler2D dep, vec4 crop
     vec4 fb = haR > .5 ? texture2D(fer, clamp(crop.xy + p * crop.zw, .0005, .9995), -.6) : texture2D(fer, clamp(crop.xy + p * crop.zw, .0005, .9995));   /* 10/11: col ricolorato il dipinto si legge dal livello più fine (il video, senza riduzioni, è nitido di suo) */
     /* 10/11: col video ricolorato il fermo è il dipinto, più morbido del video dell'AI (che a 1080p ripassa i dettagli):
        un filo di nitidezza, così da un'ora all'altra non sembra calare la risoluzione */
-    if (haR > .5) fb.rgb = clamp(fb.rgb + (fb.rgb - texture2D(fer, clamp(crop.xy + p * crop.zw, .0005, .9995), 1.2).rgb) * .8, 0., 1.);
+    if (haR > .5){
+      /* ⚠ 10/11 (Maurizio: «la rianimata sembra molto più definita»): il video dell'AI ridisegna il paesaggio con più
+         micro-dettaglio del dipinto (misurato: circa il doppio). Al dipinto si dà nitidezza fine e un po' di
+         «chiarezza» (contrasto locale largo, sulla luce e non sul colore, tenuto lontano dai neri e dai bianchi) */
+      vec2 qf = clamp(crop.xy + p * crop.zw, .0005, .9995);
+      vec3 b1 = texture2D(fer, qf, 1.2).rgb, b3 = texture2D(fer, qf, 3.5).rgb;
+      float l = dot(fb.rgb, vec3(.299, .587, .114)), l3 = dot(b3, vec3(.299, .587, .114));
+      float lc = (l - l3) * uChiar.y * smoothstep(.02, .15, l) * (1. - smoothstep(.85, 1., l));
+      fb.rgb = clamp(fb.rgb + (fb.rgb - b1) * uChiar.x + lc, 0., 1.);
+    }
     float mx = max(fb.r, max(fb.g, fb.b)), mn = min(fb.r, min(fb.g, fb.b));
     float chiaro = smoothstep(.38, .6, mx) * (1. - smoothstep(.2, .42, (mx - mn) / max(mx, .01)));
     /* ⚠ 5/11 (Maurizio: «si vede ancora il giro sullo sfondo, nella zona con la foschia»): la foschia lontana del video
@@ -946,7 +956,7 @@ class Vista {
     /* il programma principale: paesaggio, cielo, nebbia, lampo, luce */
     this.p = programma(VERT, FRAG, ['aPos']);
     this.fumoDati = new Float32Array(32); this.fumoForza = new Float32Array(8);
-    this.u = posizioni(this.p, ['uOcchio','uImg0b','uVmix','uImg0','uImg1','uDep0','uDep1','uMap','uCrop0','uCrop1','uCropD0','uCropD1','uUccelli','uCielo0','uCielo1','uCieloM0','uCieloM1','uCieloX','uFermo0','uFermo1','uHaFermo0','uHaFermo1','uRap0','uHaRap0','uVentoT','uHaVento','uU','uNU','uUBox','uFumo','uFumoI','uNFumo','uFumoA','uNebV','uNotte','uOmbre','uMeteora','uMeteoraK','uMix','uHaImg','uHaDep0','uHaDep1','uMovimento0','uMovimento1',
+    this.u = posizioni(this.p, ['uOcchio','uImg0b','uVmix','uImg0','uImg1','uDep0','uDep1','uMap','uCrop0','uCrop1','uCropD0','uCropD1','uUccelli','uCielo0','uCielo1','uCieloM0','uCieloM1','uCieloX','uFermo0','uFermo1','uHaFermo0','uHaFermo1','uRap0','uHaRap0','uVentoT','uHaVento','uU','uNU','uUBox','uFumo','uFumoI','uNFumo','uFumoA','uNebV','uChiar','uNotte','uOmbre','uMeteora','uMeteoraK','uMix','uHaImg','uHaDep0','uHaDep1','uMovimento0','uMovimento1',
       'uLato','uT','uTV','uRaf','uAspetto','uPix','uCoperto','uNebbia','uPioggia','uNeve','uTempesta','uVento','uLampo','uLampoX','uLampoS','uLampoB',
       'uNotteFinta','uLuce','uBuio','uQualita','uColNebbia','uMeteo','uSale']);
     gl.useProgram(this.p);
@@ -1295,6 +1305,7 @@ class Vista {
     gl.uniform1f(u.uMovimento0, mov ? ((v0 && !f0.rTex) || f0.cTex ? .5 : 1) : 0);   /* ricolorato: il cielo è il dipinto, le nuvole le muove la pagina */ gl.uniform1f(u.uMovimento1, mov ? (v1 || f1.cTex ? .5 : 1) : 0);
     gl.uniform4fv(u.uCieloM0, haImg && f0.cTex && s.movimento && !sp.has('cielo') ? f0.cm : [0,0,0,0]); gl.uniform4fv(u.uCieloM1, haImg && f1.cTex && s.movimento ? f1.cm : [0,0,0,0]);
     gl.uniform1f(u.uCieloX, s.cieloX || 0);
+    gl.uniform2f(u.uChiar, this.chiarezza ? this.chiarezza[0] : 1.2, this.chiarezza ? this.chiarezza[1] : .6);
     gl.uniform1f(u.uNebV, s.movimento && !sp.has('nebbiolina') ? (s.nebViva == null ? 1 : s.nebViva) : 0);   /* 9/11: quanta, secondo l'ora e il tempo (finestra/index.html) */
     gl.uniform1f(u.uHaFermo0, haImg && v0 && f0.fTex ? 1 : 0); gl.uniform1f(u.uHaRap0, haImg && v0 && f0.fTex && f0.rTex && this.unita >= 13 ? 1 : 0); gl.uniform1f(u.uHaFermo1, haImg && v1 && f1.fTex ? 1 : 0);
     gl.uniform1f(u.uT, s.t); gl.uniform1f(u.uTV, tVento); gl.uniform3fv(u.uRaf, raf);
