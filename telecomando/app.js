@@ -9,7 +9,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
 const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 const euro = n => (n < .1 ? n.toFixed(3) : n.toFixed(2)).replace('.', ',') + ' $';
-const VERSIONE = '6.17';
+const VERSIONE = '6.18';
 /* 8/11 · l'app si aggiorna da sola (Maurizio: «vedo ancora il quadrato con la doppia finestra»: sul telefono restava la
    versione vecchia anche dopo averla chiusa). Quando torna in primo piano, e ogni 10 minuti, chiede al server quale
    app.js c'è adesso; se è un'altra, ricarica (mai mentre un lavoro AI è in corso) */
@@ -1145,9 +1145,9 @@ async function faiAnimazione(p, foto, ora, elementi, tv = false){
    sceglie in Anima o se si spegne «Risparmio» nelle Impostazioni */
 const oreDaAnimare = () => imp.risparmio !== false ? ['giorno'] : ['giorno','alba','tramonto','notte'];
 const nVideoCrea = () => (imp.risparmio !== false ? 1 : 1 + ['alba','tramonto','notte'].filter(o => imp.luci[o]).length) * (imp.tv !== false ? 2 : 1);
-function animMancanti(p, viste = [false, true]){
+function animMancanti(p, viste = [false, true], ore = oreDaAnimare()){
   const m = [];
-  for (const tv of viste) for (const ora of oreDaAnimare()){
+  for (const tv of viste) for (const ora of ore){
     const pre = tv ? 'est-' : '';
     if (p.immagini[pre + ora] && !p.animati[pre + ora]) m.push({tv, ora});
   }
@@ -1855,7 +1855,9 @@ const AZIONI = {
     if (ora === 'tutte'){
       await conLavoro('anima', async L => {
         L.p = p;
-        let quali = animMancanti(p, viste);
+        /* 10/11: «Tutte» = le luci che non hanno ancora il loro video, anche con Risparmio acceso (prima, con Risparmio,
+           guardava solo il giorno: se c'era già, rifaceva tutto da capo, giorno compreso) */
+        let quali = animMancanti(p, viste, ['giorno','alba','tramonto','notte']);
         if (!quali.length) quali = viste.flatMap(tv => ['giorno','alba','tramonto','notte'].filter(o => p.immagini[(tv ? 'est-' : '') + o]).map(o => ({tv, ora:o})));
         await animaTutto(p, quali);
       });
