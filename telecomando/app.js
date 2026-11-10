@@ -9,7 +9,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
 const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 const euro = n => (n < .1 ? n.toFixed(3) : n.toFixed(2)).replace('.', ',') + ' $';
-const VERSIONE = '6.19';
+const VERSIONE = '6.20';
 /* 8/11 · l'app si aggiorna da sola (Maurizio: «vedo ancora il quadrato con la doppia finestra»: sul telefono restava la
    versione vecchia anche dopo averla chiusa). Quando torna in primo piano, e ogni 10 minuti, chiede al server quale
    app.js c'è adesso; se è un'altra, ricarica (mai mentre un lavoro AI è in corso) */
@@ -60,6 +60,14 @@ imp.video = Object.assign({}, IMP_PRED.video, imp.video || {});
 if (!MODELLI_VIDEO.find(m => m.id === imp.video.modello)) imp.video.modello = 'omni-1080p';   /* 10/11: chi aveva il 720p passa al 1080p */
 if (!imp.chiavi.openai && leggi('finestre-chiave-openai', '')) imp.chiavi.openai = leggi('finestre-chiave-openai', '');   /* dalla versione di prima */
 if (!MODELLI_VIDEO.length) imp.anima = false;
+/* 10/11 · MENO OPZIONI (Maurizio: «per animare e creare ci sono troppe opzioni, non sono chiare… anche le impostazioni sono
+   troppe»). Quello che prima si sceglieva ora è una regola fissa:
+   · si crea sempre tutto: 4 luci, vista per il TV, cielo che scorre, animazioni (Maurizio: «sì, sempre tutto»)
+   · ogni luce ha il suo video, finestrelle e TV: 8 video (Maurizio: «tutte e 4 le luci»); niente più «Risparmio»
+   · immagini sempre in qualità alta; video sempre 8 s, a 1080p; si muovono alberi e acqua (cielo e nebbia li fa la finestra)
+   Il modello per le immagini resta una scelta (Maurizio: «lascia la scelta») */
+Object.assign(imp, {qualita:'alta', tv:true, cielo:true, anima: !!MODELLI_VIDEO.length, risparmio:false, luci:{alba:true, tramonto:true, notte:true}, elementi:['alberi','acqua']});
+imp.video.secondi = 8;
 const salvaImp = () => scrivi('finestre-impostazioni', imp);
 
 /* ── la scena e i fori ───────────────────────────────────────────────────── */
@@ -710,7 +718,7 @@ function cosaManca(p){
      animate, anche il TV */
   /* 4/11: se il paesaggio è animato, lo sono tutte le luci, finestrelle e TV («devo avere animazioni sui 4 momenti»).
      Contano anche le luci e la vista TV che Completa sta per fare */
-  if (MODELLI_VIDEO.length && Object.keys(p.animati).length && animiDaFare(p, m)) m.push('anim');
+  if (MODELLI_VIDEO.length && animiDaFare(p, m)) m.push('anim');   /* 10/11: ogni paesaggio è animato, tutte le luci */
   return m;
 }
 function animiDaFare(p, manca = cosaManca(p)){
@@ -751,17 +759,19 @@ function costoMigliora(p, stretta){
   const manca = cosaManca(p);
   if (!stretta) return costoCompleta(manca, p);
   const mv = MODELLI_VIDEO.find(x => x.id === imp.video.modello) || MODELLI_VIDEO[0];
-  const video = MODELLI_VIDEO.length && Object.keys(p.animati).length ? mv.euroSecondo * imp.video.secondi * (imp.risparmio !== false ? 1 : 1 + ['alba','tramonto','notte'].filter(o => p.immagini[o]).length) : 0;
+  /* le finestrelle, rifatte larghe, più quelle del TV che mancano */
+  const nTv = p.immagini['est-giorno'] ? ['giorno','alba','tramonto','notte'].filter(o => p.immagini['est-' + o] && !p.animati['est-' + o]).length : 0;
+  const video = MODELLI_VIDEO.length ? mv.euroSecondo * imp.video.secondi * (4 + nTv) : 0;
   return costoRifaiLargo(p) + video + costoCompleta(manca.filter(x => !['anim','cielo','fumo'].includes(x)), p);
 }
 function cosaFaMigliora(p, stretta){
   const v = [];
-  if (stretta) v.push('panorama largo per le finestrelle (con luci, profondità, fumo e cielo)');
+  if (stretta) v.push('l\'immagine rifatta più larga per le due finestrelle (con luci, fumo e cielo)');
   for (const o of cosaManca(p)) if (!(stretta && ['cielo','fumo'].includes(o))) v.push(NOME_MANCA[o]);
-  if (stretta && Object.keys(p.animati).length && !v.some(x => /animazion/.test(x))) v.push('animazione delle finestrelle');
-  return v.length ? 'Fa da sé: ' + v.join(', ') + '.' : '';
+  if (stretta && !v.some(x => /animazion/.test(x))) v.push('le animazioni delle finestrelle');
+  return v.length ? 'Aggiunge da sé: ' + v.join(', ') + '.' : '';
 }
-const NOME_MANCA = {alba:'alba', tramonto:'tramonto', notte:'notte', tv:'vista per il TV', cielo:'cielo che scorre', anim:'animazioni che mancano', fumo:'fumo dai comignoli'};
+const NOME_MANCA = {alba:'l\'alba', tramonto:'il tramonto', notte:'la notte', tv:'la vista per il TV', cielo:'il cielo che scorre', anim:'le animazioni che mancano', fumo:'il fumo dai comignoli'};
 
 /* il dettaglio di un paesaggio */
 function apriPaesaggio(p){
@@ -782,17 +792,17 @@ function apriPaesaggio(p){
       </div>
     </div>
     <button class="btn oro piena" style="margin-top:14px" data-fai="mostra" data-v="${p.id}">${icona('play', 18)}Mostra alle finestre</button>
-    ${p.yt ? '' : `<button class="btn piena" id="migliora" style="margin-top:8px"${manca.length ? '' : ' hidden'} data-fai="migliora" data-v="${p.id}">${icona('scintilla', 18)}Migliora con l'AI · ≈ ${euro(costoMigliora(p, false))}</button>
+    ${p.yt ? '' : `<button class="btn piena" id="migliora" style="margin-top:8px"${manca.length ? '' : ' hidden'} data-fai="migliora" data-v="${p.id}">${icona('scintilla', 18)}Completa con l'AI · ≈ ${euro(costoMigliora(p, false))}</button>
       <p class="nota" id="miglioraNota" style="margin-top:6px"${manca.length ? '' : ' hidden'}>${esc(cosaFaMigliora(p, false))}</p>`}
     <details class="gruppo" style="margin-top:12px"><summary>${icona('manopole', 18)}<span>Altro</span></summary><div class="dentro-gruppo">
       ${p.yt ? '' : `${cursore('inquadra', 'mirino', 'Inquadratura', 0, 100, Math.round(fx * 100), fx === .5 ? 'centro' : Math.round(fx * 100) + '%')}
         <p class="nota" style="margin:0 0 10px">Quale parte dell'immagine si vede nel foro, se è più larga.</p>
-        <label class="campo"><span>Che cosa si vede verso il TV</span><input id="tvDesc" placeholder="Vuoto: lo sceglie l'AI"></label>`}
+        <label class="campo"><span>Che cosa si vede nel TV (facoltativo)</span><input id="tvDesc" placeholder="Vuoto: lo sceglie l'AI"></label>`}
       <div class="azioni">
-        ${p.yt || !p.immagini['est-giorno'] ? '' : `<button class="btn" data-fai="vistaTv" data-v="${p.id}">${icona('tv', 18)}Rigenera vista TV</button>`}
-        ${p.yt || manca.includes('cielo') ? '' : `<button class="btn" data-fai="cieli" data-v="${p.id}">${icona('nuvola', 18)}Rigenera il cielo</button>`}
-        ${p.yt || !MODELLI_VIDEO.length ? '' : `<button class="btn" data-fai="anima" data-v="${p.id}">${icona('anima', 18)}Anima</button>`}
-        ${p.yt ? '' : `<button class="btn" data-fai="fumo" data-v="${p.id}">${icona('fiamma', 18)}Fumo dai comignoli</button>`}
+        ${p.yt || !MODELLI_VIDEO.length ? '' : `<button class="btn" data-fai="anima" data-v="${p.id}">${icona('anima', 18)}Animazioni</button>`}
+        ${p.yt || !p.immagini['est-giorno'] ? '' : `<button class="btn" data-fai="vistaTv" data-v="${p.id}">${icona('tv', 18)}Rifai la vista del TV</button>`}
+        ${p.yt || manca.includes('cielo') ? '' : `<button class="btn" data-fai="cieli" data-v="${p.id}">${icona('nuvola', 18)}Rifai il cielo</button>`}
+        ${p.yt ? '' : `<button class="btn" data-fai="fumo" data-v="${p.id}">${icona('fiamma', 18)}Dove sale il fumo</button>`}
         <button class="btn" data-fai="modifica" data-v="${p.id}">${icona('matita', 18)}Rinomina</button>
       </div>
       <button class="btn pericolo piena" style="margin-top:12px" data-fai="elimina" data-v="${p.id}">${icona('cestino', 18)}Elimina questo paesaggio</button></div></details>
@@ -800,7 +810,7 @@ function apriPaesaggio(p){
       let tFuoco = null;
       if (!p.yt && p.immagini.giorno){ const prova = new Image(); prova.onload = () => { const stretta = prova.naturalWidth / prova.naturalHeight < 1.2;
         if (stretta && foglioAperto === p.id){ const b = $('#migliora'), n = $('#miglioraNota');
-          if (b){ b.hidden = false; b.dataset.stretta = '1'; b.innerHTML = icona('scintilla', 18) + "Migliora con l'AI · ≈ " + euro(costoMigliora(p, true)); }
+          if (b){ b.hidden = false; b.dataset.stretta = '1'; b.innerHTML = icona('scintilla', 18) + "Completa con l'AI · ≈ " + euro(costoMigliora(p, true)); }
           if (n){ n.hidden = false; n.textContent = cosaFaMigliora(p, true); } } }; prova.src = p.immagini.giorno; }
       legaCursore('inquadra', (v, o) => {
         o.textContent = v === 50 ? 'centro' : v + '%';
@@ -1144,7 +1154,7 @@ async function faiAnimazione(p, foto, ora, elementi, tv = false){
    TV; alba, tramonto e notte usano quel video ricolorato con la loro luce (js/vista.js). Un video per luce solo se lo si
    sceglie in Anima o se si spegne «Risparmio» nelle Impostazioni */
 const oreDaAnimare = () => imp.risparmio !== false ? ['giorno'] : ['giorno','alba','tramonto','notte'];
-const nVideoCrea = () => (imp.risparmio !== false ? 1 : 1 + ['alba','tramonto','notte'].filter(o => imp.luci[o]).length) * (imp.tv !== false ? 2 : 1);
+const nVideoCrea = () => 8;   /* 10/11: 4 luci × finestrelle e TV */
 function animMancanti(p, viste = [false, true], ore = oreDaAnimare()){
   const m = [];
   for (const tv of viste) for (const ora of ore){
@@ -1163,6 +1173,13 @@ async function animaTutto(p, quali){
       if (e.tipo === 'credito' || e.tipo === 'chiave') break;      /* inutile provare le altre */
     }
   }
+}
+/* il pulsante del foglio Animazioni: quanti video e quanto */
+function contaAnim(mv = MODELLI_VIDEO.find(x => x.id === imp.video.modello) || MODELLI_VIDEO[0]){
+  const b = $('#animaVia'); if (!b || !mv) return;
+  const n = document.querySelectorAll('.anim-casella[aria-pressed="true"]').length;
+  b.disabled = !n;
+  b.innerHTML = icona('anima', 18) + (n ? `Anima ${n} video · ≈ ${euro(mv.euroSecondo * imp.video.secondi * n)}` : 'Tocca un video da fare');
 }
 function aggiornaInLibreria(p){
   const i = libreria.findIndex(x => x.id === p.id);
@@ -1187,7 +1204,7 @@ async function crea(){
     L.anteprime.giorno = {url:p.immagini.giorno}; passo('giorno', 'fatto', 'Giorno'); L.p = p;
     aggiornaInLibreria(p);
     const misura = largo ? 'tv' : m.fornitore === 'openai' ? r.misura : null;
-    const conTv = imp.tv !== false, descEst = conTv && $('#creaEst') ? $('#creaEst').value.trim() : '';
+    const conTv = true, descEst = '';   /* 10/11: la vista del TV la sceglie l'AI (si rifà dal paesaggio, se non piace) */
     await faiLuci(p, jpg, ['alba','tramonto','notte'].filter(o => imp.luci[o]), misura, {conTv});
     aggiornaInLibreria(p);
     await faiProfondita(p, jpg); aggiornaInLibreria(p);
@@ -1200,13 +1217,13 @@ async function crea(){
 }
 
 function disegnaCrea(){
+  /* 10/11: niente più «Più opzioni»: si crea sempre tutto (vedi le regole fisse in cima) */
   const s = $('#s-crea'); const m = Ai.modello(imp.modello), mv = MODELLI_VIDEO.find(x => x.id === imp.video.modello) || MODELLI_VIDEO[0] || {nome:'', euroSecondo:0};
-  const nLuci = ['alba','tramonto','notte'].filter(o => imp.luci[o]).length;
-  const unaVista = (m.costo[imp.qualita] || m.costo.alta) * (1 + nLuci * 1.15);
-  const costo = unaVista * (imp.cielo !== false ? 2 : 1) + (imp.tv !== false ? unaVista * 1.3 : 0) + (imp.anima ? mv.euroSecondo * imp.video.secondi * nVideoCrea() : 0);
-  const desc = $('#creaDesc') ? $('#creaDesc').value : '', nome = $('#creaNome') ? $('#creaNome').value : '', descEst = $('#creaEst') ? $('#creaEst').value : '';
+  const unaVista = (m.costo[imp.qualita] || m.costo.alta) * (1 + 3 * 1.15);
+  const nVideo = MODELLI_VIDEO.length ? nVideoCrea() : 0;
+  const costo = unaVista * 2 + unaVista * 1.3 + mv.euroSecondo * imp.video.secondi * nVideo;
+  const desc = $('#creaDesc') ? $('#creaDesc').value : '', nome = $('#creaNome') ? $('#creaNome').value : '';
   const manca = !imp.chiavi[m.fornitore];
-  const incluso = [nLuci ? 'giorno, ' + ['alba','tramonto','notte'].filter(o => imp.luci[o]).join(', ') : 'solo giorno', imp.tv !== false ? 'vista TV' : '', imp.cielo !== false ? 'cielo che scorre' : '', imp.anima ? (imp.tv !== false ? 'animazione (finestrelle e TV)' : 'animazione') : ''].filter(Boolean).join(' · ');
   s.innerHTML = testa('scintilla', 'Crea', 'Un paesaggio dipinto dall\'AI') + `<div class="problema" hidden></div>
     ${manca ? `<div class="problema fisso">${icona('chiave', 20)}<div><b>Manca la chiave ${m.fornitore === 'google' ? 'Google' : 'OpenAI'}</b><span>Mettila nelle Impostazioni → AI e chiavi.</span><div class="azioni" style="margin-top:8px"><button class="btn piccolo" data-fai="vaiImp">${icona('manopole', 16)}Impostazioni</button></div></div></div>` : ''}
     <div class="sezione">${titolo('occhio', 'Che cosa si vede')}
@@ -1214,17 +1231,11 @@ function disegnaCrea(){
       <div class="pillole">${IDEE.map(([n], i) => `<button class="pillola" data-fai="idea" data-v="${i}">${esc(n)}</button>`).join('')}</div></div>
     <div class="sezione">${titolo('tavolozza', 'Stile')}
       <div class="stili">${STILI.map(st => `<button class="stile" data-fai="stile" data-v="${st.id}" aria-pressed="${imp.stile === st.id}"><div class="tela" style="background:${st.tela}"></div><b>${st.nome}</b><small>${st.nota}</small></button>`).join('')}</div></div>
-    ${gruppo('crea-opzioni', 'manopole', 'Più opzioni', incluso, `
-      <label class="campo"><span>Nome</span><input id="creaNome" maxlength="40" placeholder="Vuoto: lo prendo dalla descrizione" value="${esc(nome)}"></label>
-      ${interruttore('tvToggle', 'tv', 'Vista per il TV', 'Verso est: un altro soggetto della stessa terra, stessa ora e stesso tempo', imp.tv !== false)}
-      ${imp.tv !== false ? `<label class="campo"><span>Che cosa si vede verso il TV</span><input id="creaEst" placeholder="Vuoto: lo sceglie l'AI" value="${esc(descEst)}"></label>` : ''}
-      <div class="blocco"><span>Luci del giorno</span><div class="scelte c4">${['giorno','alba','tramonto','notte'].map(o => `<button class="scelta" data-fai="luce" data-v="${o}" aria-pressed="${o === 'giorno' || !!imp.luci[o]}" ${o === 'giorno' ? 'disabled style="opacity:1"' : ''}>${icona(o === 'giorno' ? 'sole' : o === 'notte' ? 'luna' : o, 22)}<span>${NOME_ORA[o]}</span></button>`).join('')}</div></div>
-      ${interruttore('cieloToggle', 'nuvola', 'Cielo che scorre', 'Le nuvole passano senza fine dietro il paesaggio', imp.cielo !== false)}
-      ${MODELLI_VIDEO.length ? interruttore('animaToggle', 'anima', 'Animalo con ' + mv.nome, `${imp.risparmio !== false ? 'Un video del giorno (alba, tramonto e notte lo usano ricolorato)' : 'Un video per ogni luce'}, finestrelle${imp.tv !== false ? ' e TV' : ''} · ${imp.video.secondi} s in loop · ≈ ${euro(mv.euroSecondo * imp.video.secondi * nVideoCrea())}`, imp.anima)
-        + (imp.anima ? `<div class="pillole" style="margin:0 0 12px">${ELEMENTI.map(([v, ic, t]) => `<button class="pillola" data-fai="elemento" data-v="${v}" aria-pressed="${imp.elementi.includes(v)}">${icona(ic, 15)}${t}</button>`).join('')}</div>` : '') : ''}`)}
+    <div class="sezione"><label class="campo"><span>Nome (facoltativo)</span><input id="creaNome" maxlength="40" placeholder="Vuoto: lo prendo dalla descrizione" value="${esc(nome)}"></label></div>
     <div class="sezione">
       <button class="btn oro piena" data-fai="crea" ${lavoro && !lavoro.finito || manca ? 'disabled' : ''}>${icona('scintilla', 18)}Crea · ≈ ${euro(costo)}</button>
-      <p class="nota">1-3 minuti${imp.anima ? ', più qualche minuto per l\'animazione' : ''}: tieni il telefono acceso su questa pagina.</p>
+      <p class="nota">Fa tutto da sé: le quattro luci (giorno, alba, tramonto e notte), la vista per il TV, il cielo che scorre${nVideo ? ` e ${nVideo} animazioni (ogni luce, finestrelle e TV)` : ''}.</p>
+      <p class="nota">Le immagini sono pronte in pochi minuti e puoi già mostrarle.${nVideo ? ' Le animazioni arrivano dopo, una alla volta: qualche minuto ciascuna.' : ''} Tieni il telefono acceso su questa pagina finché non ha finito.</p>
       <div id="lavoroCrea"></div></div>`;
   disegnaLavoro(); aggiornaSpia(); mostraProblema();
 }
@@ -1595,11 +1606,8 @@ function disegnaImpostazioni(){
   s.innerHTML = testa('manopole', 'Impostazioni', 'Si sistemano una volta') + `<div class="problema" hidden></div>
     ${gruppo('stanza', 'persona', 'Account e stanza', chi, corpoAccount)}
     ${gruppo('ai', 'scintilla', 'AI e chiavi', conChiave ? Ai.modello(imp.modello).nome : 'manca la chiave', `
-      <div class="blocco"><span>Per le immagini</span><div class="scelte">${MODELLI_IMMAGINE.map(m => `<button class="scelta riga" data-fai="modello" data-v="${m.id}" aria-pressed="${imp.modello === m.id}">${icona(m.fornitore === 'google' ? 'mondo' : 'scintilla', 22)}<span><b>${esc(m.nome)}</b><small>${esc(m.note)}</small></span><span class="prezzo">≈ ${euro(m.costo[imp.qualita] || m.costo.alta)}</span></button>`).join('')}</div></div>
-      <div class="segmenti">${['alta','media','bassa'].map(v => `<button data-fai="qualita" data-v="${v}" aria-pressed="${imp.qualita === v}">Qualità ${v}</button>`).join('')}</div>
-      ${MODELLI_VIDEO.length ? `<div class="blocco" style="margin-top:14px"><span>Per le animazioni</span><div class="scelte">${MODELLI_VIDEO.map(m => `<div class="scelta riga" aria-pressed="true">${icona('anima', 22)}<span><b>${esc(m.nome)}</b><small>${esc(m.note)}</small></span><span class="prezzo">${euro(m.euroSecondo)}/s</span></div>`).join('')}</div></div>
-        <div class="segmenti">${[4, 6, 8, 10].map(v => `<button data-fai="secondi" data-v="${v}" aria-pressed="${imp.video.secondi === v}">${v} s</button>`).join('')}</div>
-        <div class="pannello" style="padding:2px 14px;margin-top:10px">${interruttore('risparmioToggle', 'anima', 'Risparmio sulle animazioni', 'Si anima solo il giorno; alba, tramonto e notte usano quel video ricolorato con la loro luce (un quarto dei video)', imp.risparmio !== false)}</div>` : ''}
+      <div class="blocco"><span>Chi dipinge le immagini</span><div class="scelte">${MODELLI_IMMAGINE.map(m => `<button class="scelta riga" data-fai="modello" data-v="${m.id}" aria-pressed="${imp.modello === m.id}">${icona(m.fornitore === 'google' ? 'mondo' : 'scintilla', 22)}<span><b>${esc(m.nome)}</b><small>${esc(m.note)}</small></span><span class="prezzo">≈ ${euro(m.costo[imp.qualita] || m.costo.alta)}</span></button>`).join('')}</div></div>
+      ${MODELLI_VIDEO.length ? `<p class="nota" style="margin:10px 0 0">Le animazioni le fa sempre ${esc((MODELLI_VIDEO.find(x => x.id === imp.video.modello) || MODELLI_VIDEO[0]).nome)}: ${imp.video.secondi} secondi in loop, ≈ ${euro((MODELLI_VIDEO.find(x => x.id === imp.video.modello) || MODELLI_VIDEO[0]).euroSecondo * imp.video.secondi)} l'una.</p>` : ''}
       <div style="margin-top:14px">
         ${campoChiave('kOpenai', 'Chiave OpenAI', 'sk-…', imp.chiavi.openai, 'La stessa di DMaster.')}
         ${campoChiave('kGoogle', 'Chiave Google (Gemini)', 'AIza…', imp.chiavi.google, 'Per Nano Banana e le animazioni. Gratis su <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com</a>.')}
@@ -1613,37 +1621,25 @@ function disegnaImpostazioni(){
         ${bardCasse.map(c => `<option value="${esc(c.id)}"${(bardStato.uscitaTv && bardStato.uscitaTv.id === c.id) ? ' selected' : ''}>${esc(c.nome)}</option>`).join('')}</select></label>
         ${bardCasse.length ? '' : '<p class="nota" style="margin-top:-4px">Il TV non ha ancora detto quali casse vede: succede dopo l\'installatore aggiornato sul G10, con la JBL già abbinata in Bluetooth.</p>'}`}
       <p class="nota">${suonoQui() ? 'Suona da qui: dall\'altoparlante o da una cassa collegata al telefono. Tieni l\'app aperta e lo schermo acceso, se no il telefono smette di suonare.' : 'Suona il G10 del TV: dalle casse del TV o da una cassa Bluetooth abbinata al G10. Puoi bloccare il telefono.'} Durante una serata i suoni li fa DMaster dal portatile.</p>`)}
-    ${gruppo('avanzate', 'manopole', 'Avanzate', 'movimento, allineamento, collegamento', `
-      <div class="titolo" style="margin:14px 0 8px">${icona('nuvola', 15)}Come si muovono</div>
-      ${interruttore('movimento', 'nuvola', 'Movimento', 'Nuvole che scorrono e alberi al vento, anche sulle immagini ferme', scena.movimento !== false)}
-      ${interruttore('prospettiva', 'occhio', 'Prospettiva', 'Le due finestre vedono il paesaggio da punti appena diversi', scena.prospettiva !== false)}
-      ${interruttore('prospettivaViva', 'persona', 'Prospettiva viva', a.staccato ? 'Il TV segue chi si muove nella stanza (serve il sensore accanto al TV). Le finestrelle hanno già la prospettiva vera dello schermo staccato' : 'Le finestre seguono chi si muove nella stanza (serve il sensore)', !!scena.prospettivaViva)}
-      <div class="blocco"><span>Luce dello schermo</span>${cursore('luceGiorno', 'sole', 'Di giorno', 5, 100, scena.luceGiorno, scena.luceGiorno + '%')}${cursore('luceNotte', 'luna', 'Di notte', 2, 100, scena.luceNotte, scena.luceNotte + '%')}</div>
-      <div class="blocco"><span>Fluidità · immagini al secondo</span><div class="scelte c3">${FLUIDITA.map(([v, t]) => `<button class="scelta" data-fai="fps" data-v="${v}" aria-pressed="${v === (scena.fps || 60)}"><b style="font:600 18px var(--display)">${v}</b><span>${esc(t)}</span></button>`).join('')}</div>
-        <p class="nota">Meno immagini = ventola più tranquilla. 50 solo se lo schermo è a 50 Hz.</p></div>
-      <div class="titolo" style="margin:14px 0 8px">${icona('mirino', 15)}Allineamento · ${a.n === 2 ? 'due finestre' : 'una finestra'}</div>
+    ${gruppo('schermo', 'sole', 'Luce degli schermi', 'giorno ' + scena.luceGiorno + '% · notte ' + scena.luceNotte + '%', `
+      ${cursore('luceGiorno', 'sole', 'Di giorno', 5, 100, scena.luceGiorno, scena.luceGiorno + '%')}${cursore('luceNotte', 'luna', 'Di notte', 2, 100, scena.luceNotte, scena.luceNotte + '%')}
+      <p class="nota">Quanto sono luminosi gli schermi. Se qualcosa si è bloccato: <button class="btn piccolo" data-fai="ricaricaFinestre">${icona('ricarica', 16)}Ricarica gli schermi</button></p>`)}
+    ${gruppo('montaggio', 'mirino', 'Montaggio', 'solo quando monti gli schermi', `
+      <p class="nota" style="margin-top:0">Serve una volta, quando monti o sposti gli schermi dietro le finestre.</p>
       <div class="segmenti">${[1, 2].map(n => `<button data-fai="nFinestre" data-v="${n}" aria-pressed="${a.n === n}">${icona(n === 1 ? 'monofora' : 'bifora', 18)}${n === 1 ? 'Una finestra' : 'Due finestre'}</button>`).join('')}</div>
       ${interruttore('bordi', 'mirino', 'Mostra i bordi sulle finestre', 'Una cornice tratteggiata per allineare ogni foro al traforo', mostraBordi)}
       <div class="pannello" style="margin-top:10px">
         ${cursore('staccato', 'livelli', 'Schermo staccato dal muro', 0, 10, a.staccato || 0, a.staccato ? a.staccato + ' cm' : 'appoggiato')}
-        <p class="nota" style="margin:0 0 6px">Quanti centimetri c'è fra la fine del muro e lo schermo. Staccato, il paesaggio riempie anche lo schermo intorno al foro: spostandoti ne scopri un po' oltre i bordi, come da una finestra vera. Allinea sempre la cornice tratteggiata al foro, guardando di fronte.</p></div>
+        <p class="nota" style="margin:0 0 6px">Quanti centimetri ci sono fra la fine del muro e lo schermo. Staccato, spostandoti scopri un po' di paesaggio oltre i bordi, come da una finestra vera.</p></div>
       ${a.n === 2 ? `<div class="pannello" style="margin-top:10px">
         ${cursore('fra', 'bifora', 'Fra le due finestrelle', -15, 15, a.fra, testoFra(a.fra))}
-        <p class="nota" style="margin:0 0 6px">Con i paesaggi larghi ogni finestrella mostra un pezzo diverso dello stesso panorama, con l'elemento principale nel mezzo: dal centro della stanza resta nascosto, avvicinandoti a una finestrella lo scopri. Questo è quanto panorama hanno in comune le due finestrelle viste di fronte (consigliato: 5 cm in comune). I paesaggi verticali di prima restano uguali su tutte e due.</p></div>` : ''}
+        <p class="nota" style="margin:0 0 6px">Quanto paesaggio hanno in comune le due finestrelle viste di fronte (consigliato: 5 cm).</p></div>` : ''}
       ${fori}
       <div class="pannello" style="margin-top:10px">
         ${cursore('zoom', 'lente', 'Ingrandisci', 100, 200, Math.round(scena.zoom * 100), Math.round(scena.zoom * 100) + '%')}
         ${cursore('vx', 'destra', 'Sposta', -30, 30, Math.round(scena.vx * 100), Math.round(scena.vx * 100))}</div>
-      <div class="pannello" style="margin-top:10px"><div class="titolo" style="margin-bottom:4px">${icona('persona', 15)}Prova la prospettiva viva</div>
-        ${cursore('provaX', 'destra', 'Dove sei', -100, 100, 0, 'centro')}
-        ${cursore('provaZ', 'mirino', 'Quanto vicino', -100, 100, 0, '0')}
-        <p class="nota" style="margin:0 0 6px">${a.staccato ? 'Fai finta di muoverti nella stanza: il TV reagisce come col sensore (le finestrelle staccate no, hanno la prospettiva vera).' : 'Fai finta di muoverti nella stanza: le finestre reagiscono come col sensore.'}</p></div>
-      ${a.n === 2 && !schermi.destra ? '<p class="nota">La finestra destra non ha ancora risposto: si collega quando c\'è il secondo schermo.</p>' : ''}
-      <div class="titolo" style="margin:14px 0 8px">${icona('catena', 15)}Collegamento</div>
-      <p class="nota" style="margin-top:0">Indirizzo da aprire sul Raspberry:</p><code class="link">${esc(linkPi)}</code>
-      <a class="btn piena" style="margin-top:10px;text-decoration:none" href="../stanza/" target="_blank" rel="noopener">${icona('schermo', 18)}Stanza simulata (da aprire sul computer)</a>
-      <p class="nota">Il TV e le due finestrelle su un computer, per provare tutto prima del montaggio.</p>
-      <div class="azioni">${casa ? `<button class="btn" data-fai="copia" data-v="${esc(linkTel)}">${icona('copie', 18)}Link per un altro telefono</button>` : ''}<button class="btn" data-fai="ricaricaFinestre">${icona('ricarica', 18)}Ricarica finestre</button></div>`)}
+      ${interruttore('prospettivaViva', 'persona', 'Segui chi si muove', 'Serve il sensore accanto al TV: il paesaggio si sposta come da una finestra vera', !!scena.prospettivaViva)}
+      ${a.n === 2 && !schermi.destra ? '<p class="nota">La finestra destra non ha ancora risposto: si collega quando c\'è il secondo schermo.</p>' : ''}`)}
     <p class="nota" style="text-align:center;margin-top:18px">DMaster Atmosphere ${VERSIONE} · powered by DMaster Stage</p>`;
   for (const [id, k] of [['kOpenai','openai'], ['kGoogle','google'], ['kEleven','elevenlabs'], ['kPexels','pexels']]){ const el = document.getElementById(id); el.oninput = () => { imp.chiavi[k] = el.value.trim(); salvaImp(); if (problema && problema.tipo === 'chiave') risolto(); }; }
   nomi.forEach(nm => {
@@ -1656,11 +1652,6 @@ function disegnaImpostazioni(){
   if (a.n === 2) legaCursore('fra', (v, o) => { o.textContent = testoFra(v); assetto = assettoOPredefinito(); assetto.fra = v; mandaFori(); });
   legaCursore('zoom', (v, o) => { o.textContent = v + '%'; cambia({zoom: v / 100}, false); });
   legaCursore('vx', (v, o) => { o.textContent = v; cambia({vx: v / 100}, false); });
-  let tOcchio = null;
-  const occhio = () => { const x = +$('#provaX').value / 100, z = +$('#provaZ').value / 100;
-    postaAnteprima({tipo:'occhio', x, z}); clearTimeout(tOcchio); tOcchio = setTimeout(() => canale.manda('occhio', {x, z}), 60); };
-  legaCursore('provaX', (v, o) => { o.textContent = v === 0 ? 'centro' : (v < 0 ? 'sinistra ' : 'destra ') + Math.abs(v); occhio(); });
-  legaCursore('provaZ', (v, o) => { o.textContent = v; occhio(); });
   aggiornaSpia(); mostraProblema();
 }
 
@@ -1789,7 +1780,7 @@ const AZIONI = {
     const stretta = b.dataset.stretta === '1', desc = (($('#tvDesc') || {}).value || '').trim();
     if (stretta && Object.keys(p.animati).some(k => !k.startsWith('est-')) && b.dataset.conferma !== '1'){
       b.dataset.conferma = '1'; b.innerHTML = icona('avviso', 18) + 'Le animazioni delle finestrelle si rifanno: tocca ancora';
-      setTimeout(() => { if (b.isConnected && b.dataset.conferma === '1'){ b.dataset.conferma = ''; b.innerHTML = icona('scintilla', 18) + "Migliora con l'AI · ≈ " + euro(costoMigliora(p, stretta)); } }, 5000); return; }
+      setTimeout(() => { if (b.isConnected && b.dataset.conferma === '1'){ b.dataset.conferma = ''; b.innerHTML = icona('scintilla', 18) + "Completa con l'AI · ≈ " + euro(costoMigliora(p, stretta)); } }, 5000); return; }
     b.hidden = true; const n = $('#miglioraNota'); if (n) n.hidden = true;
     if (stretta) await rifaiLargo(p);
     if (cosaManca(p).length) await completaPaesaggio(p, desc);
@@ -1804,21 +1795,30 @@ const AZIONI = {
       await faiCieli(p); aggiornaInLibreria(p);
     });
   },
+  /* 10/11 · ANIMAZIONI, una sola scelta (Maurizio: «troppe opzioni, non sono chiare»): una casella per video, 4 luci ×
+     finestrelle e TV. Già segnate quelle che mancano; tocchi una già fatta per rifarla. Che cosa si muove, durata e
+     modello sono fissi */
   anima: v => {
     const p = libreria.find(x => x.id === v); if (!p) return;
     const mv = MODELLI_VIDEO.find(x => x.id === imp.video.modello) || MODELLI_VIDEO[0];
-    const luci = ['giorno','alba','tramonto','notte'].filter(o => p.immagini[o]);
-    apriFoglio(`<h3 style="font:500 16px var(--display);letter-spacing:.12em;text-transform:uppercase;margin:4px 0 4px">Anima «${esc(p.nome)}»</h3>
-      <p class="nota" style="margin-top:0">${esc(mv.nome)} gira un breve video dall'immagine, con la camera ferma; le finestre lo ripetono in loop sfumando la fine nell'inizio.</p>
-      ${titolo('nuvola', 'Che cosa si muove')}<div class="pillole" id="animEl">${ELEMENTI.map(([e, ic, t]) => `<button class="pillola" data-fai="elemento" data-v="${e}" aria-pressed="${imp.elementi.includes(e)}">${icona(ic, 15)}${t}</button>`).join('')}</div><p class="nota">${ELEMENTI_FINESTRA}</p>
-      ${p.immagini['est-giorno'] ? `<div class="sezione">${titolo('tv', 'Quale vista')}<div class="segmenti" id="animVista"><button data-fai="animLuce" data-v="entrambe" aria-pressed="true">Entrambe</button><button data-fai="animLuce" data-v="nord" aria-pressed="false">Finestrelle</button><button data-fai="animLuce" data-v="tv" aria-pressed="false">TV</button></div><p class="nota" style="margin:6px 0 0">Con «Entrambe» due video: il costo raddoppia.</p></div>` : ''}
-      <div class="sezione">${titolo('orologio', 'Quale luce')}<div class="segmenti" id="animLuce">${luci.length > 1 ? `<button data-fai="animLuce" data-v="tutte" aria-pressed="${imp.risparmio === false}">Tutte</button>` : ''}${luci.map((o, i) => `<button data-fai="animLuce" data-v="${o}" aria-pressed="${luci.length === 1 || imp.risparmio !== false ? o === 'giorno' : false}">${NOME_ORA[o]}</button>`).join('')}</div>
-        <p class="nota">${imp.risparmio !== false ? 'Basta il giorno: alba, tramonto e notte usano il suo video ricolorato con la loro luce. Una luce col suo video solo se il ricolorato non ti convince. ' : ''}«Tutte»: un video per ogni luce che non ce l'ha ancora (se ce l'hanno già tutte, le rifà).</p></div>
-      <button class="btn oro piena" style="margin-top:14px" data-fai="animaVia" data-v="${p.id}">${icona('anima', 18)}Anima · ${imp.video.secondi} s · ≈ ${euro(mv.euroSecondo * imp.video.secondi)} a video</button>
-      <p class="nota">Sempre a 1080p; la durata si cambia nelle Impostazioni. Ogni video richiede alcuni minuti: tieni il telefono acceso.</p>
+    const viste = [[false, 'Finestrelle'], ...(p.immagini['est-giorno'] ? [[true, 'TV']] : [])];
+    const ORE = ['giorno','alba','tramonto','notte'];
+    const casella = (tv, o) => { const pre = tv ? 'est-' : '', c = pre + o;
+      if (!p.immagini[c]) return `<span class="anim-casella vuota"><span>${NOME_ORA[o]}</span><small>manca l'immagine</small></span>`;
+      const fatto = !!p.animati[c];
+      return `<button class="anim-casella" data-fai="animSegna" data-v="${c}" aria-pressed="${!fatto}"><img alt="" src="${esc(p.immagini[c])}"><span>${NOME_ORA[o]}</span><small>${fatto ? 'fatta · tocca per rifarla' : 'da fare'}</small></button>`; };
+    apriFoglio(`<h3 style="font:500 16px var(--display);letter-spacing:.12em;text-transform:uppercase;margin:4px 0 4px">Animazioni «${esc(p.nome)}»</h3>
+      <p class="nota" style="margin-top:0">Un video per ogni luce, sulle finestrelle e sul TV: alberi e acqua si muovono, la camera sta ferma, il video gira in loop. In oro quelli da fare.</p>
+      ${viste.map(([tv, t]) => `<div class="sezione">${titolo(tv ? 'tv' : 'monofora', t)}<div class="anim-griglia">${ORE.map(o => casella(tv, o)).join('')}</div></div>`).join('')}
+      <button class="btn oro piena" style="margin-top:14px" id="animaVia" data-fai="animaVia" data-v="${p.id}"></button>
+      <p class="nota">Ogni video richiede qualche minuto: tieni il telefono acceso su questa pagina.</p>
       <div id="lavoroFoglio"></div>`);
-    foglioAperto = p.id;
+    foglioAperto = p.id; contaAnim(mv);
   },
+  animSegna: (v, b) => { b.setAttribute('aria-pressed', String(b.getAttribute('aria-pressed') !== 'true'));
+    const sm = b.querySelector('small'), p = libreria.find(x => x.id === foglioAperto);
+    if (sm && p && p.animati[v]) sm.textContent = b.getAttribute('aria-pressed') === 'true' ? 'da rifare' : 'fatta · tocca per rifarla';
+    contaAnim(); },
   /* 4/11 · dove sale il fumo: tocca l'immagine per aggiungere un comignolo, tocca un punto per toglierlo */
   fumo: async v => {
     const p = libreria.find(x => x.id === v); if (!p) return;
@@ -1844,33 +1844,19 @@ const AZIONI = {
       aggiornaInLibreria(E.p); avviso('Comignoli salvati'); E.cambiati = {}; apriPaesaggio(E.p); editorFumo = null;
     } catch(e) { avviso(e.message, true); }
   },
-  animLuce: (v, b) => b.parentNode.querySelectorAll('button').forEach(x => x.setAttribute('aria-pressed', String(x === b))),
   animaVia: async v => {
     const p = libreria.find(x => x.id === v); if (!p) return;
     if (!imp.chiavi.google){ avviso('Serve la chiave Google (Gemini) nelle Impostazioni.', true); return; }
-    const ora = ($('#animLuce [aria-pressed="true"]') || {}).dataset?.v || 'giorno';
-    /* la vista del TV (4/11: «non vedo il movimento degli alberi nel TV»): un video orizzontale dalla sua immagine */
-    const vista = (($('#animVista [aria-pressed="true"]') || {}).dataset?.v) || 'nord';
-    const viste = vista === 'entrambe' ? [false, true] : [vista === 'tv'];
-    if (ora === 'tutte'){
-      await conLavoro('anima', async L => {
-        L.p = p;
-        /* 10/11: «Tutte» = le luci che non hanno ancora il loro video, anche con Risparmio acceso (prima, con Risparmio,
-           guardava solo il giorno: se c'era già, rifaceva tutto da capo, giorno compreso) */
-        let quali = animMancanti(p, viste, ['giorno','alba','tramonto','notte']);
-        if (!quali.length) quali = viste.flatMap(tv => ['giorno','alba','tramonto','notte'].filter(o => p.immagini[(tv ? 'est-' : '') + o]).map(o => ({tv, ora:o})));
-        await animaTutto(p, quali);
-      });
-      return;
-    }
+    const quali = [...document.querySelectorAll('.anim-casella[aria-pressed="true"]')].map(b => b.dataset.v)
+      .map(c => ({tv: c.startsWith('est-'), ora: c.replace('est-', '')}));
+    if (!quali.length) return;
     await conLavoro('anima', async L => {
       L.p = p;
-      for (const tv of viste){
-        const img = tv ? (p.immagini['est-' + ora] || p.immagini['est-giorno']) : p.immagini[ora];
-        const oraV = tv && !p.immagini['est-' + ora] ? 'giorno' : ora;
-        L.anteprime[(tv ? 'est-' : '') + oraV] = {url:img};
-        const foto = await (await fetch(img)).blob();
-        await faiAnimazione(p, foto, oraV, imp.elementi, tv); aggiornaInLibreria(p);
+      for (const {tv, ora} of quali){
+        const pre = tv ? 'est-' : '', img = p.immagini[pre + ora];
+        L.anteprime[pre + ora] = {url: img};
+        try { await faiAnimazione(p, await (await fetch(img)).blob(), ora, imp.elementi, tv); aggiornaInLibreria(p); }
+        catch(e) { passo(pre + 'anim-' + ora, 'errore', (tv ? 'TV · ' : '') + 'Animazione ' + NOME_ORA[ora] + ': ' + e.message); segnala(e); if (e.tipo === 'credito' || e.tipo === 'chiave') break; }
       }
     });
   },

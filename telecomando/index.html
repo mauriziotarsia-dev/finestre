@@ -182,6 +182,16 @@ input[type=range]::-moz-range-thumb{width:20px;height:20px;border-radius:50%;bac
 .luci button span{position:absolute;inset:auto 0 0;padding:2px 0;background:rgba(6,8,12,.8);font:500 8.5px var(--display);letter-spacing:.08em;text-align:center;color:var(--crema)}
 .luci button[aria-pressed="true"]{border-color:var(--oro)}
 .luci .manca{display:grid;place-items:center;color:var(--spento);aspect-ratio:2/5;border:1px dashed var(--bordo);border-radius:7px;flex:1}
+/* 10/11 · foglio Animazioni: una casella per video (luce × vista); oro = da fare */
+.anim-griglia{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+.anim-casella{display:flex;flex-direction:column;gap:3px;padding:0 0 6px;border:1px solid var(--bordo);border-radius:8px;overflow:hidden;background:rgba(255,255,255,.02);color:var(--crema);cursor:pointer;text-align:center;font:inherit}
+.anim-casella img{display:block;width:100%;aspect-ratio:1;object-fit:cover;opacity:.55}
+.anim-casella span{font:500 10px var(--display);letter-spacing:.08em;text-transform:uppercase;margin-top:2px}
+.anim-casella small{font-size:10.5px;line-height:1.2;color:var(--spento);padding:0 3px}
+.anim-casella[aria-pressed="true"]{border-color:var(--oro);box-shadow:0 0 0 1px var(--oro) inset}
+.anim-casella[aria-pressed="true"] img{opacity:1}
+.anim-casella[aria-pressed="true"] small{color:var(--oro)}
+.anim-casella.vuota{cursor:default;border-style:dashed;justify-content:center;min-height:90px;opacity:.6}
 .azioni{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px}
 
 /* passi di un lavoro lungo */
@@ -421,6 +431,6 @@ body.principale .testa .torna{display:none}
 <script src="../js/foto-online.js?v=2.1.0"></script>
 <script src="../js/profondita.js?v=2.1.0"></script>
 <script src="../js/bard.js?v=6"></script>
-<script src="app.js?v=6.19"></script>
+<script src="app.js?v=6.20"></script>
 </body>
 </html>
