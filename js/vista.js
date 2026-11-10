@@ -197,7 +197,7 @@ vec3 paesaggio(sampler2D img, sampler2D imgB, float vk, sampler2D dep, vec4 crop
     vec4 fb = texture2D(fer, clamp(crop.xy + p * crop.zw, .0005, .9995));
     /* 10/11: col video ricolorato il fermo è il dipinto, più morbido del video dell'AI (che a 1080p ripassa i dettagli):
        un filo di nitidezza, così da un'ora all'altra non sembra calare la risoluzione */
-    if (haR > .5) fb.rgb = clamp(fb.rgb + (fb.rgb - texture2D(fer, clamp(crop.xy + p * crop.zw, .0005, .9995), 1.2).rgb) * .7, 0., 1.);
+    if (haR > .5) fb.rgb = clamp(fb.rgb + (fb.rgb - texture2D(fer, clamp(crop.xy + p * crop.zw, .0005, .9995), 1.2).rgb) * .8, 0., 1.);
     float mx = max(fb.r, max(fb.g, fb.b)), mn = min(fb.r, min(fb.g, fb.b));
     float chiaro = smoothstep(.38, .6, mx) * (1. - smoothstep(.2, .42, (mx - mn) / max(mx, .01)));
     /* ⚠ 5/11 (Maurizio: «si vede ancora il giro sullo sfondo, nella zona con la foschia»): la foschia lontana del video
@@ -214,10 +214,18 @@ vec3 paesaggio(sampler2D img, sampler2D imgB, float vk, sampler2D dep, vec4 crop
        video si prende solo quanto si scosta dal suo fermo (cioè il movimento), scalato con la luce di qui: i riflessi
        caldi sull'acqua e sotto il ponte restano quelli dell'alba, e la nebbia del giorno ci scorre sopra */
     if (haR > .5){
-      vec2 qr = clamp(crop.xy + p * crop.zw, .0005, .9995);
-      vec3 fd = texture2D(rap, qr).rgb, fdB = texture2D(rap, qr, 4.).rgb, fbB = texture2D(fer, qr, 4.).rgb;
+      /* ⚠ 10/11 (Maurizio: «quella al centro la vedo ancora poco nitida»): il video cucito è più morbido del suo fermo
+         (ricampionato a 30 img/s), e «video − fermo» si portava dietro, rovesciato, il dettaglio del fermo del giorno:
+         sopra il dipinto dell'alba diventava un velo di poltiglia, larga quanto la nebbia. Ora si confrontano video e
+         fermo sfocati allo stesso modo (5 punti): resta solo il movimento, morbido come la nebbia; i dettagli sono
+         tutti del dipinto */
+      vec2 qr = clamp(crop.xy + p * crop.zw, .0005, .9995), e1 = vec2(.0016, 0.), e2 = vec2(0., .0028);
+      vec3 cB = (c + foto(img, crop, p + e1) + foto(img, crop, p - e1) + foto(img, crop, p + e2) + foto(img, crop, p - e2)) * .2;
+      vec3 fdL = (texture2D(rap, qr).rgb + texture2D(rap, clamp(qr + e1 * crop.zw, .0005, .9995)).rgb + texture2D(rap, clamp(qr - e1 * crop.zw, .0005, .9995)).rgb
+                + texture2D(rap, clamp(qr + e2 * crop.zw, .0005, .9995)).rgb + texture2D(rap, clamp(qr - e2 * crop.zw, .0005, .9995)).rgb) * .2;
+      vec3 fdB = texture2D(rap, qr, 4.).rgb, fbB = texture2D(fer, qr, 4.).rgb;
       vec3 g = clamp((fbB + .03) / (fdB + .03), .1, 1.6);
-      c = clamp(fb.rgb + (c - fd) * g, 0., 1.);
+      c = clamp(fb.rgb + (cB - fdL) * g, 0., 1.);
     }
     c = mix(fb.rgb, c, vivo);
     vivoV = vivo;
