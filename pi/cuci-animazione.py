@@ -606,6 +606,7 @@ def main():
     a.add_argument('--una', action='store_true', help='con --casa: un giro solo e poi esce')
     a.add_argument('--forza', type=int, default=1, help='con --casa: quanto è potente (3 mini PC, 2 laptop, 1 Raspberry): lo fa il più forte acceso')
     a.add_argument('--abbina', action='store_true', help='abbina questo computer alla casa privata (codice da scrivere sul telefono)')
+    a.add_argument('--pieno', action='store_true', help='con --casa: priorità normale e tutti i processori (10/11, Maurizio: «diamo la priorità alla cucitura ed alla qualità», anche se intanto gli schermi rallentano)')
     a.add_argument('--chi', default=os.environ.get('COMPUTERNAME') or (os.uname().nodename if hasattr(os, 'uname') else 'pc'), help='nome di questo apparecchio (nei segni)')
     o = a.parse_args()
     global ACCESSO, DEPOSITO
@@ -618,6 +619,13 @@ def main():
         DEPOSITO = 'atmosfera'                                   # la casa privata: il suo deposito
         print('stanza privata:', ACCESSO['casa'], flush=True)
         o.casa = o.casa or 'privata'
+    if o.casa and o.pieno:
+        while True:
+            try: giro_casa(o.casa, o.larghezza, veloce=o.veloce, forza=o.forza, chi=o.chi)
+            except Exception as e: print('giro non riuscito:', e, file=sys.stderr, flush=True)
+            if o.una: break
+            time.sleep(20)
+        return
     if o.casa:
         # sul Raspberry che intanto disegna le finestre: priorità bassa e pochi processori, le finestre prima di tutto
         try: os.nice(19)
