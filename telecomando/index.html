@@ -202,6 +202,12 @@ input[type=range]::-moz-range-thumb{width:20px;height:20px;border-radius:50%;bac
 .passi li.fatto{color:var(--ok)} .passi li.fatto .ic{color:var(--ok)}
 .passi li.errore{color:var(--no)} .passi li.errore .ic{color:var(--no)}
 @keyframes gira{to{transform:rotate(360deg)}}
+/* 10/11 · il lavoro in corso, ben visibile */
+.in-corso{display:flex;gap:12px;align-items:flex-start;margin:12px 0;padding:12px 14px;border:1px solid var(--oro);border-radius:10px;background:var(--oro-veste);color:var(--testo)}
+.in-corso > svg, .in-corso > .ic{flex:none;color:var(--oro);animation:gira 1.4s linear infinite;margin-top:2px}
+.in-corso b{display:block;font:500 13px var(--display);letter-spacing:.12em;text-transform:uppercase;color:var(--oro)}
+.in-corso small{display:block;margin-top:3px;font-size:13px;line-height:1.35;color:var(--crema)}
+.in-corso.fatto > svg, .in-corso.fatto > .ic{animation:none}
 .barra-av{height:3px;border-radius:3px;background:var(--bordo);overflow:hidden;margin-top:8px}
 .barra-av i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--oro),var(--oro-luce));transition:width .4s}
 .anteprime{display:flex;gap:8px;margin-top:12px}
@@ -431,6 +437,6 @@ body.principale .testa .torna{display:none}
 <script src="../js/foto-online.js?v=2.1.0"></script>
 <script src="../js/profondita.js?v=2.1.0"></script>
 <script src="../js/bard.js?v=6"></script>
-<script src="app.js?v=6.23"></script>
+<script src="app.js?v=6.24"></script>
 </body>
 </html>

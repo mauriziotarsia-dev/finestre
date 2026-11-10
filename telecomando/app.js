@@ -9,7 +9,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
 const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 const euro = n => (n < .1 ? n.toFixed(3) : n.toFixed(2)).replace('.', ',') + ' $';
-const VERSIONE = '6.23';
+const VERSIONE = '6.24';
 /* 8/11 · l'app si aggiorna da sola (Maurizio: «vedo ancora il quadrato con la doppia finestra»: sul telefono restava la
    versione vecchia anche dopo averla chiusa). Quando torna in primo piano, e ogni 10 minuti, chiede al server quale
    app.js c'è adesso; se è un'altra, ricarica (mai mentre un lavoro AI è in corso) */
@@ -1016,7 +1016,13 @@ function passo(id, cls, testo){
 }
 function disegnaLavoro(){
   const posti = [$('#lavoroCrea'), $('#lavoroFoglio')].filter(Boolean);
+  /* ⚠ 10/11 (Maurizio: «ho cliccato su anima i video ma non si capisce se è partito… rischio di cliccare più volte»):
+     appena parte, una fascia ben visibile dice che sta lavorando e che cosa, il pulsante che l'ha avviato si spegne e
+     dice «In corso…», e la pagina scorre fin lì */
+  const ora = lavoro && lavoro.passi.filter(p => p.cls === 'ora').pop();
   const html = !lavoro ? '' : `
+    ${!lavoro.finito ? `<div class="in-corso">${icona('ricarica', 20)}<span><b>Sto lavorando</b><small>${esc(ora ? ora.testo : 'Parto…')}<br>Non chiudere l'app e non premere di nuovo: ti dico io quando ho finito.</small></span></div>`
+      : lavoro.fatto && !lavoro.errore ? `<div class="in-corso fatto">${icona('spunta', 20)}<span><b>Finito</b></span></div>` : ''}
     ${lavoro.errore ? `<div class="errore-box">${esc(lavoro.errore)}</div>` : ''}
     ${problema && lavoro.finito ? '<div class="problema"></div>' : ''}
     <ul class="passi">${lavoro.passi.map(p => `<li class="${p.cls}">${icona(p.cls === 'fatto' ? 'spunta' : p.cls === 'errore' ? 'chiudi' : p.cls === 'ora' ? 'ricarica' : 'orologio', 16)}<span>${esc(p.testo)}</span></li>`).join('')}</ul>
@@ -1025,12 +1031,18 @@ function disegnaLavoro(){
     ${['giorno','alba','tramonto','notte'].some(o => lavoro.anteprime['est-' + o]) ? `<div class="anteprime tv">${['giorno','alba','tramonto','notte'].filter(o => lavoro.anteprime['est-' + o]).map(o => `<figure><img alt="" src="${esc(lavoro.anteprime['est-' + o].url)}" style="opacity:${lavoro.anteprime['est-' + o].bozza ? .55 : 1}"><figcaption>TV · ${NOME_ORA[o]}</figcaption></figure>`).join('')}</div>` : ''}
     ${lavoro.fatto && lavoro.p ? `<div class="azioni"><button class="btn oro" data-fai="mostra" data-v="${lavoro.p.id}">${icona('play', 18)}Mostra</button><button class="btn" data-fai="apri" data-v="${lavoro.p.id}">${icona('quadro', 18)}Apri</button></div>` : ''}`;
   posti.forEach(el => el.innerHTML = html);
+  const occupato = !!(lavoro && !lavoro.finito);
+  document.querySelectorAll('[data-fai="animaVia"],[data-fai="aggiornaVia"],[data-fai="crea"]').forEach(b => {
+    if (occupato){ if (!b.dataset.testo) b.dataset.testo = b.innerHTML; b.disabled = true; b.innerHTML = icona('ricarica', 18) + 'In corso…'; }
+    else if (b.dataset.testo){ b.innerHTML = b.dataset.testo; delete b.dataset.testo; b.disabled = false; if (b.id === 'animaVia') contaAnim(); }
+  });
   if (problema) mostraProblema();
 }
 async function conLavoro(nome, fn){
   if (lavoro && !lavoro.finito){ avviso('C\'è già un lavoro in corso: aspetta che finisca.', true); return; }
   lavoro = {nome, passi:[], anteprime:{}, av:null, errore:null, fatto:false, finito:false, p:null};
   disegnaLavoro();
+  { const el = $('#lavoroFoglio') || $('#lavoroCrea'); if (el) setTimeout(() => el.scrollIntoView({behavior: 'smooth', block: 'center'}), 50); }
   let blocco = null; try { blocco = await navigator.wakeLock?.request('screen'); } catch(e) {}
   try { await fn(lavoro); lavoro.fatto = true; }
   catch(e) { lavoro.errore = e.message; segnala(e); }
@@ -1185,7 +1197,7 @@ async function animaTutto(p, quali){
 }
 /* il pulsante del foglio Animazioni: quanti video e quanto */
 function contaAnim(mv = MODELLI_VIDEO.find(x => x.id === imp.video.modello) || MODELLI_VIDEO[0]){
-  const b = $('#animaVia'); if (!b || !mv) return;
+  const b = $('#animaVia'); if (!b || !mv || (lavoro && !lavoro.finito)) return;
   const n = document.querySelectorAll('.anim-casella[aria-pressed="true"]').length;
   b.disabled = !n;
   b.innerHTML = icona('anima', 18) + (n ? `Anima ${n} video · ≈ ${euro(mv.euroSecondo * imp.video.secondi * n)}` : 'Tocca un video da fare');
