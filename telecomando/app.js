@@ -9,7 +9,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
 const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 const euro = n => (n < .1 ? n.toFixed(3) : n.toFixed(2)).replace('.', ',') + ' $';
-const VERSIONE = '6.24';
+const VERSIONE = '6.25';
 /* 8/11 · l'app si aggiorna da sola (Maurizio: «vedo ancora il quadrato con la doppia finestra»: sul telefono restava la
    versione vecchia anche dopo averla chiusa). Quando torna in primo piano, e ogni 10 minuti, chiede al server quale
    app.js c'è adesso; se è un'altra, ricarica (mai mentre un lavoro AI è in corso) */
@@ -63,7 +63,8 @@ if (!MODELLI_VIDEO.length) imp.anima = false;
 /* 10/11 · MENO OPZIONI (Maurizio: «per animare e creare ci sono troppe opzioni, non sono chiare… anche le impostazioni sono
    troppe»). Quello che prima si sceglieva ora è una regola fissa:
    · si crea sempre tutto: 4 luci, vista per il TV, cielo che scorre, animazioni (Maurizio: «sì, sempre tutto»)
-   · ogni luce ha il suo video, finestrelle e TV: 8 video (Maurizio: «tutte e 4 le luci»); niente più «Risparmio»
+   · ⚠ 10/11 sera (Maurizio: «2 video, uno per il giorno e uno per il tramonto, il resto colorerei»): video per giorno e
+     tramonto, finestrelle e TV (4 video); l'alba si ricolora dal tramonto, la notte dal giorno (finestra/index.html)
    · immagini sempre in qualità alta; video sempre 8 s, a 1080p; si muovono alberi e acqua (cielo e nebbia li fa la finestra)
    Il modello per le immagini resta una scelta (Maurizio: «lascia la scelta») */
 Object.assign(imp, {qualita:'alta', tv:true, cielo:true, anima: !!MODELLI_VIDEO.length, risparmio:false, luci:{alba:true, tramonto:true, notte:true}, elementi:['alberi','acqua']});
@@ -1174,8 +1175,9 @@ async function faiAnimazione(p, foto, ora, elementi, tv = false){
 /* 8/11 · RISPARMIO (Maurizio: «9 dollari per animare, come risparmiamo?»): di norma si anima solo il giorno, finestrelle e
    TV; alba, tramonto e notte usano quel video ricolorato con la loro luce (js/vista.js). Un video per luce solo se lo si
    sceglie in Anima o se si spegne «Risparmio» nelle Impostazioni */
-const oreDaAnimare = () => imp.risparmio !== false ? ['giorno'] : ['giorno','alba','tramonto','notte'];
-const nVideoCrea = () => 8;   /* 10/11: 4 luci × finestrelle e TV */
+const ORE_ANIMATE = ['giorno','tramonto'];
+const oreDaAnimare = () => ORE_ANIMATE;
+const nVideoCrea = () => 4;   /* 10/11 sera: giorno e tramonto × finestrelle e TV */
 function animMancanti(p, viste = [false, true], ore = oreDaAnimare()){
   const m = [];
   for (const tv of viste) for (const ora of ore){
@@ -1216,9 +1218,9 @@ async function costoAggiorna(p, stretta){
   e += c * 1.15 * nuoveLuci;                                                 /* le luci che mancano */
   if (!p.immagini['est-giorno']) e += c * 1.3 * (1 + 3 * 1.15);              /* la vista per il TV */
   e += c * 4;                                                                /* i cieli (rifatti, se l'immagine cambia) */
-  const tvFatti = ['giorno','alba','tramonto','notte'].filter(o => p.animati['est-' + o]).length;
-  const finFatti = stretta ? 0 : ['giorno','alba','tramonto','notte'].filter(o => p.animati[o]).length;
-  if (mv) e += mv.euroSecondo * imp.video.secondi * (8 - tvFatti - finFatti);
+  const tvFatti = ORE_ANIMATE.filter(o => p.animati['est-' + o]).length;
+  const finFatti = stretta ? 0 : ORE_ANIMATE.filter(o => p.animati[o]).length;
+  if (mv) e += mv.euroSecondo * imp.video.secondi * (2 * ORE_ANIMATE.length - tvFatti - finFatti);
   return e;
 }
 function rapportoLavoro(extra = {}){
@@ -1241,10 +1243,10 @@ async function chiediAggiornaVecchi(d){
   for (const p of lista){ const st = await strettaDi(p); righe.push({p, st, costo: await costoAggiorna(p, st)}); }
   const tot = righe.reduce((a, r) => a + r.costo, 0);
   apriFoglio(`<h3 style="font:500 16px var(--display);letter-spacing:.12em;text-transform:uppercase;margin:4px 0 4px">Completo i paesaggi vecchi</h3>
-    <p class="nota" style="margin-top:0">Claude li porta allo stesso livello di uno creato oggi: immagine larga per le finestrelle, le quattro luci, la vista per il TV, il cielo che scorre, il fumo e le animazioni.</p>
+    <p class="nota" style="margin-top:0">Claude li porta allo stesso livello di uno creato oggi: immagine larga per le finestrelle, le quattro luci, la vista per il TV, il cielo che scorre, il fumo e le animazioni di giorno e tramonto.</p>
     <ul class="membri">${righe.map(r => `<li><span><b>${esc(r.p.nome)}</b><small>${r.st ? 'immagine delle finestrelle rifatta larga, e tutto quello che manca' : 'tutto quello che manca'}</small></span><span class="prezzo">≈ ${euro(r.costo)}</span></li>`).join('')}</ul>
     <button class="btn oro piena" style="margin-top:14px" data-fai="aggiornaVia">${icona('scintilla', 18)}Avvia · ≈ ${euro(tot)}</button>
-    <p class="nota">Ci vuole circa un'ora, quasi tutta per le animazioni: tieni il telefono acceso con l'app aperta su questa pagina finché non ha finito.</p>
+    <p class="nota">Ci vuole circa mezz'ora, quasi tutta per le animazioni: tieni il telefono acceso con l'app aperta su questa pagina finché non ha finito.</p>
     <div id="lavoroFoglio"></div>`);
   foglioAperto = 'aggiorna';
   chiediAggiornaVecchi.righe = righe; chiediAggiornaVecchi.chiave = d.chiave;
@@ -1319,7 +1321,7 @@ function disegnaCrea(){
     <div class="sezione"><label class="campo"><span>Nome (facoltativo)</span><input id="creaNome" maxlength="40" placeholder="Vuoto: lo prendo dalla descrizione" value="${esc(nome)}"></label></div>
     <div class="sezione">
       <button class="btn oro piena" data-fai="crea" ${lavoro && !lavoro.finito || manca ? 'disabled' : ''}>${icona('scintilla', 18)}Crea · ≈ ${euro(costo)}</button>
-      <p class="nota">Fa tutto da sé: le quattro luci (giorno, alba, tramonto e notte), la vista per il TV, il cielo che scorre${nVideo ? ` e ${nVideo} animazioni (ogni luce, finestrelle e TV)` : ''}.</p>
+      <p class="nota">Fa tutto da sé: le quattro luci (giorno, alba, tramonto e notte), la vista per il TV, il cielo che scorre${nVideo ? ` e ${nVideo} animazioni (giorno e tramonto, finestrelle e TV; l'alba prende il movimento del tramonto, la notte quello del giorno)` : ''}.</p>
       <p class="nota">Le immagini sono pronte in pochi minuti e puoi già mostrarle.${nVideo ? ' Le animazioni arrivano dopo, una alla volta: qualche minuto ciascuna.' : ''} Tieni il telefono acceso su questa pagina finché non ha finito.</p>
       <div id="lavoroCrea"></div></div>`;
   disegnaLavoro(); aggiornaSpia(); mostraProblema();
@@ -1890,10 +1892,10 @@ const AZIONI = {
     const ORE = ['giorno','alba','tramonto','notte'];
     const casella = (tv, o) => { const pre = tv ? 'est-' : '', c = pre + o;
       if (!p.immagini[c]) return `<span class="anim-casella vuota"><span>${NOME_ORA[o]}</span><small>manca l'immagine</small></span>`;
-      const fatto = !!p.animati[c];
-      return `<button class="anim-casella" data-fai="animSegna" data-v="${c}" aria-pressed="${!fatto}"><img alt="" src="${esc(p.immagini[c])}"><span>${NOME_ORA[o]}</span><small>${fatto ? 'fatta · tocca per rifarla' : 'da fare'}</small></button>`; };
+      const fatto = !!p.animati[c], serve = ORE_ANIMATE.includes(o);
+      return `<button class="anim-casella" data-fai="animSegna" data-v="${c}" aria-pressed="${!fatto && serve}"><img alt="" src="${esc(p.immagini[c])}"><span>${NOME_ORA[o]}</span><small>${fatto ? 'fatta · tocca per rifarla' : serve ? 'da fare' : 'dal ' + (o === 'alba' ? 'tramonto' : 'giorno') + ' · tocca per animarla'}</small></button>`; };
     apriFoglio(`<h3 style="font:500 16px var(--display);letter-spacing:.12em;text-transform:uppercase;margin:4px 0 4px">Animazioni «${esc(p.nome)}»</h3>
-      <p class="nota" style="margin-top:0">Un video per ogni luce, sulle finestrelle e sul TV: alberi e acqua si muovono, la camera sta ferma, il video gira in loop. In oro quelli da fare.</p>
+      <p class="nota" style="margin-top:0">Giorno e tramonto hanno il loro video, sulle finestrelle e sul TV; l'alba prende il movimento del tramonto e la notte quello del giorno. In oro quelli da fare.</p>
       ${viste.map(([tv, t]) => `<div class="sezione">${titolo(tv ? 'tv' : 'monofora', t)}<div class="anim-griglia">${ORE.map(o => casella(tv, o)).join('')}</div></div>`).join('')}
       <button class="btn oro piena" style="margin-top:14px" id="animaVia" data-fai="animaVia" data-v="${p.id}"></button>
       <p class="nota">Ogni video richiede qualche minuto: tieni il telefono acceso su questa pagina.</p>
@@ -1902,7 +1904,8 @@ const AZIONI = {
   },
   animSegna: (v, b) => { b.setAttribute('aria-pressed', String(b.getAttribute('aria-pressed') !== 'true'));
     const sm = b.querySelector('small'), p = libreria.find(x => x.id === foglioAperto);
-    if (sm && p && p.animati[v]) sm.textContent = b.getAttribute('aria-pressed') === 'true' ? 'da rifare' : 'fatta · tocca per rifarla';
+    const o = v.replace('est-', ''), on = b.getAttribute('aria-pressed') === 'true';
+    if (sm && p) sm.textContent = p.animati[v] ? (on ? 'da rifare' : 'fatta · tocca per rifarla') : ORE_ANIMATE.includes(o) ? (on ? 'da fare' : 'non la faccio') : (on ? 'da fare' : 'dal ' + (o === 'alba' ? 'tramonto' : 'giorno') + ' · tocca per animarla');
     contaAnim(); },
   /* 4/11 · dove sale il fumo: tocca l'immagine per aggiungere un comignolo, tocca un punto per toglierlo */
   fumo: async v => {
