@@ -40,7 +40,7 @@ uniform vec4 uCieloM0, uCieloM1;      /* x: dove finisce il cielo nell'immagine 
 uniform float uCieloX;                /* quanto è scorso (in larghezze del panorama) */
 uniform sampler2D uFermo0, uFermo1;   /* video non ancora cucito: rgb il paesaggio fermo, a dove si muove davvero */
 uniform float uHaFermo0, uHaFermo1;
-uniform sampler2D uRap0;      /* 8/11 · «risparmio»: video del giorno ricolorato per un'altra luce (rapporto luce/giorno, /4) */
+uniform sampler2D uRap0;      /* 8/11 · «risparmio»: il fermo del GIORNO, per usare il video del giorno a un'altra luce (10/11: solo il suo movimento) */
 uniform float uHaRap0;
 uniform float uMix;          /* 0 = immagine 0, 1 = immagine 1 (dissolvenza) */
 uniform float uHaImg, uHaDep0, uHaDep1, uMovimento0, uMovimento1;
@@ -195,6 +195,9 @@ vec3 paesaggio(sampler2D img, sampler2D imgB, float vk, sampler2D dep, vec4 crop
   float vivoV = 0.;   /* quanto di questo punto viene dal video (con il fermo): serve alla nebbiolina */
   if (haF > .5){
     vec4 fb = texture2D(fer, clamp(crop.xy + p * crop.zw, .0005, .9995));
+    /* 10/11: col video ricolorato il fermo è il dipinto, più morbido del video dell'AI (che a 1080p ripassa i dettagli):
+       un filo di nitidezza, così da un'ora all'altra non sembra calare la risoluzione */
+    if (haR > .5) fb.rgb = clamp(fb.rgb + (fb.rgb - texture2D(fer, clamp(crop.xy + p * crop.zw, .0005, .9995), 1.2).rgb) * .7, 0., 1.);
     float mx = max(fb.r, max(fb.g, fb.b)), mn = min(fb.r, min(fb.g, fb.b));
     float chiaro = smoothstep(.38, .6, mx) * (1. - smoothstep(.2, .42, (mx - mn) / max(mx, .01)));
     /* ⚠ 5/11 (Maurizio: «si vede ancora il giro sullo sfondo, nella zona con la foschia»): la foschia lontana del video
@@ -204,7 +207,18 @@ vec3 paesaggio(sampler2D img, sampler2D imgB, float vk, sampler2D dep, vec4 crop
     float vivo = max(fb.a * chiaro * smoothstep(.3, .45, n), cm.x > 0. || haR > .5 ? 0. : sky);   /* 5/11: misurato, i salti del giro stanno fra 0,04 e 0,23 di profondità */
     /* ⚠ 8/11 · «RISPARMIO»: alba, tramonto e notte senza un video loro usano quello del giorno. Il fermo porta già i colori
        di quella luce; il video (giorno) si ricolora col rapporto luce/giorno, sfocato, punto per punto. Il cielo resta il dipinto */
-    if (haR > .5) c *= texture2D(rap, clamp(crop.xy + p * crop.zw, .0005, .9995)).rgb * 4.;
+    /* ⚠ 10/11 (Maurizio, confronto all'alba: «si può diminuire il gap? la ricolorata la vedo con una risoluzione
+       minore»). Prima il video del giorno si colorava col rapporto luce/giorno (sfocato) e PRENDEVA IL POSTO del dipinto
+       dove si muove: il fiume e la nebbia diventavano quelli del giorno tinti di rosa, con i dettagli più morbidi del
+       video (ricampionato a 30 img/s quando si cuce). Ora resta il dipinto di questa luce, a piena risoluzione, e del
+       video si prende solo quanto si scosta dal suo fermo (cioè il movimento), scalato con la luce di qui: i riflessi
+       caldi sull'acqua e sotto il ponte restano quelli dell'alba, e la nebbia del giorno ci scorre sopra */
+    if (haR > .5){
+      vec2 qr = clamp(crop.xy + p * crop.zw, .0005, .9995);
+      vec3 fd = texture2D(rap, qr).rgb, fdB = texture2D(rap, qr, 4.).rgb, fbB = texture2D(fer, qr, 4.).rgb;
+      vec3 g = clamp((fbB + .03) / (fdB + .03), .1, 1.6);
+      c = clamp(fb.rgb + (c - fd) * g, 0., 1.);
+    }
     c = mix(fb.rgb, c, vivo);
     vivoV = vivo;
   }
@@ -1134,13 +1148,11 @@ class Vista {
           const vw = f.video[0].videoWidth || fi.naturalWidth, vh = f.video[0].videoHeight || fi.naturalHeight;
           const sc = Math.max(vw / f.iw, vh / f.ih), rw = vw / sc / f.iw, rh = vh / sc / f.ih, fx = fuoco && fuoco.x != null ? fuoco.x : .5;
           const sx = (1 - rw) * fx * f.iw, sy = (1 - rh) / 2 * f.ih, sw = rw * f.iw, sh = rh * f.ih;
-          /* rapporto luce/giorno, molto sfocato (64 punti di larghezza, poi lineare): ricolora il video senza disegnarne i dettagli */
-          const RW = 64, RH = Math.max(8, Math.round(RW * H / W)), rc = document.createElement('canvas'); rc.width = RW; rc.height = RH;
-          const rx = rc.getContext('2d', {willReadFrequently:true});
-          rx.drawImage(fi, 0, 0, RW, RH); const dg = rx.getImageData(0, 0, RW, RH).data;
-          rx.drawImage(f.img, sx, sy, sw, sh, 0, 0, RW, RH); const rr = rx.getImageData(0, 0, RW, RH);
-          for (let i = 0; i < rr.data.length; i += 4) for (let k = 0; k < 3; k++) rr.data[i + k] = Math.min(255, Math.round((rr.data[i + k] + 5) / (dg[i + k] + 5) / 4 * 255));
-          f.rTex = this.texture(); this.carica(f.rTex, rr);
+          /* 10/11: il fermo del giorno com'è (con le sue riduzioni): il disegno toglie al video il suo fermo e tiene il
+             movimento (vedi paesaggio()) */
+          const dd = new ImageData(new Uint8ClampedArray(d.data), W, H);
+          for (let i = 3; i < dd.data.length; i += 4) dd.data[i] = 255;
+          f.rTex = this.texture(); this.carica(f.rTex, dd); this.mip(f.rTex);
           x.drawImage(f.img, sx, sy, sw, sh, 0, 0, W, H); const dl = x.getImageData(0, 0, W, H);
           for (let i = 0; i < d.data.length; i += 4){ d.data[i] = dl.data[i]; d.data[i + 1] = dl.data[i + 1]; d.data[i + 2] = dl.data[i + 2]; }
         }
