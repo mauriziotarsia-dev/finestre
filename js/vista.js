@@ -366,12 +366,48 @@ float uccello(vec2 q, float s, float ali, float rapace, float sc){
   d = min(d, length(q * vec2(1., rapace > .5 ? 1.2 : 1.6)) - (rapace > .5 ? .7 : .45) * sc);
   return 1. - smoothstep(.35 * sc, .35 * sc + .9, d);
 }
-/* 9/11 · pipistrelli (al tramonto e di notte): ali larghe di membrana che battono fitte, corpo tozzo */
+/* ⚠ 10/11 · PIPISTRELLO (Maurizio: «la forma sembra più una rondine»). Prima era l'ala dell'uccello un po' più grossa:
+   punte aguzze all'indietro, cioè una rondine. Il pipistrello ha ali di membrana tese fra le dita: bordo d'attacco
+   dalla spalla al polso e poi alla punta, e dietro il bordo a festoni (archi rientranti fra una punta di dito e
+   l'altra) che torna fino ai piedi; corpo tozzo, testa con due orecchie, niente coda. Battendo, in alto l'ala si
+   raccoglie un po' (si accorcia) e in basso si apre tutta. Qui la mezza ala è fatta di triangoli di membrana, coi
+   festoni scavati da cerchi; tutto in pixel, s = mezza apertura */
+float triangolo(vec2 p, vec2 a, vec2 b, vec2 c){
+  vec2 e0 = b - a, e1 = c - b, e2 = a - c, v0 = p - a, v1 = p - b, v2 = p - c;
+  vec2 pq0 = v0 - e0 * clamp(dot(v0, e0) / dot(e0, e0), 0., 1.);
+  vec2 pq1 = v1 - e1 * clamp(dot(v1, e1) / dot(e1, e1), 0., 1.);
+  vec2 pq2 = v2 - e2 * clamp(dot(v2, e2) / dot(e2, e2), 0., 1.);
+  float sg = sign(e0.x * e2.y - e0.y * e2.x);
+  vec2 d = min(min(vec2(dot(pq0, pq0), sg * (v0.x * e0.y - v0.y * e0.x)), vec2(dot(pq1, pq1), sg * (v1.x * e1.y - v1.y * e1.x))), vec2(dot(pq2, pq2), sg * (v2.x * e2.y - v2.y * e2.x)));
+  return -sqrt(d.x) * sign(d.y);
+}
+/* festone: scava un arco rientrante fra due punte (cerchio fuori dal bordo, che morde la membrana) */
+float festone(float d, vec2 q, vec2 a, vec2 b, vec2 fuori){
+  float l = length(b - a), r = l * .7;
+  vec2 c = (a + b) * .5 + fuori * (r - l * .13);
+  return max(d, -(length(q - c) - r));
+}
 float pipistrello(vec2 q, float s, float ali, float sc){
   q.x = abs(q.x);
-  float d = ala(q, s * 1.05, .12 + .55 * ali, .02 + .6 * ali) - .3 * sc;
-  d = min(d, length(q * vec2(1., 1.3)) - .55 * sc);
-  return 1. - smoothstep(.35 * sc, .35 * sc + .9, d);
+  float su = clamp(ali, -1., 1.), ap = 1. - .28 * max(0., su);           /* in alto l'ala si raccoglie */
+  su = su > 0. ? su : su * .55;                                          /* in basso scende meno di quanto sale (non un mantello) */
+  vec2 S = vec2(.07, -.1) * s, W = vec2(.46 * ap, -.06 - .26 * su) * s, T = vec2(1. * ap, .04 - .5 * su) * s;
+  vec2 F1 = vec2(.86 * ap, .16 - .36 * su) * s, F2 = vec2(.6 * ap, .34 - .18 * su) * s, F3 = vec2(.33 * ap, .37 - .06 * su) * s, P = vec2(.08, .3) * s;
+  float d = triangolo(q, S, W, P);
+  d = min(d, triangolo(q, W, T, F1)); d = min(d, triangolo(q, W, F1, F2));
+  d = min(d, triangolo(q, W, F2, F3)); d = min(d, triangolo(q, W, F3, P));
+  /* i festoni del bordo di uscita, verso fuori (in giù e un po' in fuori) */
+  d = festone(d, q, T, F1, normalize(vec2(F1.y - T.y, T.x - F1.x)));
+  d = festone(d, q, F1, F2, normalize(vec2(F2.y - F1.y, F1.x - F2.x)));
+  d = festone(d, q, F2, F3, normalize(vec2(F3.y - F2.y, F2.x - F3.x)));
+  d = festone(d, q, F3, P, normalize(vec2(P.y - F3.y, F3.x - P.x)));
+  /* il braccio (bordo d'attacco più scuro e netto) */
+  d = min(d, min(segmento(q, S, W), segmento(q, W, T)) - .03 * s);
+  /* corpo tozzo, testa e orecchie */
+  d = min(d, (length((q - vec2(0., .06 * s)) / (vec2(.1, .24) * s)) - 1.) * .1 * s);
+  d = min(d, length(q - vec2(0., -.2 * s)) - .085 * s);
+  d = min(d, triangolo(q, vec2(.02, -.24) * s, vec2(.075, -.24) * s, vec2(.06, -.31) * s));
+  return 1. - smoothstep(-.35, .75, d);
 }
 float uccelli(vec2 uv){
   float a = 0., sc = uPix.y / 1000.;

@@ -112,7 +112,11 @@
        ⚠ 10/11 (Maurizio, sul video: «sembra un video velocizzato, o sembrano più delle mosche»): troppo piccoli e anelli
        troppo stretti e svelti (un giro in un secondo, in un fazzoletto di cielo). Un pipistrello che si vede da una
        finestra vola a pochi metri: più grande, curve larghe (un anello prende un buon pezzo di cielo e dura 2-3 s),
-       scarti più rari e meno secchi. Uno alla volta, a volte due */
+       scarti più rari e meno secchi. Uno alla volta, a volte due.
+       ⚠ 10/11 (Maurizio: «meglio ma ancora fake»): curve larghe e lisce sono il volo della rondine. Il pipistrello è
+       nervoso: sopra la curva di fondo la direzione trema di continuo (piccoli sbandamenti, 4-8 al secondo), ogni
+       mezzo secondo-secondo e mezzo uno scatto di lato di 30-60° (insegue un insetto) e la velocità cambia a strappi;
+       il battito è fitto (7-9 al secondo, prima 3) e a ogni colpo il corpo sobbalza su e giù */
     nuovoPipistrello(){
       if (this.u.length >= MAX || this.u.filter(b => b.pip).length >= (Math.random() < .3 ? 2 : 1)) return;
       const dir = Math.random() < .5 ? 1 : -1, z = caso(.8, 1.2);
@@ -120,7 +124,7 @@
       this.u.push({pip: true, sx, sy, z, x: (sx - this.A / 2) * z, y: (ORIZZONTE - sy) * z,
         h: dir > 0 ? caso(-.4, .4) : Math.PI + caso(-.4, .4), v: caso(.3, .38), w: 0, wt: 0, cambio: 0,
         cx: caso(.3, .7) * this.A, cy: ORIZZONTE - caso(.12, .22), raggio: caso(.18, .3), scarto: 0,
-        vita: caso(8, 18), dir, scala: caso(2.4, 3.1), fase: caso(0, 6.28), freq: caso(16, 20), amp: 1, ali: 0, bank: 0, zt: z});
+        vita: caso(8, 18), dir, scala: caso(2.4, 3.1), fase: caso(0, 6.28), freq: caso(45, 56), amp: 1, ali: 0, bank: 0, zt: z, jit: 0, jitT: 0, jitC: 0, scatto: caso(.5, 1.4)});
     }
     volaPipistrello(b, dt){
       b.vita -= dt;
@@ -143,13 +147,19 @@
       b.scarto -= dt;
       if (b.scarto <= 0) b.w += ((b.wt * (1 - richiamo) + verso * (2.5 + 5 * bordo) * richiamo) - b.w) * Math.min(1, dt * (3 + 6 * bordo));
       b.h += b.w * dt;
-      b.fase += dt * b.freq * (1 + Math.abs(b.w) * .03);
+      /* lo scatto di lato: la direzione salta di 30-60° in un decimo di secondo, e la velocità con lei */
+      if ((b.scatto -= dt) <= 0 && b.vita > 0){ b.scatto = caso(.5, 1.5); b.h += (Math.random() < .5 ? -1 : 1) * caso(.5, 1); b.v = caso(.24, .46); }
+      /* il tremito della direzione (non si accumula: sbanda e torna) */
+      if ((b.jitC -= dt) <= 0){ b.jitC = caso(.12, .25); b.jitT = caso(-.45, .45); }
+      b.jit += (b.jitT - b.jit) * Math.min(1, dt * 14);
+      const hh = b.h + b.jit;
+      b.fase += dt * b.freq;
       const colpo = Math.sin(b.fase);
       b.ali = colpo * b.amp;
-      b.v += (caso(.3, .4) - b.v) * Math.min(1, dt * 1.2);
-      const vv = b.v * (1 + .12 * colpo);                               /* il sobbalzo a ogni colpo d'ala */
-      b.sx += Math.cos(b.h) * vv * dt;
-      b.sy += Math.sin(b.h) * vv * dt * .75 + (b.scarto > 0 ? .1 * dt : 0);
+      b.v += (.33 - b.v) * Math.min(1, dt * .8);
+      const vv = b.v * (1 + .18 * colpo);                               /* il sobbalzo a ogni colpo d'ala */
+      b.sx += Math.cos(hh) * vv * dt;
+      b.sy += Math.sin(hh) * vv * dt * .75 + (b.scarto > 0 ? .1 * dt : 0) + Math.cos(b.fase) * .0035 * b.freq * dt;
       b.sy = Math.min(ORIZZONTE - .02, Math.max(.03, b.sy));
       b.z += (b.zt - b.z) * Math.min(1, dt * .8);
       b.x = (b.sx - this.A / 2) * b.z; b.y = (ORIZZONTE - b.sy) * b.z;
