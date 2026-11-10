@@ -32,40 +32,44 @@ public class Schermi {
   [DllImport("user32.dll", CharSet = CharSet.Ansi)] public static extern bool EnumDisplayDevices(string lpDevice, int iDevNum, ref DISPLAY_DEVICE lpDisplayDevice, int dwFlags);
   [DllImport("user32.dll", CharSet = CharSet.Ansi)] public static extern bool EnumDisplaySettings(string deviceName, int modeNum, ref DEVMODE devMode);
   [DllImport("user32.dll", CharSet = CharSet.Ansi)] public static extern int ChangeDisplaySettingsEx(string lpszDeviceName, ref DEVMODE lpDevMode, IntPtr hwnd, int dwflags, IntPtr lParam);
+  /* tutto in C#: le strutture passate da PowerShell per riferimento non tornavano piene */
+  public static string Elenco(){
+    var sb = new System.Text.StringBuilder();
+    for (int i = 0; i < 10; i++){
+      var d = new DISPLAY_DEVICE(); d.cb = Marshal.SizeOf(d);
+      if (!EnumDisplayDevices(null, i, ref d, 0)) break;
+      if ((d.StateFlags & 1) == 0) continue;
+      var m = new DEVMODE(); m.dmSize = (short)Marshal.SizeOf(m);
+      EnumDisplaySettings(d.DeviceName, -1, ref m);
+      var mon = new DISPLAY_DEVICE(); mon.cb = Marshal.SizeOf(mon); EnumDisplayDevices(d.DeviceName, 0, ref mon, 0);
+      sb.Append(d.DeviceName + "|" + d.DeviceString + "|" + mon.DeviceString + "|" + ((d.StateFlags & 4) != 0 ? "principale" : "") + "|ora " + m.dmPelsWidth + "x" + m.dmPelsHeight + "@" + m.dmDisplayFrequency + "|pos " + m.dmPositionX + "," + m.dmPositionY + "|modi");
+      var visti = new System.Collections.Generic.HashSet<string>();
+      for (int k = 0; k < 3000; k++){
+        var x = new DEVMODE(); x.dmSize = (short)Marshal.SizeOf(x);
+        if (!EnumDisplaySettings(d.DeviceName, k, ref x)) break;
+        string t = x.dmPelsWidth + "x" + x.dmPelsHeight + "@" + x.dmDisplayFrequency;
+        if (x.dmPelsWidth >= 1280 && visti.Add(t)) sb.Append(" " + t);
+      }
+      sb.Append("\n");
+    }
+    return sb.ToString();
+  }
+  public static int Imposta(string dev, int w, int h, int hz){
+    var m = new DEVMODE(); m.dmSize = (short)Marshal.SizeOf(m);
+    EnumDisplaySettings(dev, -1, ref m);
+    m.dmPelsWidth = w; m.dmPelsHeight = h; m.dmDisplayFrequency = hz; m.dmFields = 0x80000 | 0x100000 | 0x400000;
+    return ChangeDisplaySettingsEx(dev, ref m, IntPtr.Zero, 1, IntPtr.Zero);
+  }
 }
 "@
 $Error.Clear()
-if (-not ('Schermi' -as [type])) { Add-Type -TypeDefinition $codice }
+if (-not ('Schermi' -as [type]) -or -not ([Schermi].GetMethod('Elenco'))) { Add-Type -TypeDefinition $codice }
 
-function Schermi-Attivi {
-  $l = @()
-  for ($i = 0; $i -lt 10; $i++) {
-    $d = New-Object Schermi+DISPLAY_DEVICE; $d.cb = [Runtime.InteropServices.Marshal]::SizeOf($d)
-    if (-not [Schermi]::EnumDisplayDevices($null, $i, [ref]$d, 0)) { break }
-    if (($d.StateFlags -band 1) -eq 0) { continue }                    # collegato al desktop
-    $m = New-Object Schermi+DEVMODE; $m.dmSize = [Runtime.InteropServices.Marshal]::SizeOf($m)
-    [void][Schermi]::EnumDisplaySettings($d.DeviceName, -1, [ref]$m)    # quella attuale
-    $mon = New-Object Schermi+DISPLAY_DEVICE; $mon.cb = [Runtime.InteropServices.Marshal]::SizeOf($mon)
-    [void][Schermi]::EnumDisplayDevices($d.DeviceName, 0, [ref]$mon, 0)
-    $modi = @{}
-    for ($k = 0; $k -lt 2000; $k++) {
-      $x = New-Object Schermi+DEVMODE; $x.dmSize = [Runtime.InteropServices.Marshal]::SizeOf($x)
-      if (-not [Schermi]::EnumDisplaySettings($d.DeviceName, $k, [ref]$x)) { break }
-      if ($x.dmPelsWidth -ge 1280) { $modi["$($x.dmPelsWidth)x$($x.dmPelsHeight)@$($x.dmDisplayFrequency)"] = 1 }
-    }
-    $l += [ordered]@{ nome = $d.DeviceName; scheda = $d.DeviceString; monitor = $mon.DeviceString; principale = (($d.StateFlags -band 4) -ne 0);
-      ora = "$($m.dmPelsWidth)x$($m.dmPelsHeight)@$($m.dmDisplayFrequency)"; pos = "$($m.dmPositionX),$($m.dmPositionY)"; modi = @($modi.Keys | Sort-Object) }
-  }
-  return $l
-}
+function Schermi-Attivi { return @(([Schermi]::Elenco()) -split "`n" | Where-Object { $_ }) }
 
 $esito = ''
 if ($Azione -eq 'imposta') {
-  $m = New-Object Schermi+DEVMODE; $m.dmSize = [Runtime.InteropServices.Marshal]::SizeOf($m)
-  [void][Schermi]::EnumDisplaySettings($Schermo, -1, [ref]$m)
-  $m.dmPelsWidth = $W; $m.dmPelsHeight = $H; $m.dmDisplayFrequency = $Hz
-  $m.dmFields = 0x80000 -bor 0x100000 -bor 0x400000                    # larghezza, altezza, frequenza
-  $r = [Schermi]::ChangeDisplaySettingsEx($Schermo, [ref]$m, [IntPtr]::Zero, 0x1, [IntPtr]::Zero)   # 1 = anche nel registro
+  $r = [Schermi]::Imposta($Schermo, $W, $H, $Hz)
   $esito = "imposta $Schermo ${W}x${H}@${Hz}: $r (0 = fatto, 1 = serve riavvio, negativo = non accettato)"
   Start-Sleep -Seconds 3
 }
