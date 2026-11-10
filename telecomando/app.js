@@ -9,7 +9,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
 const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 const euro = n => (n < .1 ? n.toFixed(3) : n.toFixed(2)).replace('.', ',') + ' $';
-const VERSIONE = '6.20';
+const VERSIONE = '6.21';
 /* 8/11 · l'app si aggiorna da sola (Maurizio: «vedo ancora il quadrato con la doppia finestra»: sul telefono restava la
    versione vecchia anche dopo averla chiusa). Quando torna in primo piano, e ogni 10 minuti, chiede al server quale
    app.js c'è adesso; se è un'altra, ricarica (mai mentre un lavoro AI è in corso) */
@@ -112,6 +112,7 @@ const gestoreCanale = {
     if (evento === 'dmaster'){ dmasterFino = d.attivo ? Date.now() + 30000 : 0; const prima = inSerata(); serataFino = d.attivo && d.serata ? Date.now() + 30000 : 0; lettore.imposta({muto: inSerata()}); aggiornaComando(); if (scheda === 'bard' && prima !== inSerata()) disegnaBard(); else if (scheda === 'bard') aggiornaBard(); return; }
     if (evento === 'tv'){ ultimoTv = d && (d.spento || (!d.immagine && !d.video)) ? null : d; postaAnteprima({tipo:'tv', tv: d}); return; }
     if (evento === 'bard'){ prendiBard(d); return; }
+    if (evento === 'aggiornaVecchi'){ chiediAggiornaVecchi(d); return; }
     if (evento === 'console'){ suConsole(d); return; }
     if (evento === 'consoleScheda'){ suScheda(d); return; }
     if (evento === 'bardOra'){ if (!suonoQui()){ bardOra = d.musica || null; if (scheda === 'bard') aggiornaBard(); } return; }
@@ -792,8 +793,8 @@ function apriPaesaggio(p){
       </div>
     </div>
     <button class="btn oro piena" style="margin-top:14px" data-fai="mostra" data-v="${p.id}">${icona('play', 18)}Mostra alle finestre</button>
-    ${p.yt ? '' : `<button class="btn piena" id="migliora" style="margin-top:8px"${manca.length ? '' : ' hidden'} data-fai="migliora" data-v="${p.id}">${icona('scintilla', 18)}Completa con l'AI · ≈ ${euro(costoMigliora(p, false))}</button>
-      <p class="nota" id="miglioraNota" style="margin-top:6px"${manca.length ? '' : ' hidden'}>${esc(cosaFaMigliora(p, false))}</p>`}
+    ${''/* 10/11 (Maurizio: «togliamo il tasto completa»): i paesaggi nuovi nascono completi; i tre vecchi li completa
+         Claude da lontano (aggiornaVecchi, sotto) */}
     <details class="gruppo" style="margin-top:12px"><summary>${icona('manopole', 18)}<span>Altro</span></summary><div class="dentro-gruppo">
       ${p.yt ? '' : `${cursore('inquadra', 'mirino', 'Inquadratura', 0, 100, Math.round(fx * 100), fx === .5 ? 'centro' : Math.round(fx * 100) + '%')}
         <p class="nota" style="margin:0 0 10px">Quale parte dell'immagine si vede nel foro, se è più larga.</p>
@@ -1180,6 +1181,65 @@ function contaAnim(mv = MODELLI_VIDEO.find(x => x.id === imp.video.modello) || M
   const n = document.querySelectorAll('.anim-casella[aria-pressed="true"]').length;
   b.disabled = !n;
   b.innerHTML = icona('anima', 18) + (n ? `Anima ${n} video · ≈ ${euro(mv.euroSecondo * imp.video.secondi * n)}` : 'Tocca un video da fare');
+}
+/* ═══ 10/11 · I PAESAGGI DELLE VERSIONI VECCHIE (Maurizio: «togliamo il tasto completa e ti chiedo di completarle da qui»;
+   «come oggi: rifalli larghi»). Claude manda sul canale «aggiornaVecchi» {ids, chiave}; il telefono, che ha le chiavi
+   dell'AI, mostra che cosa fa e quanto costa e parte al tocco di «Avvia» (spende soldi: senza conferma non parte mai).
+   Ogni paesaggio diventa come uno creato oggi: immagine larga per le finestrelle, 4 luci, vista per il TV, cielo, fumo,
+   8 animazioni. Come va lo scrive in finestre/banco/lavoro-telefono.json, così Claude lo segue da lontano */
+let aggiornaFatti = new Set(leggi('atm-aggiorna-fatti', []));
+async function strettaDi(p){ try { return !(await misuraDi(await (await fetch(p.immagini.giorno)).blob())).largo; } catch(e) { return false; } }
+async function costoAggiorna(p, stretta){
+  const m = Ai.modello(imp.modello), c = m.costo.alta, mv = MODELLI_VIDEO[0];
+  const luci = ['alba','tramonto','notte'].filter(o => p.immagini[o]).length, nuoveLuci = 3 - luci;
+  let e = stretta ? c * (1 + 1.15 * luci) + .01 : 0;                         /* l'immagine larga, con le luci che ha */
+  e += c * 1.15 * nuoveLuci;                                                 /* le luci che mancano */
+  if (!p.immagini['est-giorno']) e += c * 1.3 * (1 + 3 * 1.15);              /* la vista per il TV */
+  e += c * 4;                                                                /* i cieli (rifatti, se l'immagine cambia) */
+  const tvFatti = ['giorno','alba','tramonto','notte'].filter(o => p.animati['est-' + o]).length;
+  const finFatti = stretta ? 0 : ['giorno','alba','tramonto','notte'].filter(o => p.animati[o]).length;
+  if (mv) e += mv.euroSecondo * imp.video.secondi * (8 - tvFatti - finFatti);
+  return e;
+}
+function rapportoLavoro(extra = {}){
+  const L = lavoro || {};
+  const st = Object.assign({quando: new Date().toISOString(), lavoro: L.nome || null, paesaggio: L.p ? L.p.nome : null, finito: !!L.finito, errore: L.errore || null,
+    passi: (L.passi || []).map(x => x.cls + ' · ' + x.testo)}, extra);
+  fetch(SUPABASE_URL + '/storage/v1/object/dmaster-media/finestre/banco/lavoro-telefono.json', {method: 'POST',
+    headers: {apikey: SUPABASE_CHIAVE_PUBBLICA, Authorization: 'Bearer ' + SUPABASE_CHIAVE_PUBBLICA, 'Content-Type': 'image/png', 'x-upsert': 'true'}, body: JSON.stringify(st)}).catch(() => {});
+}
+async function chiediAggiornaVecchi(d){
+  if (!d || !Array.isArray(d.ids) || !d.chiave || aggiornaFatti.has(d.chiave)) return;
+  const lista = d.ids.map(id => libreria.find(x => x.id === id)).filter(p => p && !p.yt && p.immagini.giorno);
+  if (!lista.length){ rapportoLavoro({messaggio: 'nessuno dei paesaggi chiesti è su questo telefono'}); return; }
+  const righe = [];
+  for (const p of lista){ const st = await strettaDi(p); righe.push({p, st, costo: await costoAggiorna(p, st)}); }
+  const tot = righe.reduce((a, r) => a + r.costo, 0);
+  apriFoglio(`<h3 style="font:500 16px var(--display);letter-spacing:.12em;text-transform:uppercase;margin:4px 0 4px">Completo i paesaggi vecchi</h3>
+    <p class="nota" style="margin-top:0">Claude li porta allo stesso livello di uno creato oggi: immagine larga per le finestrelle, le quattro luci, la vista per il TV, il cielo che scorre, il fumo e le animazioni.</p>
+    <ul class="membri">${righe.map(r => `<li><span><b>${esc(r.p.nome)}</b><small>${r.st ? 'immagine delle finestrelle rifatta larga, e tutto quello che manca' : 'tutto quello che manca'}</small></span><span class="prezzo">≈ ${euro(r.costo)}</span></li>`).join('')}</ul>
+    <button class="btn oro piena" style="margin-top:14px" data-fai="aggiornaVia">${icona('scintilla', 18)}Avvia · ≈ ${euro(tot)}</button>
+    <p class="nota">Ci vuole circa un'ora, quasi tutta per le animazioni: tieni il telefono acceso con l'app aperta su questa pagina finché non ha finito.</p>
+    <div id="lavoroFoglio"></div>`);
+  foglioAperto = 'aggiorna';
+  chiediAggiornaVecchi.righe = righe; chiediAggiornaVecchi.chiave = d.chiave;
+  rapportoLavoro({messaggio: 'in attesa di «Avvia»', costo: Math.round(tot * 100) / 100, paesaggi: righe.map(r => r.p.nome + (r.st ? ' (largo)' : ''))});
+}
+async function aggiornaVecchiVia(){
+  const righe = chiediAggiornaVecchi.righe || [], chiave = chiediAggiornaVecchi.chiave; if (!righe.length) return;
+  const b = document.querySelector('[data-fai="aggiornaVia"]'); if (b) b.hidden = true;
+  const m = Ai.modello(imp.modello);
+  if (!imp.chiavi[m.fornitore] || !imp.chiavi.google){ avviso('Servono le chiavi nelle Impostazioni → AI e chiavi.', true); rapportoLavoro({messaggio: 'mancano le chiavi'}); return; }
+  const t = setInterval(() => rapportoLavoro(), 20000);
+  try {
+    for (const r of righe){
+      if (r.st){ await rifaiLargo(r.p); rapportoLavoro(); }
+      if (cosaManca(r.p).length){ await completaPaesaggio(r.p, ''); rapportoLavoro(); }
+      if (scena.paesaggio === r.p.id){ Object.assign(scena, scenaDi(r.p)); mandaScena(); }
+    }
+    aggiornaFatti.add(chiave); scrivi('atm-aggiorna-fatti', [...aggiornaFatti]);
+    rapportoLavoro({messaggio: 'finito', resta: righe.map(r => r.p.nome + ': ' + (cosaManca(r.p).join(', ') || 'completo'))});
+  } finally { clearInterval(t); }
 }
 function aggiornaInLibreria(p){
   const i = libreria.findIndex(x => x.id === p.id);
@@ -1844,6 +1904,7 @@ const AZIONI = {
       aggiornaInLibreria(E.p); avviso('Comignoli salvati'); E.cambiati = {}; apriPaesaggio(E.p); editorFumo = null;
     } catch(e) { avviso(e.message, true); }
   },
+  aggiornaVia: () => aggiornaVecchiVia(),
   animaVia: async v => {
     const p = libreria.find(x => x.id === v); if (!p) return;
     if (!imp.chiavi.google){ avviso('Serve la chiave Google (Gemini) nelle Impostazioni.', true); return; }
