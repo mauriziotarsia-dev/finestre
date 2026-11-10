@@ -9,7 +9,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
 const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 const euro = n => (n < .1 ? n.toFixed(3) : n.toFixed(2)).replace('.', ',') + ' $';
-const VERSIONE = '6.22';
+const VERSIONE = '6.23';
 /* 8/11 · l'app si aggiorna da sola (Maurizio: «vedo ancora il quadrato con la doppia finestra»: sul telefono restava la
    versione vecchia anche dopo averla chiusa). Quando torna in primo piano, e ogni 10 minuti, chiede al server quale
    app.js c'è adesso; se è un'altra, ricarica (mai mentre un lavoro AI è in corso) */
@@ -961,8 +961,16 @@ async function rifaiLargo(p){
     for (const k of Object.keys(p.immagini)) if (/^(?:fermo|maschera)-/.test(k)) delete p.immagini[k];
     p.immagini.giorno = await caricaLuce(casa, p, 'giorno', jpg);
     L.anteprime.giorno = {url:p.immagini.giorno}; passo('giorno', 'fatto', 'Finestrelle · panorama largo');
+    /* ⚠ 10/11 (Maurizio: «se si interrompe a metà?»): le luci, la profondità e i comignoli dell'immagine stretta non
+       valgono più per quella larga: si tolgono subito, PRIMA di rifarli. Se il lavoro si ferma a metà (crediti finiti,
+       telefono spento) quello che manca risulta mancante davvero e la volta dopo si rifà; prima restavano quelli
+       stretti, mescolati con il giorno largo, e nessuno li avrebbe più rifatti */
+    const oreLarghe = ['alba','tramonto','notte'].filter(o => p.immagini[o]);
+    const stretti = p.file.filter(n => /_(?:alba|tramonto|notte|profondita|comignoli)\.(?:jpg|png|json)$/.test(n));
+    try { await togliFile(casa, p, stretti); for (const k of [...oreLarghe, 'profondita', 'comignoli']) delete p.immagini[k]; }
+    catch(e) { passo('via2', 'errore', 'Immagini strette non tolte: ' + e.message); }
     aggiornaInLibreria(p);
-    await faiLuci(p, jpg, ['alba','tramonto','notte'].filter(o => p.immagini[o]), 'tv', {conTv: true}); aggiornaInLibreria(p);
+    await faiLuci(p, jpg, oreLarghe, 'tv', {conTv: true}); aggiornaInLibreria(p);
     await faiProfondita(p, jpg); aggiornaInLibreria(p);
     await faiComignoli(p, jpg); aggiornaInLibreria(p);
     if (p.immagini['cielo-giorno'] && imp.cielo !== false){ await faiCieli(p); aggiornaInLibreria(p); }
