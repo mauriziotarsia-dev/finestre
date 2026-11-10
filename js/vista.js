@@ -194,7 +194,7 @@ vec3 paesaggio(sampler2D img, sampler2D imgB, float vk, sampler2D dep, vec4 crop
      il cielo dal video, se non c'è il panorama */
   float vivoV = 0.;   /* quanto di questo punto viene dal video (con il fermo): serve alla nebbiolina */
   if (haF > .5){
-    vec4 fb = texture2D(fer, clamp(crop.xy + p * crop.zw, .0005, .9995));
+    vec4 fb = haR > .5 ? texture2D(fer, clamp(crop.xy + p * crop.zw, .0005, .9995), -.6) : texture2D(fer, clamp(crop.xy + p * crop.zw, .0005, .9995));   /* 10/11: col ricolorato il dipinto si legge dal livello più fine (il video, senza riduzioni, è nitido di suo) */
     /* 10/11: col video ricolorato il fermo è il dipinto, più morbido del video dell'AI (che a 1080p ripassa i dettagli):
        un filo di nitidezza, così da un'ora all'altra non sembra calare la risoluzione */
     if (haR > .5) fb.rgb = clamp(fb.rgb + (fb.rgb - texture2D(fer, clamp(crop.xy + p * crop.zw, .0005, .9995), 1.2).rgb) * .8, 0., 1.);
