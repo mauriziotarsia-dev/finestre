@@ -15,7 +15,7 @@ const MODELLI_IMMAGINE = [
    (L'API Sora di OpenAI è stata spenta il 24 settembre 2026, le Veo 3.1 «preview» di Google il 22 ottobre.)
    Il loop è vero: si chiede la stessa immagine come primo e ultimo fotogramma. */
 const MODELLI_VIDEO = [
-  {id:'omni-720p',  modello:'gemini-omni-1.1-flash', risoluzione:'720p',  nome:'Gemini Omni Flash',        euroSecondo:.10, note:'Google, 720p verticale. Loop vero: primo e ultimo fotogramma uguali.'},
+  /* 10/11 (Maurizio: «mettiamo sempre 1080p, non ci deve essere scelta»): un modello solo, il 720p è tolto */
   {id:'omni-1080p', modello:'gemini-omni-1.1-flash', risoluzione:'1080p', nome:'Gemini Omni Flash · 1080p', euroSecondo:.15, note:'Più definito (ingrandito dall\'AI): si vede meglio da vicino. Costo stimato.'},
 ];
 

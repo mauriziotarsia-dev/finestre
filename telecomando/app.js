@@ -9,7 +9,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
 const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 const euro = n => (n < .1 ? n.toFixed(3) : n.toFixed(2)).replace('.', ',') + ' $';
-const VERSIONE = '6.18';
+const VERSIONE = '6.19';
 /* 8/11 · l'app si aggiorna da sola (Maurizio: «vedo ancora il quadrato con la doppia finestra»: sul telefono restava la
    versione vecchia anche dopo averla chiusa). Quando torna in primo piano, e ogni 10 minuti, chiede al server quale
    app.js c'è adesso; se è un'altra, ricarica (mai mentre un lavoro AI è in corso) */
@@ -52,12 +52,12 @@ history.replaceState(null, '', location.pathname + (casa || q.get('code') ? '?' 
 
 /* ── impostazioni ─────────────────────────────────────────────────────────── */
 const IMP_PRED = {modello:'openai:gpt-image-2', qualita:'alta', chiavi:{openai:'', google:'', pexels:'', elevenlabs:''},
-  video:{modello:'omni-720p', secondi:8}, stile:'painterly', luci:{alba:true, tramonto:true, notte:true}, anima:false, elementi:['alberi','acqua'], cielo:true, tv:true, risparmio:true};
+  video:{modello:'omni-1080p', secondi:8}, stile:'painterly', luci:{alba:true, tramonto:true, notte:true}, anima:false, elementi:['alberi','acqua'], cielo:true, tv:true, risparmio:true};
 const imp = Object.assign({}, IMP_PRED, leggi('finestre-impostazioni', {}));
 imp.elementi = (imp.elementi || []).filter(e => e !== 'fumo');   /* 5/11: il fumo lo disegna la finestra */
 imp.chiavi = Object.assign({}, IMP_PRED.chiavi, imp.chiavi || {});
 imp.video = Object.assign({}, IMP_PRED.video, imp.video || {});
-if (!MODELLI_VIDEO.find(m => m.id === imp.video.modello)) imp.video.modello = 'omni-720p';
+if (!MODELLI_VIDEO.find(m => m.id === imp.video.modello)) imp.video.modello = 'omni-1080p';   /* 10/11: chi aveva il 720p passa al 1080p */
 if (!imp.chiavi.openai && leggi('finestre-chiave-openai', '')) imp.chiavi.openai = leggi('finestre-chiave-openai', '');   /* dalla versione di prima */
 if (!MODELLI_VIDEO.length) imp.anima = false;
 const salvaImp = () => scrivi('finestre-impostazioni', imp);
@@ -1597,7 +1597,7 @@ function disegnaImpostazioni(){
     ${gruppo('ai', 'scintilla', 'AI e chiavi', conChiave ? Ai.modello(imp.modello).nome : 'manca la chiave', `
       <div class="blocco"><span>Per le immagini</span><div class="scelte">${MODELLI_IMMAGINE.map(m => `<button class="scelta riga" data-fai="modello" data-v="${m.id}" aria-pressed="${imp.modello === m.id}">${icona(m.fornitore === 'google' ? 'mondo' : 'scintilla', 22)}<span><b>${esc(m.nome)}</b><small>${esc(m.note)}</small></span><span class="prezzo">≈ ${euro(m.costo[imp.qualita] || m.costo.alta)}</span></button>`).join('')}</div></div>
       <div class="segmenti">${['alta','media','bassa'].map(v => `<button data-fai="qualita" data-v="${v}" aria-pressed="${imp.qualita === v}">Qualità ${v}</button>`).join('')}</div>
-      ${MODELLI_VIDEO.length ? `<div class="blocco" style="margin-top:14px"><span>Per le animazioni</span><div class="scelte">${MODELLI_VIDEO.map(m => `<button class="scelta riga" data-fai="modelloVideo" data-v="${m.id}" aria-pressed="${imp.video.modello === m.id}">${icona('anima', 22)}<span><b>${esc(m.nome)}</b><small>${esc(m.note)}</small></span><span class="prezzo">${euro(m.euroSecondo)}/s</span></button>`).join('')}</div></div>
+      ${MODELLI_VIDEO.length ? `<div class="blocco" style="margin-top:14px"><span>Per le animazioni</span><div class="scelte">${MODELLI_VIDEO.map(m => `<div class="scelta riga" aria-pressed="true">${icona('anima', 22)}<span><b>${esc(m.nome)}</b><small>${esc(m.note)}</small></span><span class="prezzo">${euro(m.euroSecondo)}/s</span></div>`).join('')}</div></div>
         <div class="segmenti">${[4, 6, 8, 10].map(v => `<button data-fai="secondi" data-v="${v}" aria-pressed="${imp.video.secondi === v}">${v} s</button>`).join('')}</div>
         <div class="pannello" style="padding:2px 14px;margin-top:10px">${interruttore('risparmioToggle', 'anima', 'Risparmio sulle animazioni', 'Si anima solo il giorno; alba, tramonto e notte usano quel video ricolorato con la loro luce (un quarto dei video)', imp.risparmio !== false)}</div>` : ''}
       <div style="margin-top:14px">
@@ -1815,7 +1815,7 @@ const AZIONI = {
       <div class="sezione">${titolo('orologio', 'Quale luce')}<div class="segmenti" id="animLuce">${luci.length > 1 ? `<button data-fai="animLuce" data-v="tutte" aria-pressed="${imp.risparmio === false}">Tutte</button>` : ''}${luci.map((o, i) => `<button data-fai="animLuce" data-v="${o}" aria-pressed="${luci.length === 1 || imp.risparmio !== false ? o === 'giorno' : false}">${NOME_ORA[o]}</button>`).join('')}</div>
         <p class="nota">${imp.risparmio !== false ? 'Basta il giorno: alba, tramonto e notte usano il suo video ricolorato con la loro luce. Una luce col suo video solo se il ricolorato non ti convince. ' : ''}«Tutte»: un video per ogni luce che non ce l'ha ancora (se ce l'hanno già tutte, le rifà).</p></div>
       <button class="btn oro piena" style="margin-top:14px" data-fai="animaVia" data-v="${p.id}">${icona('anima', 18)}Anima · ${imp.video.secondi} s · ≈ ${euro(mv.euroSecondo * imp.video.secondi)} a video</button>
-      <p class="nota">Modello e durata si cambiano nelle Impostazioni. Ogni video richiede alcuni minuti: tieni il telefono acceso.</p>
+      <p class="nota">Sempre a 1080p; la durata si cambia nelle Impostazioni. Ogni video richiede alcuni minuti: tieni il telefono acceso.</p>
       <div id="lavoroFoglio"></div>`);
     foglioAperto = p.id;
   },
@@ -1917,7 +1917,6 @@ const AZIONI = {
   crea: () => crea(),
   modello: v => { imp.modello = v; salvaImp(); disegnaImpostazioni(); },
   qualita: v => { imp.qualita = v; salvaImp(); disegnaImpostazioni(); },
-  modelloVideo: v => { imp.video.modello = v; salvaImp(); disegnaImpostazioni(); },
   secondi: v => { imp.video.secondi = +v; salvaImp(); disegnaImpostazioni(); },
   vediChiave: v => { const el = document.getElementById(v); el.type = el.type === 'password' ? 'text' : 'password'; },
   nFinestre: v => { assetto = assettoOPredefinito(); assetto.n = +v; mandaFori(); disegnaImpostazioni(); if (scheda === 'finestre') aggiornaFinestre(); },
