@@ -69,6 +69,7 @@ function Schermi-Attivi { return @(([Schermi]::Elenco()) -split "`n" | Where-Obj
 
 $esito = ''
 if ($Azione -eq 'imposta') {
+  if (-not $Schermo) { $Schermo = (([Schermi]::Elenco()) -split "`n" | Where-Object { $_ -match '\|principale\|' } | Select-Object -First 1).Split('|')[0] }   # di serie: il principale
   $r = [Schermi]::Imposta($Schermo, $W, $H, $Hz)
   $esito = "imposta $Schermo ${W}x${H}@${Hz}: $r (0 = fatto, 1 = serve riavvio, negativo = non accettato)"
   Start-Sleep -Seconds 3
