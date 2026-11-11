@@ -57,7 +57,7 @@
     const m = new Uint8Array(N);
     for (let y = 1; y < H - 1; y++) for (let x = 1; x < W - 1; x++){
       const i = y * W + x, r = d[i * 4], g = d[i * 4 + 1], b = d[i * 4 + 2], l = L[i];
-      if (l > .07 && r > g * 1.05 && g >= b){ const mm = media(I, x, y); if (l > mm * 1.45 && l - mm > .035) m[i] = 1; }
+      if (l > .08 && r > g * 1.05 && g >= b){ const mm = media(I, x, y); if (l > mm * 1.6 && l - mm > .05) m[i] = 1; }   /* 11/11: più stretti (Maurizio: «a volte compaiono dove non ci sono finestre») */
     }
     /* il giorno, per il controllo: luminosità, e la sua media intorno solo dove serve */
     let dg = null, Lg = null;
@@ -76,7 +76,7 @@
       if (area > amax) continue;                                  /* troppo grande per una finestra */
       if ((w > 3 * h && w > 3) || (h > 8 * w && h > 8)) continue;  /* striscia */
       if (sg < sr * .5) continue;                                 /* rossa */
-      if (pk < .12) continue;                                     /* debole */
+      if (pk < .16) continue;                                     /* debole (11/11: era .12) */
       if (prof && prof(cx / W, cy / H) < .03) continue;           /* nel cielo */
       if (Lg){
         let s = 0; for (const i of px) s += Lg[i];
@@ -134,8 +134,14 @@
       const ora = Date.now() / 1000, brutto = Math.max(met.pioggia || 0, met.neve || 0, (met.tempesta || 0) * .7);
       const segui = (chiave, verso, tau) => { const v = this.stato.get(chiave) ?? verso; const n = v + (verso - v) * Math.min(1, dt / tau); this.stato.set(chiave, n); return n; };
       /* luci delle case */
-      this.luci = (f && f.luci || []).map((L, i) => {
+      /* ⚠ 11/11 (Maurizio: «le luci delle case sono un po' fake ed a volte compaiono a caso dove non ci sono finestre»).
+         Le luci vengono dall'immagine della notte, che è un dipinto diverso da quello del tramonto e dell'alba: lì le case
+         possono stare qualche pixel più in là, e una luce debole cadeva su un prato o su un ponte. Al tramonto e all'alba
+         si accendono solo le più sicure (la metà più chiara di notte); di notte restano tutte, ma sono già nel dipinto */
+      const luciF = f && f.luci || [], soglia = luciF.length ? luciF.map(L => L.l || 0).sort((a, b) => a - b)[Math.floor(luciF.length * .5)] : 0;
+      this.luci = luciF.map((L, i) => {
         let su = 0;
+        if (o !== 'notte' && L.inImg && (L.l || 0) < soglia) return {L, k: segui('l' + i + (f.url || ''), 0, .6)};
         if (o === 'tramonto') su = L.seme < cl((k - .05) / .7) * .85 ? 1 : 0;
         else if (o === 'notte'){ const slot = Math.floor((ora + L.seme * 900) / 420); su = h1(i + 1, slot) < .17 ? 0 : 1; }
         else if (o === 'alba') su = L.seme < .65 * (1 - cl(k / .6)) ? 1 : 0;
@@ -168,13 +174,13 @@
       const out = [], t = this.t, nebbia = met.nebbia || 0;
       const vela = n => cl(1 - nebbia * (.35 + .6 * (1 - n))) * (1 - (met.pioggia || 0) * .35);
       for (const {L, k} of this.luci || []){
-        const n = L.n ?? .5, fl = .82 + .3 * tremola(t, L.seme * 9, 6 + 5 * L.seme) - .15, r = Math.max(1.1, L.r * 1000);
+        const n = L.n ?? .5, fl = .9 + .14 * tremola(t, L.seme * 9, 2 + 2 * L.seme) - .07, r = Math.max(1.1, L.r * 1000);   /* 11/11: tremolio più calmo (lume, non falò) */
         if (this.o === 'notte' && L.inImg){
           /* di notte la finestra è già nell'immagine: brilla un po' di più, oppure si spegne */
-          if (k > .02) out.push({x: L.x, y: L.y, n, core: r * .9, alone: r * 5 + 4, col: LUCE, forza: .5 * k * fl * vela(n), modo: 'piu'});
+          if (k > .02) out.push({x: L.x, y: L.y, n, core: r * .85, alone: r * 2.6 + 1.5, col: LUCE, forza: .38 * k * fl * vela(n), modo: 'piu'});   /* 11/11: alone più piccolo e più debole (sembravano palline) */
           if (k < .98) out.push({x: L.x, y: L.y, n, core: r * 1.5, alone: r * 1.5, col: [.22, .24, .3], forza: 1 - k, modo: 'per'});
         } else if (k > .02){
-          out.push({x: L.x, y: L.y, n, core: r * 1.05, alone: r * 5 + 4, col: LUCE, forza: (this.o === 'notte' ? .9 : 1.25) * k * fl * vela(n), modo: 'piu'});
+          out.push({x: L.x, y: L.y, n, core: r * .9, alone: r * 2.6 + 1.5, col: LUCE, forza: (this.o === 'notte' ? .8 : .9) * k * fl * vela(n), modo: 'piu'});   /* 11/11: era alone r×5+4, forza 1,25 */
         }
       }
       /* (dei fuochi lontani non si disegna più la fiamma: resta il fumo, in fumi()) */

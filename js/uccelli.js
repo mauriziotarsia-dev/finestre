@@ -19,7 +19,7 @@
    Sullo schermo: x = A/2 + X/Z, y = ORIZZONTE − Y/Z, con A = larghezza/altezza della vista.
    ═══════════════════════════════════════════════════════════════════════════ */
 (function (radice) {
-  const MAX = 12, ORIZZONTE = .36;
+  const MAX = 12, ORIZZONTE = .36;   /* 12: il disegno (js/vista.js, uU[24]) ne ha posto per 12 */
   const caso = (a, b) => a + Math.random() * (b - a);
   const giro = a => ((a + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
 
@@ -30,10 +30,10 @@
     aggiorna(dt, A, quanti, pip = 0){
       this.A = A || this.A; this.t += dt; dt = Math.min(dt, .05);
       if (quanti > .3){
-        if ((this.prossimoStormo -= dt) <= 0){ this.nuovoStormo(); this.prossimoStormo = caso(18, 55) / quanti; }
-        if ((this.prossimoRapace -= dt) <= 0){ this.nuovoRapace(); this.prossimoRapace = caso(110, 220) / quanti; }
+        if ((this.prossimoStormo -= dt) <= 0){ this.nuovoStormo(); this.prossimoStormo = caso(8, 26) / quanti; }   /* 11/11 (Maurizio: «pochi volatili»): era 18-55 s */
+        if ((this.prossimoRapace -= dt) <= 0){ this.nuovoRapace(); this.prossimoRapace = caso(60, 130) / quanti; }   /* 11/11: era 110-220 s */
       }
-      if (pip > .1 && (this.prossimoPip -= dt) <= 0){ this.nuovoPipistrello(); this.prossimoPip = caso(8, 30) / pip; }
+      if (pip > .1 && (this.prossimoPip -= dt) <= 0){ this.nuovoPipistrello(); this.prossimoPip = caso(4, 14) / pip; }   /* 11/11: era 8-30 s */
       const u = this.u;
       for (const b of u){
         if (b.rapace){ this.volaRapace(b, dt); continue; }
@@ -77,9 +77,10 @@
     }
 
     nuovoStormo(){
-      const liberi = MAX - this.u.length; if (liberi < 3) return;
-      const n = Math.min(liberi - (this.u.some(b => b.rapace) ? 0 : 1), Math.round(caso(3, 9)));
-      if (n < 3) return;
+      const liberi = MAX - this.u.length; if (liberi < 2) return;
+      /* 11/11: anche coppie e piccoli gruppi (dal vero passano più spesso due o tre uccelli che uno stormo) */
+      const n = Math.min(liberi - (this.u.some(b => b.rapace) ? 0 : 1), Math.round(Math.random() < .4 ? caso(2, 3.4) : caso(4, 10)));
+      if (n < 2) return;
       const dir = Math.random() < .5 ? 1 : -1, z = caso(.8, 2.4), sy = caso(.07, .27);
       const piccoli = Math.random() < .65;
       /* entra da un lato e attraversa, di sbieco: un po' verso chi guarda o un po' lontano */

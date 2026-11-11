@@ -267,7 +267,7 @@ vec3 paesaggio(sampler2D img, sampler2D imgB, float vk, sampler2D dep, vec4 crop
     if (sky > .002 && mov > .75){
       float ph = uT / 26.;
       float f1 = fract(ph), f2 = fract(ph + .5);
-      vec2 dir = vec2(-.012 - .02 * uVento, .0015);   /* 9/11: verso sinistra, come tutto il resto */
+      vec2 dir = vec2(-.0132 - .022 * uVento, .00165);   /* 9/11: verso sinistra, come tutto il resto; 11/11: +10% (Maurizio) */
       vec2 pa = p - dir * (f1 - .5), pb = p - dir * (f2 - .5);
       vec3 a = haR > .5 ? fotoG(fer, crop, pa, gx, gy) : fotoG(img, crop, pa, gx, gy), b = haR > .5 ? fotoG(fer, crop, pb, gx, gy) : fotoG(img, crop, pb, gx, gy);   /* ricolorato: le nuvole sono quelle dipinte di questa luce (nel fermo), non quelle del video */
       /* si prende solo cielo: un pezzo di monte o di castello spostato dentro il cielo darebbe il contorno doppio */
@@ -282,7 +282,7 @@ vec3 paesaggio(sampler2D img, sampler2D imgB, float vk, sampler2D dep, vec4 crop
        da 2-4 pixel col sereno a 8-9 col temporale (su un foro alto 1000). Solo dove c'è verde, mai nel cielo. */
     /* 4/11 (Maurizio: «non vedo il movimento degli alberi nel paesaggio TV»): sul TV gli alberi sono quasi tutti a
        media distanza; prima si muovevano solo i vicinissimi. Ora anche quelli a metà strada, un po' di più */
-    float vicino = smoothstep(.05, .32, n);
+    float vicino = smoothstep(.04, .27, n);   /* 11/11: anche un po' più lontano (Maurizio: «poco movimento di alberi ed arbusti») */
     vec2 dSp = vec2(0.);   /* di quanto si è spostato quello che si vede qui (chiome al vento): la nebbiolina lo segue */
     vec4 vt = uHaVento > .5 ? texture2D(uVentoT, vec2(vUv.x, 1. - vUv.y)) : vec4(.5, .5, 0., 0.);
     if (vicino > .01 && vt.b > .01){
@@ -301,7 +301,7 @@ vec3 paesaggio(sampler2D img, sampler2D imgB, float vk, sampler2D dep, vec4 crop
          · l'ondeggiare intorno alla posizione: 2-5 px nella calma, fino a 4-11 col vento forte;
          · la spinta sottovento (verso dove vanno le nuvole): niente nella calma, fino a 10-24 px col vento forte,
            più forte quando passa una raffica e meno fra una e l'altra: le chiome si piegano e tornano */
-      float amp = (7.5 + 12.5 * n) * vt.b;   /* 5/11: un po' di più, due volte (Maurizio: «di poco in più», «leggermente più visibile ancora») */
+      float amp = (10. + 16. * n) * vt.b;   /* 11/11: +30% (Maurizio: «vedo forse poco movimento di alberi ed arbusti») */   /* 5/11: un po' di più, due volte (Maurizio: «di poco in più», «leggermente più visibile ancora») */
       vec2 osc = vec2((vt.r - .5) * 2.2, (vt.g - .5) * .8) * amp * (.45 + uVento * .55);
       float spinta = amp * uVento * uVento * 2.;
       float luccica = 0.;
@@ -498,21 +498,26 @@ float fumo(vec2 uv){
     /* dove appare il comignolo con la prospettiva (lo stesso spostamento del paesaggio a quella profondità) */
     vec2 s = F.xy; float sh = uLato * .012 * (F.w - .35) + uOcchio.x * .065 * (1. - .7 * F.w);
     s = (s - .5) / k + .5; s.x -= sh;
-    float u = max(1.3 * max(1., uPix.y / 1000.), F.z * uPix.x * .09);   /* una «canna»: circa un decimo del tetto, in pixel */
+    /* ⚠ 11/11 (Maurizio: «sistemerei i fumi che escono dalle case per renderli più realistici»). Prima la «canna» era un
+       decimo del tetto senza limite: su una casa grande (tetto 0,1 dell'immagine) il pennacchio saliva per 600 pixel,
+       dritto e bianco come un faro. Ora la canna ha un tetto (5 px su 1000), il pennacchio è più corto, più
+       trasparente, si apre e si sfilaccia prima, e ondeggia di più salendo (due correnti, una lenta e una svelta) */
+    float scF = max(1., uPix.y / 1000.);
+    float u = clamp(F.z * uPix.x * .07, 1.3 * scF, 5. * scF);
     vec2 dq = (uv - s) * uPix / u;
-    float h = -dq.y, L = 34.;
+    float h = -dq.y, L = 28.;
     if (h < -1.5 || h > L || abs(dq.x) > L * 1.3) continue;
     float semi = h1(vec2(float(i) * 7.3, F.x * 91.));
     float rgF = uRaf.x >= 0. ? rafEnv(rafTau(s)) * rafCella(s) * uRaf.z : 0.;
     float b = .18 + uVento * 1.25;                                    /* quanto si piega */
-    float cx = -b * h * h / L - (rumore(vec2(h * .07 - uT * .3, semi * 40.)) - .5) * h * .35 - rgF * h * 1.1;   /* raffica: il pennacchio si sdraia di traverso (piegato a parabola faceva archi) */
-    float wd = .6 + h * .21 * (1. + uVento * .6 + rgF * .7);
+    float cx = -b * h * h / L - (rumore(vec2(h * .07 - uT * .3, semi * 40.)) - .5) * h * .5 - (rumore(vec2(h * .16 - uT * .7, semi * 13.)) - .5) * h * .22 - rgF * h * 1.1;   /* raffica: il pennacchio si sdraia di traverso (piegato a parabola faceva archi) */
+    float wd = .55 + h * .3 * (1. + uVento * .6 + rgF * .7);
     float x = (dq.x - cx) / wd;
     float pr = exp(-x * x * 1.8);
     if (pr < .01) continue;
     vec2 q = vec2(x * .9, h * .2 - uT * .85) + semi * 17.;
     float nn = rumore(q) * .55 + rumore(q * 2.1 + 3.7) * .3 + rumore(q * 4.3 + 9.1) * .15;
-    float d = pr * smoothstep(.3, .72, nn + pr * .25) * smoothstep(-1.5, 1.2, h) * (1. - smoothstep(L * .35, L, h)) * (1. - h / L * .45) * (1. - rgF * smoothstep(3., 15., h) * .85);   /* e si strappa: resta solo vicino al comignolo */
+    float d = pr * smoothstep(.34, .78, nn + pr * .2) * smoothstep(-1.5, 1.2, h) * (1. - smoothstep(L * .2, L, h)) * (1. - h / L * .55) * (1. - rgF * smoothstep(3., 15., h) * .85);   /* e si strappa: resta solo vicino al comignolo */
     tot = max(tot, d * forzaF);
   }
   return tot * uFumoA;
@@ -537,8 +542,8 @@ void main(){
       float caldo = smoothstep(.33, .6, col.r) * smoothstep(1.12, 1.4, col.r / max(col.g, .01)) * smoothstep(1.15, 1.6, col.g / max(col.b, .01)) * (1. - sky);
       if (caldo > .01){
         vec2 cel = floor(uv * uPix / (14. * scP));
-        float hz = 5. + 5. * h1(cel), fl = rumore(vec2(uT * hz, h1(cel) * 97.)) * .65 + rumore(vec2(uT * hz * 2.3, h1(cel + 1.) * 53.)) * .35;
-        col *= mix(1., .7 + .55 * fl, caldo * smoothstep(.5, 1., uNotte));   /* solo di notte: all'alba e al tramonto tutto è caldo */
+        float hz = 1.5 + 2. * h1(cel), fl = rumore(vec2(uT * hz, h1(cel) * 97.)) * .65 + rumore(vec2(uT * hz * 2.3, h1(cel + 1.) * 53.)) * .35;
+        col *= mix(1., .88 + .2 * fl, caldo * smoothstep(.5, 1., uNotte));   /* 11/11: un lume dietro una finestra, non un falò (era .7 + .55, 5-10 volte al secondo) */   /* solo di notte: all'alba e al tramonto tutto è caldo */
       }
     }
     /* uccelli (js/uccelli.js) */
@@ -549,7 +554,7 @@ void main(){
       float fm = fumo(uv) * (1. - uPioggia * .6) * (1. - uTempesta * .3);
       if (fm > .001){
         vec3 cf = mix(vec3(.8, .81, .84), vec3(.24, .26, .32), smoothstep(.2, .9, uNotte)) * (1. - uCoperto * .18);   /* 8/11: di notte un po' più chiaro (luna), se no sul buio non si vedeva (Maurizio: «di notte non c'è fumo») */
-        col = mix(col, cf, fm * .5);
+        col = mix(col, cf, fm * .45);   /* 11/11: un po' più trasparente (era .5) */
       }
     }
     /* stelle che brillano (ognuna col suo ritmo) e, ogni tanto, una stella cadente */

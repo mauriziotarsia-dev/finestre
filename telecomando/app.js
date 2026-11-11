@@ -9,7 +9,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
 const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 const euro = n => (n < .1 ? n.toFixed(3) : n.toFixed(2)).replace('.', ',') + ' $';
-const VERSIONE = '6.25';
+const VERSIONE = '6.26';
 /* 8/11 · l'app si aggiorna da sola (Maurizio: «vedo ancora il quadrato con la doppia finestra»: sul telefono restava la
    versione vecchia anche dopo averla chiusa). Quando torna in primo piano, e ogni 10 minuti, chiede al server quale
    app.js c'è adesso; se è un'altra, ricarica (mai mentre un lavoro AI è in corso) */
@@ -73,12 +73,14 @@ const salvaImp = () => scrivi('finestre-impostazioni', imp);
 
 /* ── la scena e i fori ───────────────────────────────────────────────────── */
 const SCENA_PRED = {acceso:true, yt:'', t:0, immagini:null, animati:null, paesaggio:'', fuoco:null, ora:'vera', meteo:'sereno',
-  intensita:.75, vento:null, nebbiaSale:false, fps:60, prospettivaViva:false, movimento:true, luceGiorno:70, luceNotte:40, prospettiva:true, zoom:1, vx:0};
+  intensita:.75, vento:null, nebbiaSale:false, fps:60, prospettivaViva:false, movimento:true, luceGiorno:70, luceNotte:50, prospettiva:true, zoom:1, vx:0};
 let scena = Object.assign({}, SCENA_PRED, leggi('finestre-scena', {}));
 /* 9/11 (Maurizio: «farei come se la notte fosse leggermente più illuminata, altrimenti è troppo buio»): la luce dello
    schermo di notte passa dal 30% al 40%. Una volta sola: chi l'aveva lasciata al 30 di prima va al 40; un valore scelto
    a mano (diverso da 30) resta */
 if (!leggi('luce-notte-40', false)){ if (scena.luceNotte === 30){ scena.luceNotte = 40; scena.quando = Date.now(); scrivi('finestre-scena', scena); } scrivi('luce-notte-40', true); }
+/* 11/11 (Maurizio: «aumenterei la visibilità di notte del 10%, altrimenti diventa troppo scuro»): 40 → 50, una volta sola */
+if (!leggi('luce-notte-50', false)){ if (scena.luceNotte === 40){ scena.luceNotte = 50; scena.quando = Date.now(); scrivi('finestre-scena', scena); } scrivi('luce-notte-50', true); }
 /* le finestre della casa: una o due, ognuna sul suo schermo (sono a due metri l'una dall'altra) */
 /* 4/11 · il trucco della prospettiva (Maurizio, bozza C): con due finestrelle e un paesaggio largo, ognuna ne mostra
    una striscia diversa, l'elemento cardine fra le due. fra = cm di panorama fra le due strisce viste di fronte:
@@ -594,7 +596,7 @@ function mostraIntensita(){
 }
 setInterval(() => { if (scheda === 'finestre' && !document.hidden) mostraIntensita(); }, 250);
 const eNotte = () => (scena.ora === 'vera' ? oraVera() : scena.ora) === 'notte';
-const luceAdesso = () => Math.round(eNotte() ? (scena.luceNotte ?? 40) : (scena.luceGiorno ?? 70));
+const luceAdesso = () => Math.round(eNotte() ? (scena.luceNotte ?? 50) : (scena.luceGiorno ?? 70));
 function aggiornaFinestre(){
   const s = $('#s-finestre'); if (!s.dataset.fatto) return;
   s.querySelectorAll('[data-fai="ora"]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.v === scena.ora)));
@@ -962,6 +964,9 @@ async function rifaiLargo(p){
     for (const k of Object.keys(p.immagini)) if (/^(?:fermo|maschera)-/.test(k)) delete p.immagini[k];
     p.immagini.giorno = await caricaLuce(casa, p, 'giorno', jpg);
     L.anteprime.giorno = {url:p.immagini.giorno}; passo('giorno', 'fatto', 'Finestrelle · panorama largo');
+    /* ⚠ 11/11: il panorama largo ha il soggetto al centro; l'inquadratura scelta per l'immagine stretta (la Valle aveva
+       «fx0», tutta a sinistra) non vale più: le due finestrelle guardavano il bordo sinistro e il castello non si vedeva */
+    if (p.fuoco){ try { await rinominaPaesaggio(casa, p, p.nome, p.parole, null); } catch(e) { passo('fuoco', 'errore', 'Inquadratura non rimessa al centro: ' + e.message); } }
     /* ⚠ 10/11 (Maurizio: «se si interrompe a metà?»): le luci, la profondità e i comignoli dell'immagine stretta non
        valgono più per quella larga: si tolgono subito, PRIMA di rifarli. Se il lavoro si ferma a metà (crediti finiti,
        telefono spento) quello che manca risulta mancante davvero e la volta dopo si rifà; prima restavano quelli
