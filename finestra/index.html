@@ -28,7 +28,7 @@
 <script src="../js/accesso.js?v=8"></script>
 <script src="../js/qrcode.js?v=1"></script>
 <script src="../js/vita.js?v=4"></script>
-<script src="../js/vista.js?v=5.46"></script>
+<script src="../js/vista.js?v=5.47"></script>
 <script src="../js/inseguitore.js?v=1"></script>
 <script src="../js/uccelli.js?v=10"></script>
 <script src="../js/bard.js?v=6"></script>
@@ -899,7 +899,7 @@ function giro(ora){
   const troppeCadute = cadute > .03 && scala > .7 && ora - ultimoCalo > 3000;   /* dopo un cambio di scala qualche giro lento è del cambio stesso */
   /* 9/11: mentre arriva un paesaggio o un'altra luce (immagini e video nuovi da decodificare) qualche giro salta per
      forza: alle prove, cambiando ora e tempo di seguito, il TV è sceso da 0,8 a 0,6 per quello, non per il disegno */
-  if (inCambio || vista.inArrivo || fotoInCorso){ quieteDa = ora; lentoR = 0; cadute = 0; }   /* anche la foto chiesta da lontano (copia e carica il disegno: alle prove ha fatto saltare il 16–19% dei giri) */
+  if (inCambio || vista.inArrivo || fotoInCorso || ora - (vista.lavoroDa || -1e9) < 3000){ quieteDa = ora; lentoR = 0; cadute = 0; }   /* 11/11: anche la ricerca delle finestre accese alla prima notte di un paesaggio (al giro di prove le finestrelle scendevano a 0,9 e 0,8 proprio lì) */   /* anche la foto chiesta da lontano (copia e carica il disegno: alle prove ha fatto saltare il 16–19% dei giri) */
   if (!scalaFissa && ora - avvioGiro > 15000 && ora - quieteDa > 6000 && (lentoR > .55 || troppeCadute || (intervalloSchermo > passo * 1.25 && ora - ultimoCalo > 4000 && scala > .8)) && scala > scalaMin){ cali.push({t: Math.round(ora / 1000), da: scala, perche: lentoR > .55 ? 'giri lenti' : troppeCadute ? 'immagini saltate ' + Math.round(cadute * 100) + '%' : 'schermo ' + Math.round(1000 / intervalloSchermo) + ' Hz'}); if (cali.length > 20) cali.shift(); scala = Math.max(scalaMin, Math.round((scala - .1) * 10) / 10); lentoR = 0; cadute = 0; if (ora - ultimaSalita < 60000){ attesaSalita = Math.min(1800000, attesaSalita * 2); const lv = Math.round(cali[cali.length - 1].da * 10);   /* il livello appena fallito (scala è già scesa) */ falliti[lv] = (falliti[lv] || 0) + 1; if (falliti[lv] >= 3) tetto = Math.min(tetto, (lv - 1) / 10); } ultimoCalo = ora; impagina(); }
   /* 9/11: lo schermo che rallenta (stanotte 44–48 Hz verso le 4 sul G10, disegno 0,4 ms) non è colpa del disegno: da solo
      non porta la scala sotto 0,8 (era finita a 0,5 e per risalire servivano ore) */

@@ -1071,6 +1071,7 @@ class Vista {
      Le finestre accese si cercano una volta sola per immagine */
   async caricaVita(f, notte, dimg, giorno = null){
     if (typeof trovaLuci === 'undefined') return;
+    this.lavoroDa = performance.now();   /* 11/11: la ricerca delle finestre accese ferma il disegno per qualche decimo: la scala non deve giudicarla */
     try {
       const pr = profonditaDi(dimg);
       f.prati = pratiVita(dimg);
@@ -1090,6 +1091,7 @@ class Vista {
       luci.forEach(L => { L.n = pr(L.x, L.y); });
       f.luci = luci;
     } catch(e) { f.luci = []; }
+    this.lavoroDa = performance.now();
   }
   /* i bagliori della vita del paesaggio, nel foro: stessa inquadratura e stessa prospettiva del paesaggio */
   disegnaBagliori(foro, s, lista, f0, marg){
