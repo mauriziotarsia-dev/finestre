@@ -54,6 +54,7 @@ uniform float uNotteFinta, uLuce, uBuio, uQualita;
 uniform vec3 uColNebbia;
 uniform vec2 uSale;           /* 9/11 · nebbia che sale: x = fin dove è arrivata (0 in basso, 1 in alto), y = quanta */
 uniform sampler2D uMeteo;     /* nebbia e nuvole, calcolate a bassa risoluzione (r: banchi di nebbia, g: nuvole, b: velo) */
+uniform sampler2D uAlberiM;   /* 11/11 · g: dove sono le chiome (dall'immagine del giorno): solo lì si muove qualcosa */
 uniform sampler2D uVentoT;    /* il vento sugli alberi, calcolato a un quarto di risoluzione (r, g: spostamento, b: raffica sugli alberi, a: ombra delle nuvole) */
 uniform vec4 uU[24];          /* gli uccelli (js/uccelli.js): per ognuno (x, y, grandezza, ali) (inclinazione, chiarezza, tipo, -) */
 uniform float uNU;            /* quanti uccelli */
@@ -294,7 +295,9 @@ vec3 paesaggio(sampler2D img, sampler2D imgB, float vk, sampler2D dep, vec4 crop
          rosate, non verdi, e fogliame() ne trovava poche. Dove sono le chiome lo dice già il vento (vt.b, dal giorno):
          lì si muove anche quello che è scuro, a ogni ora */
       float scuroC = smoothstep(.45, .15, dot(c, vec3(.299, .587, .114)));
-      float verde = max(mix(fogliame(c), smoothstep(.4, .12, dot(c, vec3(.299, .587, .114))), notteA), scuroC * .85) * vicino;   /* anche gli ulivi grigio-verdi e i cipressi scuri; non la pietra, non la nebbia */
+      /* 11/11: solo dove ci sono chiome (non il prato, non i tetti e i muri in ombra accanto agli alberi) */
+      float chioma = smoothstep(.04, .45, texture2D(uAlberiM, clamp(cropD.xy + p * cropD.zw, .0005, .9995)).g);
+      float verde = max(mix(fogliame(c), smoothstep(.4, .12, dot(c, vec3(.299, .587, .114))), notteA), scuroC * .85) * vicino * chioma;   /* anche gli ulivi grigio-verdi e i cipressi scuri; non la pietra, non la nebbia */
       /* ⚠ 30/10: il vento (raffiche e rami) arriva già calcolato a un quarto di risoluzione: sul Raspberry
          calcolarlo per ogni pixel costava un terzo delle immagini al secondo */
       /* quanto si muovono (pixel su un foro alto 1000). Due parti, alla stessa velocità con ogni vento:
@@ -318,7 +321,8 @@ vec3 paesaggio(sampler2D img, sampler2D imgB, float vk, sampler2D dep, vec4 crop
       /* la chioma si sposta davvero, anche oltre il suo contorno: dove adesso c'è un ramo spostato lo si disegna
          (anche contro il cielo); dove la chioma se n'è andata si vede quello che c'era accanto, ma mai il cielo
          dipinto al posto del cielo che scorre */
-      float verdeS = max(mix(fogliame(mosso), smoothstep(.4, .12, dot(mosso, vec3(.299, .587, .114))), notteA), smoothstep(.45, .15, dot(mosso, vec3(.299, .587, .114))) * .85);
+      float verdeS = max(mix(fogliame(mosso), smoothstep(.4, .12, dot(mosso, vec3(.299, .587, .114))), notteA), smoothstep(.45, .15, dot(mosso, vec3(.299, .587, .114))) * .85)
+                   * smoothstep(.04, .45, texture2D(uAlberiM, clamp(cropD.xy + (p + d) * cropD.zw, .0005, .9995)).g);   /* si disegna spostata solo una chioma */
       vec2 nmS = profCG(dep, cropD, p + d, haDep, gx, gy);
       float nS = nmS.x, cieloS = haDep > .5 ? nmS.y * smoothstep(.85, .45, p.y + d.y) : sky;
       float w = max(verdeS * smoothstep(.1, .4, nS), verde * (1. - cieloS));
@@ -965,11 +969,11 @@ class Vista {
     /* il programma principale: paesaggio, cielo, nebbia, lampo, luce */
     this.p = programma(VERT, FRAG, ['aPos']);
     this.fumoDati = new Float32Array(32); this.fumoForza = new Float32Array(8);
-    this.u = posizioni(this.p, ['uOcchio','uImg0b','uVmix','uImg0','uImg1','uDep0','uDep1','uMap','uCrop0','uCrop1','uCropD0','uCropD1','uUccelli','uCielo0','uCielo1','uCieloM0','uCieloM1','uCieloX','uFermo0','uFermo1','uHaFermo0','uHaFermo1','uRap0','uHaRap0','uVentoT','uHaVento','uU','uNU','uUBox','uFumo','uFumoI','uNFumo','uFumoA','uNebV','uChiar','uNotte','uOmbre','uMeteora','uMeteoraK','uMix','uHaImg','uHaDep0','uHaDep1','uMovimento0','uMovimento1',
+    this.u = posizioni(this.p, ['uOcchio','uImg0b','uVmix','uImg0','uImg1','uDep0','uDep1','uMap','uCrop0','uCrop1','uCropD0','uCropD1','uUccelli','uCielo0','uCielo1','uCieloM0','uCieloM1','uCieloX','uFermo0','uFermo1','uHaFermo0','uHaFermo1','uRap0','uHaRap0','uVentoT','uAlberiM','uHaVento','uU','uNU','uUBox','uFumo','uFumoI','uNFumo','uFumoA','uNebV','uChiar','uNotte','uOmbre','uMeteora','uMeteoraK','uMix','uHaImg','uHaDep0','uHaDep1','uMovimento0','uMovimento1',
       'uLato','uT','uTV','uRaf','uAspetto','uPix','uCoperto','uNebbia','uPioggia','uNeve','uTempesta','uVento','uLampo','uLampoX','uLampoS','uLampoB',
       'uNotteFinta','uLuce','uBuio','uQualita','uColNebbia','uMeteo','uSale']);
     gl.useProgram(this.p);
-    gl.uniform1i(this.u.uImg0, 0); gl.uniform1i(this.u.uImg1, 1); gl.uniform1i(this.u.uDep0, 2); gl.uniform1i(this.u.uDep1, 3); gl.uniform1i(this.u.uImg0b, 4); gl.uniform1i(this.u.uMeteo, 5); gl.uniform1i(this.u.uCielo0, 6); gl.uniform1i(this.u.uCielo1, 7); gl.uniform1i(this.u.uFermo0, 8); gl.uniform1i(this.u.uFermo1, 9); gl.uniform1i(this.u.uVentoT, 10); if (this.u.uRap0) gl.uniform1i(this.u.uRap0, 12);
+    gl.uniform1i(this.u.uImg0, 0); gl.uniform1i(this.u.uImg1, 1); gl.uniform1i(this.u.uDep0, 2); gl.uniform1i(this.u.uDep1, 3); gl.uniform1i(this.u.uImg0b, 4); gl.uniform1i(this.u.uMeteo, 5); gl.uniform1i(this.u.uCielo0, 6); gl.uniform1i(this.u.uCielo1, 7); gl.uniform1i(this.u.uFermo0, 8); gl.uniform1i(this.u.uFermo1, 9); gl.uniform1i(this.u.uVentoT, 10); if (this.u.uAlberiM) gl.uniform1i(this.u.uAlberiM, 11); if (this.u.uRap0) gl.uniform1i(this.u.uRap0, 12);
     this.unita = gl.getParameter(gl.MAX_TEXTURE_IMAGE_UNITS) || 8;   /* il fermo vuole 10 unità (il Raspberry 4 ne ha 16) */
     this.maxTex = gl.getParameter(gl.MAX_TEXTURE_SIZE) || 4096;       /* Raspberry 4 e telefoni vecchi: 4096; il G10 16384 */
     /* nebbia e nuvole a bassa risoluzione */
@@ -1437,26 +1441,54 @@ class Vista {
 
 /* dove finisce il cielo, dall'alto (0..1), letto dalla mappa di profondità: per ogni colonna fin dove scende
    il cielo (quasi nero nella mappa), poi un valore alto fra le colonne (il cielo arriva lì quasi ovunque) */
-/* dove ci sono alberi (e un po' intorno, perché le chiome escono dal contorno quando si piegano): verde, non
-   cielo, non lontanissimo; piccola e sfumata, per il passaggio del vento */
+/* dove ci sono alberi: R (con un po' intorno, perché le chiome escono dal contorno quando si piegano) dice al vento
+   dove soffiare; G (solo le chiome) dice al disegno che cosa può muoversi.
+   ⚠ 11/11 (Maurizio, TV grande: «in alcune zone si muove anche la casa a destra in basso o il prato, forse andrebbe
+   controllato meglio dove non far muovere»): prima bastava il verde, e il verde è anche il prato (un terzo
+   dell'immagine si muoveva); intorno alle chiome, larghe il 5% dell'immagine, si muoveva anche quello che era scuro:
+   tetti, muri in ombra, sentieri. Ora una chioma è verde, ha la grana delle foglie (luce e ombra fitte: il prato è
+   liscio) ed è più scura di quello che ha intorno; e si allarga di poco */
 function mascheraAlberi(img, dimg){
-  const W = 96, H = Math.max(8, Math.round(W * img.naturalHeight / img.naturalWidth));
-  const c = document.createElement('canvas'); c.width = W; c.height = H;
+  const W = 256, H = Math.max(8, Math.round(W * img.naturalHeight / img.naturalWidth)), W3 = W * 3, H3 = H * 3;
+  const c = document.createElement('canvas'); c.width = W3; c.height = H3;
   const x = c.getContext('2d', {willReadFrequently:true});
-  x.drawImage(img, 0, 0, W, H); const d = x.getImageData(0, 0, W, H);
-  let p = null; if (dimg){ x.drawImage(dimg, 0, 0, W, H); p = x.getImageData(0, 0, W, H).data; }
-  const m = new Float32Array(W * H);
+  x.drawImage(img, 0, 0, W3, H3); const d = x.getImageData(0, 0, W3, H3).data;
+  let p = null; if (dimg){ x.clearRect(0, 0, W3, H3); x.drawImage(dimg, 0, 0, W, H); p = x.getImageData(0, 0, W, H).data; }
+  const ss = (a, b2, v) => { const t = Math.max(0, Math.min(1, (v - a) / (b2 - a))); return t * t * (3 - 2 * t); };
+  /* a 3× la risoluzione: luminanza e verde (come fogliame() nel disegno) */
+  const L3 = new Float32Array(W3 * H3), F3 = new Float32Array(W3 * H3);
+  for (let i = 0; i < W3 * H3; i++){
+    const r = d[i * 4] / 255, g = d[i * 4 + 1] / 255, b = d[i * 4 + 2] / 255, mx = Math.max(r, g, b), sat = (mx - Math.min(r, g, b)) / Math.max(mx, .01), l = r * .299 + g * .587 + b * .114;
+    L3[i] = l; F3[i] = ss(.88, .97, g / Math.max(r, .01)) * ss(.95, 1.05, g / Math.max(b, .01)) * ss(.06, .12, sat) * ss(.8, .6, l);
+  }
+  /* per cella: verde medio, luminanza media e grana (deviazione della luminanza su 3×3 a 3×) */
+  const F = new Float32Array(W * H), L = new Float32Array(W * H), S = new Float32Array(W * H);
+  for (let y = 0; y < H3; y++) for (let x3 = 0; x3 < W3; x3++){
+    const i = y * W3 + x3, k = Math.floor(y / 3) * W + Math.floor(x3 / 3);
+    let su = 0, s2 = 0, n = 0;
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++){ const yy = y + dy, xx = x3 + dx; if (yy < 0 || yy >= H3 || xx < 0 || xx >= W3) continue; const v = L3[yy * W3 + xx]; su += v; s2 += v * v; n++; }
+    const mu = su / n; S[k] += Math.sqrt(Math.max(0, s2 / n - mu * mu)) / 9; F[k] += F3[i] / 9; L[k] += L3[i] / 9;
+  }
+  /* luminanza dei dintorni (15×15 celle): la chioma è più scura del prato e dei campi intorno */
+  const box = (src, r) => { const t = new Float32Array(W * H), o = new Float32Array(W * H);
+    for (let y = 0; y < H; y++){ let a = 0; for (let xx = -r; xx <= r; xx++) a += src[y * W + Math.min(W - 1, Math.max(0, xx))];
+      for (let xx = 0; xx < W; xx++){ t[y * W + xx] = a / (2 * r + 1); a += src[y * W + Math.min(W - 1, xx + r + 1)] - src[y * W + Math.max(0, xx - r)]; } }
+    for (let xx = 0; xx < W; xx++){ let a = 0; for (let y = -r; y <= r; y++) a += t[Math.min(H - 1, Math.max(0, y)) * W + xx];
+      for (let y = 0; y < H; y++){ o[y * W + xx] = a / (2 * r + 1); a += t[Math.min(H - 1, y + r + 1) * W + xx] - t[Math.max(0, y - r) * W + xx]; } }
+    return o; };
+  const Lloc = box(L, 7), C = new Float32Array(W * H);
   for (let i = 0; i < W * H; i++){
-    const r = d.data[i * 4] / 255, g = d.data[i * 4 + 1] / 255, b = d.data[i * 4 + 2] / 255, mx = Math.max(r, g, b), sat = (mx - Math.min(r, g, b)) / Math.max(mx, .01);
-    const ss = (a, b2, v) => { const t = Math.max(0, Math.min(1, (v - a) / (b2 - a))); return t * t * (3 - 2 * t); };
-    const verde = ss(.88, .97, g / Math.max(r, .01)) * ss(.95, 1.05, g / Math.max(b, .01)) * ss(.06, .12, sat) * ss(.8, .6, r * .299 + g * .587 + b * .114);   /* come fogliame() nel disegno */
     const n = p ? p[i * 4] / 255 : (i / W / H);
-    m[i] = verde * (n > .08 ? 1 : 0);
+    C[i] = F[i] * ss(.032, .058, S[i]) * ss(.045, -.03, L[i] - Lloc[i]) * (n > .08 ? 1 : 0);
   }
   const o = new ImageData(W, H);
   for (let y = 0; y < H; y++) for (let xx = 0; xx < W; xx++){
-    let v = 0; for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++){ const yy = y + dy, x2 = xx + dx; if (yy >= 0 && yy < H && x2 >= 0 && x2 < W) v = Math.max(v, m[yy * W + x2]); }
-    const k = (y * W + xx) * 4; o.data[k] = o.data[k + 1] = o.data[k + 2] = Math.round(Math.min(1, v * 1.5) * 255); o.data[k + 3] = 255;
+    let g = 0, gw = 0, v = 0;
+    for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++){ const yy = y + dy, x2 = xx + dx; if (yy < 0 || yy >= H || x2 < 0 || x2 >= W) continue;
+      const m = C[yy * W + x2]; v = Math.max(v, m);
+      if (Math.abs(dy) <= 1 && Math.abs(dx) <= 1){ const w = (2 - Math.abs(dy)) * (2 - Math.abs(dx)); g += m * w; gw += w; } }
+    const k = (y * W + xx) * 4, core = Math.max(C[y * W + xx], g / gw * .8);
+    o.data[k] = o.data[k + 2] = Math.round(Math.min(1, v * 1.5) * 255); o.data[k + 1] = Math.round(Math.min(1, core * 1.3) * 255); o.data[k + 3] = 255;
   }
   return o;
 }
