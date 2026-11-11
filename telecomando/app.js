@@ -9,7 +9,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
 const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 const euro = n => (n < .1 ? n.toFixed(3) : n.toFixed(2)).replace('.', ',') + ' $';
-const VERSIONE = '6.27';
+const VERSIONE = '6.28';
 /* 8/11 · l'app si aggiorna da sola (Maurizio: «vedo ancora il quadrato con la doppia finestra»: sul telefono restava la
    versione vecchia anche dopo averla chiusa). Quando torna in primo piano, e ogni 10 minuti, chiede al server quale
    app.js c'è adesso; se è un'altra, ricarica (mai mentre un lavoro AI è in corso) */
@@ -1180,7 +1180,7 @@ async function faiAnimazione(p, foto, ora, elementi, tv = false){
     const r = await Fermo.analizza(mp4, pc => passo(kf, 'ora', `${eti}Animazione: separo quello che si muove da quello che sta fermo… ${Math.round(pc)}%`));
     p.immagini[pre + 'fermo-' + ora] = tv ? await caricaEstFermo(casa, p, ora, r.fermo) : await caricaFermo(casa, p, ora, r.fermo);
     p.immagini[pre + 'maschera-' + ora] = tv ? await caricaEstMaschera(casa, p, ora, r.maschera) : await caricaMaschera(casa, p, ora, r.maschera);
-    passo(kf, 'fatto', `Paesaggio fermo, ${r.parteViva > .01 ? 'vivo dove si muove davvero (' + Math.round(r.parteViva * 100) + '%)' : 'nessuna parte viva oltre al cielo'}`);
+    passo(kf, 'fatto', eti + (r.parteViva > .01 ? 'Separato quello che si muove da quello che sta fermo' : 'Paesaggio fermo: si muove solo il cielo'));
   } catch(e) { passo(kf, 'errore', 'Separazione non riuscita (la farà il Raspberry): ' + e.message); }
 }
 /* 4/11 · le animazioni su tutte e quattro le luci (Maurizio: «devo avere animazioni sui 4 momenti, sia sulle finestrelle
