@@ -256,7 +256,8 @@ def cuci(entrata, uscita, profondita=None, immagine=None, fuoco_x=0.5, larghezza
     cmd = ['ffmpeg', '-v', 'error', '-y', '-threads', FF_THREADS, '-f', 'rawvideo', '-pix_fmt', 'bgr24', '-s', f'{w}x{h}', '-r', str(fps), '-i', '-',
            '-vf', filtro, '-frames:v', str(n_uscita), '-an', '-c:v', 'libx264', '-preset', 'slow' if not veloce else 'veryfast', '-crf', '19',
            '-profile:v', 'high', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', uscita]
-    ff = subprocess.Popen(cmd, stdin=subprocess.PIPE)
+    # su Windows, lanciato da pythonw, ffmpeg aprirebbe una finestra nera sopra il TV per tutta la cucitura (11/11)
+    ff = subprocess.Popen(cmd, stdin=subprocess.PIPE, creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
     inizio = iter(Cucitore(entrata, 0, sp, rif, cielo, zone, guad, sost))
     fine = iter(Cucitore(entrata, lung, sp, rif, cielo, zone, guad, sost))
     scritti = 0; testa = []
