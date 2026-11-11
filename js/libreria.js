@@ -11,6 +11,7 @@
               profondita                               (.png)  la mappa di profondità
               anim-giorno | anim-notte …               (.mp4)  il breve video in loop
               yt-<id in esadecimale>                   (.jpg)  segnaposto di un video YouTube
+              mini-giorno | est-mini-giorno …          (.jpg)  copia piccola (1280 px) per il telefono
    ═══════════════════════════════════════════════════════════════════════════ */
 const DEPOSITO = 'dmaster-media';
 const ORE_IMMAGINI = ['giorno', 'alba', 'tramonto', 'notte'];
@@ -52,7 +53,7 @@ function nomeFile(p, parte, est = 'jpg'){
   const kw = parole.map(x => slug(x, 20)).filter(Boolean).join('.');
   return `${p.id}_${p.tipo}_${slug(p.nome) || 'paesaggio'}${kw ? '@' + kw : ''}_${parte}.${est}`;
 }
-const MODELLO_NOME = /^([a-z0-9]+)_(painterly|inked|classic_oil|foto|video)_([a-z0-9-]+)(?:@([a-z0-9.-]+))?_((?:est-)?(?:giorno|alba|tramonto|notte|profondita|cielo-(?:giorno|alba|tramonto|notte)|fermo-(?:giorno|alba|tramonto|notte)|maschera-(?:giorno|alba|tramonto|notte)|anim-(?:giorno|alba|tramonto|notte)|comignoli)|yt-[0-9a-f]{22})\.(jpg|png|mp4|json)$/;
+const MODELLO_NOME = /^([a-z0-9]+)_(painterly|inked|classic_oil|foto|video)_([a-z0-9-]+)(?:@([a-z0-9.-]+))?_((?:est-)?(?:giorno|alba|tramonto|notte|profondita|cielo-(?:giorno|alba|tramonto|notte)|fermo-(?:giorno|alba|tramonto|notte)|maschera-(?:giorno|alba|tramonto|notte)|anim-(?:giorno|alba|tramonto|notte)|mini-(?:giorno|alba|tramonto|notte)|comignoli)|yt-[0-9a-f]{22})\.(jpg|png|mp4|json)$/;
 /* «est-…»: la vista per il TV (Maurizio, 29/10: TV verso est, orizzontale e in 4K, finestrelle verso nord; ogni paesaggio
    ha due soggetti, uno al centro di ciascuna vista; stessa ora e stesso tempo). est-giorno, est-alba…, est-profondita,
    est-anim-giorno, est-fermo-giorno… accanto a quelli della vista nord, nello stesso paesaggio */
@@ -129,7 +130,28 @@ async function carica(casa, p, parte, blob, est){
   { const fl = p.file || (p.file = []); if (!fl.includes(nome)) fl.push(nome); }
   return urlPubblico('finestre/' + cartella + '/' + nome);
 }
-const caricaLuce = (casa, p, ora, blob) => carica(casa, p, ora, blob, 'jpg');
+/* 11/11 · ogni luce ha anche una copia piccola (lato lungo 1280 px, ~150 KB) per il telefono: le carte della libreria,
+   l'anteprima e l'immagine ferma sotto l'anteprima. Prima il telefono scaricava le immagini a 4K del TV (2,7 MB l'una)
+   e la vista del TV si disegnava a strisce per secondi (Maurizio: «Valle col castello ci ha messo diversi secondi») */
+const LATO_MINI = 1280;
+async function miniatura(blob){
+  let img; try { img = await createImageBitmap(blob); }
+  catch(e) { const u = URL.createObjectURL(blob); img = new Image(); img.src = u; await img.decode(); URL.revokeObjectURL(u); }
+  const w = img.width || img.naturalWidth, h = img.height || img.naturalHeight, k = Math.min(1, LATO_MINI / Math.max(w, h));
+  const c = document.createElement('canvas'); c.width = Math.round(w * k); c.height = Math.round(h * k);
+  const g = c.getContext('2d'); g.imageSmoothingQuality = 'high'; g.drawImage(img, 0, 0, c.width, c.height);
+  return await new Promise((ok, no) => c.toBlob(b => b ? ok(b) : no(new Error('miniatura non riuscita')), 'image/jpeg', .82));
+}
+async function caricaMini(casa, p, parte, blob){
+  const m = parte.match(/^(est-)?(giorno|alba|tramonto|notte)$/); if (!m) return;
+  const k = (m[1] || '') + 'mini-' + m[2];
+  try { const u = await carica(casa, p, k, await miniatura(blob), 'jpg');
+    if (p.immagini) p.immagini[k] = u + (u.includes('?') ? '' : '?v=' + Date.now().toString(36)); }
+  catch(e) { console.warn('copia piccola non fatta', parte, e); }
+}
+/* la copia piccola se c'è, sennò l'immagine piena */
+const miniDi = (im, parte) => !im ? '' : im[parte.replace(/^(est-)?/, '$1mini-')] || im[parte] || '';
+const caricaLuce = async (casa, p, ora, blob) => { const u = await carica(casa, p, ora, blob, 'jpg'); await caricaMini(casa, p, ora, blob); return u; };
 const caricaProfondita = (casa, p, blob) => carica(casa, p, 'profondita', blob, 'png');
 /* il cielo panoramico che scorre dietro il paesaggio (uno per luce): immagini['cielo-giorno'] … */
 const caricaCielo = (casa, p, ora, blob) => carica(casa, p, 'cielo-' + ora, blob, 'jpg');
@@ -146,7 +168,7 @@ const caricaEstAnimazione = (casa, p, ora, blob) => carica(casa, p, 'est-anim-' 
 const caricaEstFermo = (casa, p, ora, blob) => carica(casa, p, 'est-fermo-' + ora, blob, 'jpg');
 const caricaEstMaschera = (casa, p, ora, blob) => carica(casa, p, 'est-maschera-' + ora, blob, 'png');
 /* la vista per il TV: caricaEst(casa, p, 'giorno' | 'alba' | … | 'profondita', blob) → …_est-giorno.jpg */
-const caricaEst = (casa, p, parte, blob) => carica(casa, p, 'est-' + parte, blob, parte === 'profondita' ? 'png' : 'jpg');
+const caricaEst = async (casa, p, parte, blob) => { const u = await carica(casa, p, 'est-' + parte, blob, parte === 'profondita' ? 'png' : 'jpg'); await caricaMini(casa, p, 'est-' + parte, blob); return u; };
 
 /* un video di YouTube nella libreria: un segnaposto minuscolo col nome giusto */
 async function salvaVideoYT(casa, {id, nome, parole}){
@@ -204,5 +226,7 @@ async function togliFile(casa, p, nomi){
 /* la scena che serve alle finestre per mostrare un paesaggio */
 function scenaDi(p){
   if (p.yt) return {yt:p.yt, t:0, immagini:null, animati:null, paesaggio:p.id, fuoco:null};
-  return {yt:'', immagini:Object.assign({}, p.immagini), animati:Object.keys(p.animati).length ? Object.assign({}, p.animati) : null, paesaggio:p.id, fuoco:p.fuoco || null};
+  /* le copie piccole servono solo al telefono: agli schermi non si mandano */
+  const im = Object.fromEntries(Object.entries(p.immagini).filter(([k]) => !/^(?:est-)?mini-/.test(k)));
+  return {yt:'', immagini:im, animati:Object.keys(p.animati).length ? Object.assign({}, p.animati) : null, paesaggio:p.id, fuoco:p.fuoco || null};
 }

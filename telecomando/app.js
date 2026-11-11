@@ -9,7 +9,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
 const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 const euro = n => (n < .1 ? n.toFixed(3) : n.toFixed(2)).replace('.', ',') + ' $';
-const VERSIONE = '6.28';
+const VERSIONE = '6.29';
 /* 8/11 · l'app si aggiorna da sola (Maurizio: «vedo ancora il quadrato con la doppia finestra»: sul telefono restava la
    versione vecchia anche dopo averla chiusa). Quando torna in primo piano, e ogni 10 minuti, chiede al server quale
    app.js c'è adesso; se è un'altra, ricarica (mai mentre un lavoro AI è in corso) */
@@ -453,7 +453,7 @@ function disegnaScheda(){
 /* ═══════════ INGRESSO (bozza E, 2/11): quello che c'è in onda e le cinque sezioni coi medaglioni grandi ═══ */
 function cartaInOnda(){
   const p = libreria.find(x => x.id === scena.paesaggio);
-  const img = p ? (p.yt ? `https://i.ytimg.com/vi/${encodeURIComponent(p.yt)}/hqdefault.jpg` : p.immagini.giorno) : '';
+  const img = p ? (p.yt ? `https://i.ytimg.com/vi/${encodeURIComponent(p.yt)}/hqdefault.jpg` : miniDi(p.immagini, 'giorno')) : '';
   const viva = canale.pronto && Date.now() - collegate < 45000;
   const stato = !canale.pronto ? 'collego…' : !viva ? 'gli schermi non rispondono' : comandaDM() ? 'in mano a DMaster' : scena.acceso ? 'in onda' : 'spente';
   const suoni = inSerata() ? 'serata in corso' : bardStato.sottofondo ? bardStato.sottofondo.titolo : (bardStato.musica && bardStato.musica.acceso ? 'musica' : '');
@@ -482,8 +482,15 @@ const NOME_ORA = {vera:'come fuori', alba:'alba', giorno:'giorno', tramonto:'tra
 /* 3/11 · due anteprime (Maurizio: «vedere sull'app cosa si vede in piccolo sulle due finestrelle e su quella principale»):
    il TV (la stessa pagina con vista=est: il suo soggetto, e quello che DMaster gli manda in serata) e le due finestrelle */
 let anteprimaPronta = false, anteprimaFrame = null, anteprimaTvPronta = false, anteprimaTvFrame = null, ultimoTv = null;
+/* 11/11 · l'anteprima nel telefono usa le copie piccole delle immagini (gli schermi quelle piene) */
+function scenaAnteprima(sc){
+  const lp = sc && sc.immagini && libreria.find(x => x.id === sc.paesaggio); if (!lp) return sc;
+  const im = Object.assign({}, sc.immagini);
+  for (const k of Object.keys(im)) if (/^(?:est-)?(?:giorno|alba|tramonto|notte)$/.test(k) && (lp.immagini[k] || '').split('?')[0] === (im[k] || '').split('?')[0]) im[k] = miniDi(lp.immagini, k);
+  return Object.assign({}, sc, {immagini: im});
+}
 function postaAnteprima(m){
-  if (m.tipo === 'scena') fermiAnteprima();
+  if (m.tipo === 'scena'){ fermiAnteprima(); m = Object.assign({}, m, {scena: scenaAnteprima(m.scena)}); }
   if (anteprimaFrame && anteprimaPronta && m.tipo !== 'tv') anteprimaFrame.contentWindow.postMessage(m, '*');
   if (anteprimaTvFrame && anteprimaTvPronta && m.tipo !== 'fori') anteprimaTvFrame.contentWindow.postMessage(m, '*');
 }
@@ -494,7 +501,10 @@ function fermoAnteprima(est){
   const s = scena; if (s.yt) return `https://i.ytimg.com/vi/${encodeURIComponent(s.yt)}/hqdefault.jpg`;
   const im = s.immagini; if (!im) return '';
   const o = s.ora === 'vera' ? oraVera() : s.ora, pre = est && im['est-giorno'] ? 'est-' : '';
-  return im[pre + o] || im[pre + 'giorno'] || im.giorno || '';
+  /* la copia piccola (11/11): l'immagine piena del TV è a 4K e si disegnava a strisce per secondi */
+  const lp = libreria.find(x => x.id === s.paesaggio), pi = lp ? lp.immagini : im;
+  const parte = im[pre + o] ? pre + o : im[pre + 'giorno'] ? pre + 'giorno' : 'giorno';
+  return miniDi(pi, parte) || im[parte] || '';
 }
 let attesaAnteprima = null;
 function fermiAnteprima(){
@@ -560,7 +570,7 @@ function disegnaFinestre(){
     anteprimaFrame = $('#anteprimaFrame');
     anteprimaFrame.onload = () => { anteprimaPronta = true; impaginaAnteprima(); postaAnteprima({tipo:'scena', scena}); };
     anteprimaTvFrame = $('#anteprimaTvFrame');
-    anteprimaTvFrame.onload = () => { anteprimaTvPronta = true; anteprimaTvFrame.contentWindow.postMessage({tipo:'scena', scena}, '*'); if (ultimoTv) anteprimaTvFrame.contentWindow.postMessage({tipo:'tv', tv: ultimoTv}, '*'); };
+    anteprimaTvFrame.onload = () => { anteprimaTvPronta = true; anteprimaTvFrame.contentWindow.postMessage({tipo:'scena', scena: scenaAnteprima(scena)}, '*'); if (ultimoTv) anteprimaTvFrame.contentWindow.postMessage({tipo:'tv', tv: ultimoTv}, '*'); };
     legaCursore('intensita', (v, o) => { o.textContent = v + '%';
       /* mentre la nebbia sale il cursore la segue: se lo muovi tu, comandi tu (la nebbia che sale si ferma e torna giù) */
       cambia(salita() > 0 && scena.meteo === 'nebbia' ? {intensita: v / 100, nebbiaSale: false, nebbiaSaleDa: Date.now(), nebbiaSaleK0: 0} : {intensita: v / 100}, false); });
@@ -578,7 +588,7 @@ function disegnaStrip(){
   const firma = lista.map(p => p.id).join(',') + '|' + scena.paesaggio + '|' + libreriaStato;
   if (firma === firmaStrip) return; firmaStrip = firma;
   el.innerHTML = (libreriaStato !== 'ok' && !lista.length ? `<p class="nota">${libreriaStato === 'carico' || libreriaStato === 'da caricare' ? 'Carico i paesaggi…' : esc(libreriaStato)}</p>` : '')
-    + lista.map(p => { const img = p.yt ? `https://i.ytimg.com/vi/${encodeURIComponent(p.yt)}/hqdefault.jpg` : p.immagini.giorno;
+    + lista.map(p => { const img = p.yt ? `https://i.ytimg.com/vi/${encodeURIComponent(p.yt)}/hqdefault.jpg` : miniDi(p.immagini, 'giorno');
       return `<button class="mini-paes" data-fai="mostra" data-v="${p.id}" aria-pressed="${p.id === scena.paesaggio}"><img alt="" loading="lazy" src="${esc(img)}"><span>${esc(p.nome)}</span></button>`; }).join('')
     + `<button class="mini-paes nuovo" data-fai="aggiungiPaesaggio">${icona('piu', 20)}<span>Nuovo</span></button>`;
 }
@@ -659,7 +669,7 @@ const dataPaesaggio = p => { const t = p.creato || parseInt(p.id, 36); if (!t ||
   return new Date(t).toLocaleDateString('it-IT', {day:'numeric', month:'short'}) + ' ' + new Date(t).toLocaleTimeString('it-IT', {hour:'2-digit', minute:'2-digit'}); };
 const cartaPaesaggio = p => {
   const inOnda = scena.paesaggio === p.id;
-  const img = p.yt ? `https://i.ytimg.com/vi/${encodeURIComponent(p.yt)}/hqdefault.jpg` : p.immagini.giorno;
+  const img = p.yt ? `https://i.ytimg.com/vi/${encodeURIComponent(p.yt)}/hqdefault.jpg` : miniDi(p.immagini, 'giorno');
   const pos = p.fuoco ? `object-position:${Math.round(p.fuoco.x * 100)}% 50%` : '';
   const segni = [p.yt ? icona('scena', 12) : '', p.immagini['est-giorno'] ? icona('tv', 12) : '', Object.keys(p.animati).length ? icona('anima', 12) : '', ['alba','tramonto','notte'].every(o => p.immagini[o]) ? icona('luna', 12) : ''].join('');
   return `<button class="carta" data-fai="apri" data-v="${p.id}" aria-pressed="${inOnda}">
@@ -784,7 +794,7 @@ function apriPaesaggio(p){
   const ora = ['giorno','alba','tramonto','notte'];
   const manca = cosaManca(p);
   const fx = p.fuoco ? p.fuoco.x : .5;
-  const img = p.yt ? `https://i.ytimg.com/vi/${encodeURIComponent(p.yt)}/hqdefault.jpg` : p.immagini.giorno;
+  const img = p.yt ? `https://i.ytimg.com/vi/${encodeURIComponent(p.yt)}/hqdefault.jpg` : miniDi(p.immagini, 'giorno');
   const elencoManca = manca.map(o => NOME_MANCA[o]);
   apriFoglio(`
     <div class="dettaglio">
@@ -792,8 +802,8 @@ function apriPaesaggio(p){
       <div class="info">
         <h3>${esc(p.nome)}</h3>
         <p class="nota" style="margin:0">${esc(TIPI[p.tipo] || '')}${Object.keys(p.animati).length ? ' · animato' : ''}${dataPaesaggio(p) ? ' · creato il ' + esc(dataPaesaggio(p)) : ''}</p>
-        ${p.yt ? '' : `<div class="luci">${ora.map(o => p.immagini[o] ? `<button data-fai="vediLuce" data-v="${o}" aria-pressed="${o === 'giorno'}"><img alt="" src="${esc(p.immagini[o])}" style="object-position:${Math.round(fx * 100)}% 50%"><span>${NOME_ORA[o].toUpperCase()}</span></button>` : `<span class="manca" title="manca">${icona(o === 'notte' ? 'luna' : o === 'giorno' ? 'sole' : o, 16)}</span>`).join('')}</div>`}
-        ${p.immagini['est-giorno'] ? `<button class="tv-mini" data-fai="vediLuce" data-v="est-giorno"><img alt="" src="${esc(p.immagini['est-giorno'])}"><span>${icona('tv', 13)}TV</span></button>` : ''}
+        ${p.yt ? '' : `<div class="luci">${ora.map(o => p.immagini[o] ? `<button data-fai="vediLuce" data-v="${o}" aria-pressed="${o === 'giorno'}"><img alt="" src="${esc(miniDi(p.immagini, o))}" style="object-position:${Math.round(fx * 100)}% 50%"><span>${NOME_ORA[o].toUpperCase()}</span></button>` : `<span class="manca" title="manca">${icona(o === 'notte' ? 'luna' : o === 'giorno' ? 'sole' : o, 16)}</span>`).join('')}</div>`}
+        ${p.immagini['est-giorno'] ? `<button class="tv-mini" data-fai="vediLuce" data-v="est-giorno"><img alt="" src="${esc(miniDi(p.immagini, 'est-giorno'))}"><span>${icona('tv', 13)}TV</span></button>` : ''}
       </div>
     </div>
     <button class="btn oro piena" style="margin-top:14px" data-fai="mostra" data-v="${p.id}">${icona('play', 18)}Mostra alle finestre</button>
@@ -973,8 +983,8 @@ async function rifaiLargo(p){
        telefono spento) quello che manca risulta mancante davvero e la volta dopo si rifà; prima restavano quelli
        stretti, mescolati con il giorno largo, e nessuno li avrebbe più rifatti */
     const oreLarghe = ['alba','tramonto','notte'].filter(o => p.immagini[o]);
-    const stretti = p.file.filter(n => /_(?:alba|tramonto|notte|profondita|comignoli)\.(?:jpg|png|json)$/.test(n));
-    try { await togliFile(casa, p, stretti); for (const k of [...oreLarghe, 'profondita', 'comignoli']) delete p.immagini[k]; }
+    const stretti = p.file.filter(n => /_(?:(?:mini-)?(?:alba|tramonto|notte)|profondita|comignoli)\.(?:jpg|png|json)$/.test(n));
+    try { await togliFile(casa, p, stretti); for (const k of [...oreLarghe, ...oreLarghe.map(o => 'mini-' + o), 'profondita', 'comignoli']) delete p.immagini[k]; }
     catch(e) { passo('via2', 'errore', 'Immagini strette non tolte: ' + e.message); }
     aggiornaInLibreria(p);
     await faiLuci(p, jpg, oreLarghe, 'tv', {conTv: true}); aggiornaInLibreria(p);
@@ -1876,7 +1886,7 @@ const AZIONI = {
   apriWeb: v => apriWeb(risultatiWeb[+v]),
   mostra: v => { const p = libreria.find(x => x.id === v); if (p){ mostraPaesaggio(p); chiudiFoglio(); } },
   vediLuce: (v, b) => { const p = libreria.find(x => x.id === foglioAperto); if (!p) return; const tv = v.startsWith('est-');
-    $('#dettImg').src = p.immagini[v]; $('#dettImg').style.objectFit = tv ? 'contain' : 'cover';
+    $('#dettImg').src = miniDi(p.immagini, v); $('#dettImg').style.objectFit = tv ? 'contain' : 'cover';
     document.querySelectorAll('#foglioDentro [data-fai="vediLuce"]').forEach(x => x.setAttribute('aria-pressed', String(x === b)));
     if (!tv && scena.paesaggio === p.id && !comandaDM()) cambia({ora: v}); },
   modifica: v => {
