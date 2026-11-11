@@ -9,7 +9,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
 const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 const euro = n => (n < .1 ? n.toFixed(3) : n.toFixed(2)).replace('.', ',') + ' $';
-const VERSIONE = '6.26';
+const VERSIONE = '6.27';
 /* 8/11 · l'app si aggiorna da sola (Maurizio: «vedo ancora il quadrato con la doppia finestra»: sul telefono restava la
    versione vecchia anche dopo averla chiusa). Quando torna in primo piano, e ogni 10 minuti, chiede al server quale
    app.js c'è adesso; se è un'altra, ricarica (mai mentre un lavoro AI è in corso) */
@@ -116,6 +116,7 @@ const gestoreCanale = {
     if (evento === 'tv'){ ultimoTv = d && (d.spento || (!d.immagine && !d.video)) ? null : d; postaAnteprima({tipo:'tv', tv: d}); return; }
     if (evento === 'bard'){ prendiBard(d); return; }
     if (evento === 'aggiornaVecchi'){ chiediAggiornaVecchi(d); return; }
+    if (evento === 'rifaiAnim'){ chiediRifaiAnim(d); return; }
     if (evento === 'console'){ suConsole(d); return; }
     if (evento === 'consoleScheda'){ suScheda(d); return; }
     if (evento === 'bardOra'){ if (!suonoQui()){ bardOra = d.musica || null; if (scheda === 'bard') aggiornaBard(); } return; }
@@ -1010,7 +1011,10 @@ ${LUCI_EST.giorno}`;
    Per questo il cielo è un'immagine panoramica a parte, che si ripete senza cuciture e la finestra fa scorrere
    all'infinito dietro torri e colline (anche da una trifora all'altra). Niente sole né luna: scorrerebbero. */
 const promptCielo = `Paint ONLY the sky of this image, as one very wide panoramic strip of sky. Same painting style, same light, same colors and the same kind of clouds as the sky in the image. No ground, no hills, no mountains, no buildings, no trees, no horizon line, no sun, no moon, no stars, no birds, no text, no frame, no border. Clouds spread across the whole width, varied in size and shape, with open sky between them. The bottom of the strip is the pale, hazy sky just above the horizon, the same color as the image right above the hills; the top is the deeper color of the top of the image's sky. Even lighting across the whole width, so the strip can repeat side by side.`;
-const promptAnima = (el, sec) => `[# Sources <FIRST_FRAME>@Image1 <LAST_FRAME>@Image1] A single continuous, unbroken shot of about ${sec} seconds, no scene cuts, of exactly this landscape. Locked-off static camera on a tripod: the camera does not move at all (no pan, no tilt, no zoom, no dolly, no shake). Gentle, natural, real-time motion only: ${el.map(e => (ELEMENTI.find(x => x[0] === e) || [])[3]).filter(Boolean).join('; ')}. Buildings, towers, rocks, mountains, fields and the ground stay perfectly still and identical in every frame, with no shimmering. Everything that moves keeps the same slow speed and direction for the whole clip. No birds, no smoke from chimneys, towers or anywhere, no mist or fog appearing, growing or fading, no new clouds popping in, no light change. Same framing, light and colors as the image for the whole clip. No people, no animals, no text, no dialogue, no music. Use this image as the first frame and the last frame.`;
+/* 11/11 · i video del tramonto venivano quasi fermi (3–5 volte meno movimento del giorno, Maurizio: «facciamolo»): con la
+   luce bassa l'AI teneva tutto immobile. Al tramonto si chiede esplicitamente una brezza della sera ben visibile */
+const ANIMA_ORA = {tramonto: ' It is a breezy evening: the motion must stay clearly visible for the whole clip, as lively as in full daylight, even in the low warm light. Tree crowns, branches, bushes and tall grass sway continuously in a steady breeze and their leaves flutter; the water ripples and the reflections of the sunset sky shimmer and glitter on it.'};
+const promptAnima = (el, sec, ora) => `[# Sources <FIRST_FRAME>@Image1 <LAST_FRAME>@Image1] A single continuous, unbroken shot of about ${sec} seconds, no scene cuts, of exactly this landscape. Locked-off static camera on a tripod: the camera does not move at all (no pan, no tilt, no zoom, no dolly, no shake). Gentle, natural, real-time motion only: ${el.map(e => (ELEMENTI.find(x => x[0] === e) || [])[3]).filter(Boolean).join('; ')}.${ANIMA_ORA[ora] || ''} Buildings, towers, rocks, mountains, fields and the ground stay perfectly still and identical in every frame, with no shimmering. Everything that moves keeps the same slow speed and direction for the whole clip. No birds, no smoke from chimneys, towers or anywhere, no mist or fog appearing, growing or fading, no new clouds popping in, no light change. Same framing, light and colors as the image for the whole clip. No people, no animals, no text, no dialogue, no music. Use this image as the first frame and the last frame.`;
 
 /* un lavoro lungo alla volta (creare, animare, aggiungere luci): i passi si vedono dove serve */
 let lavoro = null;
@@ -1160,10 +1164,14 @@ async function faiAnimazione(p, foto, ora, elementi, tv = false){
   passo(ka, 'ora', `${eti}Animazione con ${mv.nome}: in coda…`); lavoro.av = 0;
   /* la vista nord larga (il trucco della prospettiva) si anima intera, orizzontale come quella del TV */
   const largo = !tv && (await misuraDi(foto)).largo;
-  const mp4 = await Ai.anima({chiave:imp.chiavi.google, modello:mv.id, foto, fuoco:p.fuoco, tv: tv || largo, prompt:promptAnima(elementi, imp.video.secondi),
+  const mp4 = await Ai.anima({chiave:imp.chiavi.google, modello:mv.id, foto, fuoco:p.fuoco, tv: tv || largo, prompt:promptAnima(elementi, imp.video.secondi, ora),
     progresso:(pc, st) => { lavoro.av = pc; passo(ka, 'ora', `${eti}Animazione con ${mv.nome}: ${st === 'invio' ? 'la mando' : st === 'scarico' ? 'la scarico' : 'la sta girando'}… ${Math.round(pc)}%`); }});
   passo(ka, 'ora', eti + 'Animazione: la salvo…');
   p.animati[pre + ora] = tv ? await caricaEstAnimazione(casa, p, ora, mp4) : await caricaAnimazione(casa, p, ora, mp4);
+  /* 11/11 · un video rifatto: via la copia «…-originale.mp4» di quello vecchio, che per il cucitore vuol dire «già cucito»
+     (senza, il video nuovo restava com'era uscito dall'AI, col salto al giro) */
+  { const vecchi = (p.file || []).filter(n => n.endsWith('_' + pre + 'anim-' + ora + '-originale.mp4'));
+    if (vecchi.length) try { await togliFile(casa, p, vecchi); } catch(e) { passo(ka, 'errore', eti + 'Animazione: la vecchia copia non si toglie, il cucitore non la rifarà (' + e.message + ')'); } }
   lavoro.av = null; passo(ka, 'fatto', eti + 'Animazione (' + imp.video.secondi + ' s, in loop)');
   /* subito: che cosa resta fermo e che cosa si muove (così le finestre non tremano mai); il video a piena
      qualità lo rifà poi il Raspberry, con calma */
@@ -1238,7 +1246,8 @@ function rapportoLavoro(extra = {}){
 /* la stessa richiesta si legge anche dalla rete all'apertura dell'app (se il telefono era chiuso quando Claude l'ha mandata) */
 async function richiestaInRete(){
   try { const r = await fetch(SUPABASE_URL + '/storage/v1/object/public/dmaster-media/finestre/banco/richiesta-telefono.json?t=' + Date.now(), {cache: 'no-store'});
-    if (!r.ok) return; const j = await r.json(); if (j && j.aggiornaVecchi && foglioAperto !== 'aggiorna' && !(lavoro && !lavoro.finito)) chiediAggiornaVecchi(j.aggiornaVecchi); } catch(e) {}
+    if (!r.ok) return; const j = await r.json(); if (!j || foglioAperto === 'aggiorna' || foglioAperto === 'rifaiAnim' || (lavoro && !lavoro.finito)) return;
+    if (j.rifaiAnim) chiediRifaiAnim(j.rifaiAnim); else if (j.aggiornaVecchi) chiediAggiornaVecchi(j.aggiornaVecchi); } catch(e) {}
 }
 async function chiediAggiornaVecchi(d){
   if (!d || !Array.isArray(d.ids) || !d.chiave || aggiornaFatti.has(d.chiave)) return;
@@ -1256,6 +1265,45 @@ async function chiediAggiornaVecchi(d){
   foglioAperto = 'aggiorna';
   chiediAggiornaVecchi.righe = righe; chiediAggiornaVecchi.chiave = d.chiave;
   rapportoLavoro({messaggio: 'in attesa di «Avvia»', costo: Math.round(tot * 100) / 100, paesaggi: righe.map(r => r.p.nome + (r.st ? ' (largo)' : ''))});
+}
+/* 11/11 · RIFARE ALCUNI VIDEO (Maurizio: «facciamolo», sui tramonti quasi fermi). Claude manda «rifaiAnim» {ids, ore, chiave}:
+   il telefono mostra quali video rifà e quanto costa, e parte solo al tocco di «Avvia» */
+let rifaiAnimFatti = new Set(leggi('atm-rifai-anim-fatti', []));
+function chiediRifaiAnim(d){
+  if (!d || !Array.isArray(d.ids) || !Array.isArray(d.ore) || !d.chiave || rifaiAnimFatti.has(d.chiave)) return;
+  if (lavoro && !lavoro.finito) return;
+  const mv = MODELLI_VIDEO.find(x => x.id === imp.video.modello) || MODELLI_VIDEO[0]; if (!mv) return;
+  const video = [];
+  for (const id of d.ids){ const p = libreria.find(x => x.id === id); if (!p || p.yt) continue;
+    for (const tv of [false, true]) for (const ora of d.ore) if (p.immagini[(tv ? 'est-' : '') + ora]) video.push({p, tv, ora}); }
+  if (!video.length){ rapportoLavoro({messaggio: 'nessuno dei video chiesti è su questo telefono'}); return; }
+  const uno = mv.euroSecondo * imp.video.secondi, tot = uno * video.length;
+  const perP = [...new Set(video.map(v => v.p))];
+  apriFoglio(`<h3 style="font:500 16px var(--display);letter-spacing:.12em;text-transform:uppercase;margin:4px 0 4px">Rifaccio ${video.length} video</h3>
+    <p class="nota" style="margin-top:0">${esc(d.perche || 'Claude ha chiesto di rifare questi video.')}</p>
+    <ul class="membri">${perP.map(p => { const n = video.filter(v => v.p === p); return `<li><span><b>${esc(p.nome)}</b><small>${[...new Set(n.map(v => NOME_ORA[v.ora]))].join(', ')} · finestrelle${n.some(v => v.tv) ? ' e TV' : ''}</small></span><span class="prezzo">≈ ${euro(uno * n.length)}</span></li>`; }).join('')}</ul>
+    <button class="btn oro piena" style="margin-top:14px" data-fai="rifaiAnimVia">${icona('anima', 18)}Avvia · ≈ ${euro(tot)}</button>
+    <p class="nota">Ogni video richiede qualche minuto: tieni il telefono acceso con l'app aperta su questa pagina finché non ha finito. Poi il cucitore li rende senza salto al giro.</p>
+    <div id="lavoroFoglio"></div>`);
+  foglioAperto = 'rifaiAnim'; chiediRifaiAnim.video = video; chiediRifaiAnim.chiave = d.chiave;
+  rapportoLavoro({messaggio: 'in attesa di «Avvia»', costo: Math.round(tot * 100) / 100, video: video.map(v => v.p.nome + ' · ' + (v.tv ? 'TV ' : '') + v.ora)});
+}
+async function rifaiAnimVia(){
+  const video = chiediRifaiAnim.video || [], chiave = chiediRifaiAnim.chiave; if (!video.length) return;
+  if (!imp.chiavi.google){ avviso('Serve la chiave Google (Gemini) nelle Impostazioni.', true); rapportoLavoro({messaggio: 'manca la chiave Google'}); return; }
+  const b = document.querySelector('[data-fai="rifaiAnimVia"]'); if (b) b.hidden = true;
+  const t = setInterval(() => rapportoLavoro(), 20000);
+  try {
+    await conLavoro('rifaiAnim', async L => {
+      for (const {p, tv, ora} of video){
+        const pre = tv ? 'est-' : '', img = p.immagini[pre + ora]; L.p = p; L.anteprime[pre + ora] = {url: img};
+        try { await faiAnimazione(p, await (await fetch(img)).blob(), ora, imp.elementi, tv); aggiornaInLibreria(p); rapportoLavoro(); }
+        catch(e) { passo(pre + 'anim-' + ora, 'errore', p.nome + ' · ' + (tv ? 'TV · ' : '') + 'Animazione ' + NOME_ORA[ora] + ': ' + e.message); segnala(e); if (e.tipo === 'credito' || e.tipo === 'chiave') throw e; }
+      }
+    });
+    if (lavoro && lavoro.fatto){ rifaiAnimFatti.add(chiave); scrivi('atm-rifai-anim-fatti', [...rifaiAnimFatti]); }
+    rapportoLavoro({messaggio: lavoro && lavoro.fatto ? 'finito' : 'fermato: ' + (lavoro && lavoro.errore)});
+  } finally { clearInterval(t); }
 }
 async function aggiornaVecchiVia(){
   const righe = chiediAggiornaVecchi.righe || [], chiave = chiediAggiornaVecchi.chiave; if (!righe.length) return;
@@ -1938,6 +1986,7 @@ const AZIONI = {
     } catch(e) { avviso(e.message, true); }
   },
   aggiornaVia: () => aggiornaVecchiVia(),
+  rifaiAnimVia: () => rifaiAnimVia(),
   animaVia: async v => {
     const p = libreria.find(x => x.id === v); if (!p) return;
     if (!imp.chiavi.google){ avviso('Serve la chiave Google (Gemini) nelle Impostazioni.', true); return; }
