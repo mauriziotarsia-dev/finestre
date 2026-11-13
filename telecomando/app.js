@@ -9,7 +9,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
 const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 const euro = n => (n < .1 ? n.toFixed(3) : n.toFixed(2)).replace('.', ',') + ' $';
-const VERSIONE = '6.42';
+const VERSIONE = '6.43';
 /* 8/11 · l'app si aggiorna da sola (Maurizio: «vedo ancora il quadrato con la doppia finestra»: sul telefono restava la
    versione vecchia anche dopo averla chiusa). Quando torna in primo piano, e ogni 10 minuti, chiede al server quale
    app.js c'è adesso; se è un'altra, ricarica (mai mentre un lavoro AI è in corso) */
@@ -71,9 +71,10 @@ Object.assign(imp, {qualita:'alta', tv:true, cielo:true, anima: !!MODELLI_VIDEO.
 /* 13/11 notte · Maurizio: «la durata dell'animazione video deve essere la più lunga possibile e con più animazioni possibili».
    Un video di Gemini Omni Flash arriva al massimo a 10 s; il giro si allunga mettendo in fila più video da 10 s («pezzi»),
    ognuno con un movimento diverso, che partono e finiscono tutti sulla stessa immagine: le giunte non si vedono.
-   I pezzi li mette in fila il cucitore (pi/cuci-animazione.py); finché non l'ha fatto gira il primo. Pezzi: 1, 2 o 4. */
+   I pezzi li mette in fila il cucitore (pi/cuci-animazione.py); finché non l'ha fatto gira il primo.
+   14/11 · «48 dollari troppi… non si possono fare di 15 secondi?»: si sceglie il giro (10, 15, 20, 40 s); 15 s = 2 pezzi da 8 s */
 imp.video.secondi = 10;
-if (![1, 2, 4].includes(imp.video.pezzi)) imp.video.pezzi = 4;
+if (![10, 15, 20, 40].includes(imp.video.giro)) imp.video.giro = 15;
 const salvaImp = () => scrivi('finestre-impostazioni', imp);
 
 /* ── la scena e i fori ───────────────────────────────────────────────────── */
@@ -1067,8 +1068,11 @@ const LUCI_LUME = {
 /* 13/11 notte · un paesaggio fatto da una bozza in 4K: luci e TV con lo stesso modello, lo stesso livello, il 4K e lo stesso testo
    di realismo della bozza (creaCon vale solo mentre si crea) */
 let creaCon = {};
-const pezziVideo = () => creaCon.pezzi || imp.video.pezzi || 1;
-const secondiGiro = () => imp.video.secondi * pezziVideo();
+const giroVideo = () => creaCon.giro || imp.video.giro || 10;
+const pezziDi = g => g <= 10 ? 1 : g <= 20 ? 2 : 4;
+const pezziVideo = () => pezziDi(giroVideo());
+const secondiPezzo = () => Math.min(10, Math.round(giroVideo() / pezziVideo()));
+const secondiGiro = () => secondiPezzo() * pezziVideo();
 const opzImm = () => ({modello: creaCon.modello || imp.modello, chiavi: imp.chiavi, qualita: creaCon.qualita || imp.qualita, grande: !!creaCon.grande});
 const latoImm = () => creaCon.grande ? 3840 : 2400;
 const conInPiu = t => creaCon.inPiu ? t + '\n\n' + creaCon.inPiu : t;
@@ -1283,9 +1287,9 @@ async function faiAnimazione(p, foto, ora, elementi, tv = false){
   const largo = !tv && (await misuraDi(foto)).largo;
   const n = pezziVideo(), pc = Array(n).fill(0);
   const pezzi = await Promise.all(Array.from({length: n}, (_, k) => Ai.anima({chiave:imp.chiavi.google, modello:mv.id, foto, fuoco:p.fuoco, tv: tv || largo,
-    prompt: eInterno(p) ? promptAnimaInterno(imp.video.secondi, ora, k) : promptAnima(elementi, imp.video.secondi, ora),
+    prompt: eInterno(p) ? promptAnimaInterno(secondiPezzo(), ora, k) : promptAnima(elementi, secondiPezzo(), ora),
     progresso:(x, st) => { pc[k] = x; const m = pc.reduce((a, b) => a + b, 0) / n; lavoro.av = m;
-      passo(ka, 'ora', `${eti}Animazione con ${mv.nome}${n > 1 ? ' (' + n + ' pezzi da ' + imp.video.secondi + ' s)' : ''}: ${st === 'invio' ? 'la mando' : st === 'scarico' ? 'la scarico' : 'la sta girando'}… ${Math.round(m)}%`); }})));
+      passo(ka, 'ora', `${eti}Animazione con ${mv.nome}${n > 1 ? ' (' + n + ' pezzi da ' + secondiPezzo() + ' s)' : ''}: ${st === 'invio' ? 'la mando' : st === 'scarico' ? 'la scarico' : 'la sta girando'}… ${Math.round(m)}%`); }})));
   const mp4 = pezzi[0];
   passo(ka, 'ora', eti + 'Animazione: la salvo…');
   /* prima i pezzi in più (…_anim-notte-pezzo2.mp4 …), poi il primo: quando il cucitore vede il video ci sono già tutti */
@@ -1295,7 +1299,7 @@ async function faiAnimazione(p, foto, ora, elementi, tv = false){
      (senza, il video nuovo restava com'era uscito dall'AI, col salto al giro) */
   { const vecchi = (p.file || []).filter(n => n.endsWith('_' + pre + 'anim-' + ora + '-originale.mp4'));
     if (vecchi.length) try { await togliFile(casa, p, vecchi); } catch(e) { passo(ka, 'errore', eti + 'Animazione: la vecchia copia non si toglie, il cucitore non la rifarà (' + e.message + ')'); } }
-  lavoro.av = null; passo(ka, 'fatto', eti + 'Animazione (' + (n > 1 ? n + ' pezzi da ' + imp.video.secondi + ' s, giro di ' + n * imp.video.secondi + ' s' : imp.video.secondi + ' s') + ', in loop)');
+  lavoro.av = null; passo(ka, 'fatto', eti + 'Animazione (' + (n > 1 ? n + ' pezzi da ' + secondiPezzo() + ' s, giro di ' + giroVideo() + ' s' : secondiPezzo() + ' s') + ', in loop)');
   /* subito: che cosa resta fermo e che cosa si muove (così le finestre non tremano mai); il video a piena
      qualità lo rifà poi il Raspberry, con calma */
   passo(kf, 'ora', eti + 'Animazione: separo quello che si muove da quello che sta fermo…');
@@ -1388,10 +1392,10 @@ function chiediCrea(d){
       <li><span><b>Finestrelle</b><small>${esc(d.centroIt || d.centro || '')}</small></span></li>
       <li><span><b>TV</b><small>${esc(d.descEstIt || d.descEst || '')}</small></span></li>
       <li><span><b>Le quattro luci</b><small>${d.interno ? 'giorno dalle finestrelle della sala, alba, tramonto, notte a lume di candela' : 'giorno, alba, tramonto, notte'}</small></span></li>
-      ${nVideo ? `<li><span><b>${nVideo} animazioni · giro di ${secondiGiro()} s</b><small>${d.interno ? 'tutte e quattro le luci, finestrelle e TV: fuoco, candele, torce, fumo, gli avventori che bevono, parlano, ridono' : 'giorno e tramonto, finestrelle e TV'}</small></span></li>` : ''}
+      ${nVideo ? `<li><span><b>${nVideo} animazioni · giro di ${giroVideo()} s</b><small>${d.interno ? 'tutte e quattro le luci, finestrelle e TV: fuoco, candele, torce, fumo, gli avventori che bevono, parlano, ridono' : 'giorno e tramonto, finestrelle e TV'}</small></span></li>` : ''}
     </ul>
-    ${nVideo ? `<div class="blocco" style="margin-top:10px"><span>Quanto dura il giro delle animazioni</span><div class="scelte">${[1, 2, 4].map(n => `<button class="scelta" data-fai="pezziVideo" data-v="${n}" aria-pressed="${pezziVideo() === n}">${n * imp.video.secondi} s<small>≈ ${euro(mv.euroSecondo * imp.video.secondi * n * nVideo)}</small></button>`).join('')}</div>
-      <p class="nota" style="margin-top:6px">Ogni pezzo da ${imp.video.secondi} s (il massimo di un video) ha un movimento diverso e parte e finisce sulla stessa immagine: più è lungo, meno si nota che si ripete. I pezzi li mette in fila il mini PC; finché non l'ha fatto gira il primo.</p></div>` : ''}
+    ${nVideo ? `<div class="blocco" style="margin-top:10px"><span>Quanto dura il giro delle animazioni</span><div class="scelte">${[10, 15, 20, 40].map(g => { const n = pezziDi(g), sec = Math.min(10, Math.round(g / n)) * n; return `<button class="scelta" data-fai="giroVideo" data-v="${g}" aria-pressed="${giroVideo() === g}">${g} s<small>≈ ${euro(mv.euroSecondo * sec * nVideo)}</small></button>`; }).join('')}</div>
+      <p class="nota" style="margin-top:6px">Un video arriva al massimo a 10 s: oltre, il giro è fatto di più video (15 s = 2 da 8 s), ognuno con un movimento diverso, che partono e finiscono sulla stessa immagine. Li mette in fila il mini PC; finché non l'ha fatto gira il primo.</p></div>` : ''}
     ${d.bozzaNord ? `<div class="bozza-nord" style="margin-top:10px"><img alt="La bozza scelta" src="${esc(d.bozzaNord)}"><span>La bozza scelta</span></div>` : ''}
     <button class="btn oro piena" style="margin-top:14px" data-fai="creaRichiestaVia" ${!imp.chiavi[m.fornitore] ? 'disabled' : ''}>${icona('scintilla', 18)}Avvia · ≈ ${euro(costo)}</button>
     ${!imp.chiavi[m.fornitore] ? `<p class="nota">Manca la chiave ${m.fornitore === 'google' ? 'Google' : 'OpenAI'} nelle Impostazioni.</p>` : ''}
@@ -1618,7 +1622,7 @@ async function creaPaesaggio(o){
   const {nome, descrizione} = o, stile = o.stile || imp.stile, interno = !!o.interno, oraBase = o.oraBase || 'giorno';
   const m = Ai.modello(o.modello || imp.modello);
   if (!imp.chiavi[m.fornitore]){ avviso('Serve la chiave ' + (m.fornitore === 'google' ? 'Google' : 'OpenAI') + ': mettila nelle Impostazioni.', true); return; }
-  creaCon = {modello: o.modello, qualita: o.qualita, grande: !!o.grande, inPiu: o.inPiu || '', pezzi: o.pezzi || null};
+  creaCon = {modello: o.modello, qualita: o.qualita, grande: !!o.grande, inPiu: o.inPiu || '', giro: o.giro || null};
   try { await conLavoro('crea', async L => {
     const parole = [...new Set([...(o.parole || []), ...paroleChiave(nome, descrizione), ...(interno ? ['interno'] : [])])].slice(0, 11);
     if (interno && !parole.includes('interno')) parole[parole.length - 1] = 'interno';
@@ -2601,7 +2605,7 @@ const AZIONI = {
   modello: v => { imp.modello = v; salvaImp(); disegnaImpostazioni(); },
   qualita: v => { imp.qualita = v; salvaImp(); disegnaImpostazioni(); },
   secondi: v => { imp.video.secondi = +v; salvaImp(); disegnaImpostazioni(); },
-  pezziVideo: v => { imp.video.pezzi = +v; salvaImp(); if (foglioAperto === 'creaRichiesta' && chiediCrea.d) chiediCrea(chiediCrea.d); },
+  giroVideo: v => { imp.video.giro = +v; salvaImp(); if (foglioAperto === 'creaRichiesta' && chiediCrea.d) chiediCrea(chiediCrea.d); },
   vediChiave: v => { const el = document.getElementById(v); el.type = el.type === 'password' ? 'text' : 'password'; },
   nFinestre: v => { assetto = assettoOPredefinito(); assetto.n = +v; mandaFori(); disegnaImpostazioni(); if (scheda === 'finestre') aggiornaFinestre(); },
   bordi: () => { mostraBordi = !mostraBordi; canale.manda('fori', Object.assign({mostra: mostraBordi}, assettoOPredefinito())); disegnaImpostazioni(); },

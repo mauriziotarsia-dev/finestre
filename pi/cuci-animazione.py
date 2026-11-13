@@ -275,13 +275,13 @@ def fermo_dalla_foto(rif, alta, zone, cielo):
     return grande, lut
 
 
-def cuci(entrata, uscita, profondita=None, immagine=None, fuoco_x=0.5, larghezza=None, veloce=False, fermo=None, maschera=None, alta=None):
+def cuci(entrata, uscita, profondita=None, immagine=None, fuoco_x=0.5, larghezza=None, veloce=False, fermo=None, maschera=None, alta=None, sfuma=None):
     n, fps, w, h = leggi_info(entrata)
     primo = next(fotogrammi(entrata))
     cielo = maschera_cielo(w, h, profondita, immagine, fuoco_x, primo)
     sp, rif, zone, guad, sost, info = analizza(entrata, n, fps, w, h, cielo)
     foto, lut = fermo_dalla_foto(rif, alta, zone, cielo) if alta else (None, None)
-    c = int(round(fps * SECONDI_GIRO))
+    c = int(round(fps * (sfuma or SECONDI_GIRO)))            # 14/11: coi pezzi (tutti da e verso la stessa immagine) basta 1,5 s
     lung = n - c                                               # il giro: n - c fotogrammi
     # ⚠ 30/10: il video serve solo dove si muove (nebbia, fumo, acqua): il resto lo disegna il fermo a piena
     # risoluzione. Così il video può essere piccolo: alto al massimo 1080, che il Raspberry 4 decodifica col suo
@@ -641,7 +641,7 @@ def _cuci_uno(cart, nomi, nome, base, parte, originale, larghezza, veloce):
             ora_f = parte[len(pre) + 5:-4]
             if f'{base}_{pre}{ora_f}.jpg' in nomi:
                 alta = os.path.join(d, 'a.jpg'); _scarica(cart, f'{base}_{pre}{ora_f}.jpg', alta)
-            info = cuci(e, u, prof, imm, fx, larghezza, veloce, fj, mp, alta)
+            info = cuci(e, u, prof, imm, fx, larghezza, veloce, fj, mp, alta, 1.5 if pezzi_n else None)
             _chiedi('POST', f'/storage/v1/object/{DEPOSITO}/{cart}/' + urllib.parse.quote(originale), open(e, 'rb').read(), 'video/mp4', {'x-upsert': 'true'})
             _chiedi('POST', f'/storage/v1/object/{DEPOSITO}/{cart}/' + urllib.parse.quote(nome), open(u, 'rb').read(), 'video/mp4',
                     {'x-upsert': 'true', 'cache-control': 'max-age=60'})
