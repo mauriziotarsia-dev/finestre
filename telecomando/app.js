@@ -9,7 +9,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
 const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 const euro = n => (n < .1 ? n.toFixed(3) : n.toFixed(2)).replace('.', ',') + ' $';
-const VERSIONE = '6.43';
+const VERSIONE = '6.44';
 /* 8/11 · l'app si aggiorna da sola (Maurizio: «vedo ancora il quadrato con la doppia finestra»: sul telefono restava la
    versione vecchia anche dopo averla chiusa). Quando torna in primo piano, e ogni 10 minuti, chiede al server quale
    app.js c'è adesso; se è un'altra, ricarica (mai mentre un lavoro AI è in corso) */
@@ -1413,13 +1413,14 @@ let bozzeStato = leggi('atm-bozze', null);
 const salvaBozze = () => scrivi('atm-bozze', bozzeStato);
 /* 13/11 sera · ogni opzione può avere il suo modello, il suo livello e il 4K («grande»): così si confrontano anche i modelli */
 const bozzaModello = (x, d) => x.modello || d.modello || imp.modello;
-const bozzaQualita = (x, d) => x.qualita || d.qualita || 'bassa';
+const bozzaQualita = (x, d) => x.qualitaBozza || x.qualita || d.qualita || 'bassa';   /* qualitaBozza: la bozza; qualita: il paesaggio che ne nasce */
 const bozzaGrande = (x, d) => !!(x.grande != null ? x.grande : d.grande);
 const costoBozze = (n, d = {}) => (d.opzioni || []).reduce((a, x) => a + (d.soloFinestrelle ? 1 : 2) * Ai.costoDi(bozzaModello(x, d), bozzaQualita(x, d), bozzaGrande(x, d)), 0) || n * (d.soloFinestrelle ? 1 : 2) * Ai.costoDi(imp.modello, d.qualita || 'bassa');
-function costoDaBozza(interno){
-  const m = Ai.modello(imp.modello), mv = MODELLI_VIDEO.find(x => x.id === imp.video.modello) || MODELLI_VIDEO[0] || {euroSecondo: 0};
-  const unaVista = (m.costo[imp.qualita] || m.costo.alta) * (1 + 3 * 1.15), nVideo = MODELLI_VIDEO.length ? nVideoCrea() : 0;
-  return unaVista * 2 + (interno ? 0 : unaVista * 1.3) + mv.euroSecondo * secondiGiro() * nVideo;
+function costoDaBozza(interno, x = {}){
+  const mv = MODELLI_VIDEO.find(v => v.id === imp.video.modello) || MODELLI_VIDEO[0] || {euroSecondo: 0};
+  const una = Ai.costoDi(x.modello || imp.modello, x.qualita || imp.qualita, !!x.grande);
+  const nVideo = MODELLI_VIDEO.length ? (interno ? 8 : nVideoCrea()) : 0, g = x.giro || giroVideo(), n = pezziDi(g), sec = Math.min(10, Math.round(g / n)) * n;
+  return una * ((x.bozzaFinita ? 3 : 4) + 4) + (interno ? 0 : una * 1.3) + mv.euroSecondo * sec * nVideo;
 }
 function chiediBozze(d){
   if (!d || !d.chiave || !Array.isArray(d.opzioni) || !d.opzioni.length || (lavoro && !lavoro.finito)) return;
@@ -1465,8 +1466,10 @@ async function bozzeVia(){
         const qualita = bozzaQualita(x, d), modello = bozzaModello(x, d), grande = bozzaGrande(x, d), lato = grande ? 3840 : 1600, mm = Ai.modello(modello);
         if (!imp.chiavi[mm.fornitore]){ passo(kn, 'errore', x.id + ' · manca la chiave ' + (mm.fornitore === 'google' ? 'Google' : 'OpenAI')); return; }
         passo(kn, 'ora', x.id + ' · finestrelle' + (grande ? ' in 4K' : '') + '…');
-        const testo = x.interno ? promptInterno(x.descrizione, x.centro || 'the main counter', stile, x.vista, {luce: x.luce, persone: x.persone, lati: x.lati}) : promptLargo(x.descrizione, stile);
-        const rn = rif && x.conStanza !== false
+        const testo = x.prompt ? x.prompt : x.interno ? promptInterno(x.descrizione, x.centro || 'the main counter', stile, x.vista, {luce: x.luce, persone: x.persone, lati: x.lati}) : promptLargo(x.descrizione, stile);
+        const rn = rif && x.prompt
+          ? await Ai.modifica({modello, chiavi: imp.chiavi, qualita, grande, misura: 'tv', foto: rif, prompt: testo + (d.stanzaInPiu ? '\n\n' + d.stanzaInPiu : '')})
+          : rif && x.conStanza !== false
           ? await Ai.modifica({modello, chiavi: imp.chiavi, qualita, grande, misura: 'tv', foto: rif, prompt: (d.fedele ? PROMPT_STANZA_FEDELE : PROMPT_STANZA) + (d.stanzaInPiu ? d.stanzaInPiu + '\n\n' : '') + testo})
           : await Ai.crea({modello, chiavi: imp.chiavi, qualita, grande, misura: 'tv', prompt: testo});
         const nord = await inJpeg(b64aBlob(rn.b64, rn.mime), lato), chi = mm.nome + (rn.modello && !mm.id.endsWith(rn.modello) ? ' (fatta con ' + rn.modello + ')' : '');
@@ -1486,9 +1489,9 @@ async function bozzeVia(){
   if (d.opzioni.some(x => bozzeStato.fatte[x.id])) mostraBozze(d);
 }
 function mostraBozze(d){
-  const f = (bozzeStato && bozzeStato.fatte) || {}, costo = costoDaBozza(d.opzioni.some(x => x.interno));
+  const f = (bozzeStato && bozzeStato.fatte) || {}, costoDi = x => costoDaBozza(!!x.interno, x);
   apriFoglio(`<h3 class="foglio-titolo">Bozze · ${esc(d.titolo || 'paesaggio nuovo')}</h3>
-    <p class="nota" style="margin-top:0">${d.scopo === 'stile' ? esc(d.spiega || '') : 'Sopra la vista larga delle finestrelle: i due riquadri dorati sono, all\'incirca, quello che si vede da ciascuna finestrella. Sotto il TV. Sono bozze: la versione vera ha più dettaglio e la stessa composizione.'} Tocca un'immagine per vederla a piena risoluzione e ingrandirla.</p>
+    <p class="nota" style="margin-top:0">${d.scopo === 'stile' || d.spiega ? esc(d.spiega || '') : 'Sopra la vista larga delle finestrelle: i due riquadri dorati sono, all\'incirca, quello che si vede da ciascuna finestrella. Sotto il TV. Sono bozze: la versione vera ha più dettaglio e la stessa composizione.'} Tocca un'immagine per vederla a piena risoluzione e ingrandirla.</p>
     ${d.opzioni.map(x => { const b = f[x.id]; return `<div class="bozza">
       <b>${esc(x.id)} · ${esc(x.nome)}</b>
       ${x.notaIt ? `<p class="nota" style="margin:0 0 8px">${esc(x.notaIt)}</p>` : ''}
@@ -1496,7 +1499,7 @@ function mostraBozze(d){
       ${b ? `<a class="bozza-nord" href="${esc(b.nord)}" target="_blank" rel="noopener"><img alt="Finestrelle ${esc(x.id)}" src="${esc(b.nord)}">${d.scopo === 'stile' ? '' : '<i class="sx"></i><i class="dx"></i>'}<span>${d.scopo === 'stile' ? esc(x.nome) : 'Finestrelle'}</span></a>
       ${b.est ? `<a class="bozza-est" href="${esc(b.est)}" target="_blank" rel="noopener"><img alt="TV ${esc(x.id)}" src="${esc(b.est)}"><span>TV</span></a>` : ''}
       ${d.scopo === 'stile' ? `<button class="btn oro piena" data-fai="bozzaStile" data-v="${esc(x.id)}">${icona('pennello', 18)}${esc(d.bottone || 'Uso questo stile')}</button>`
-        : `<button class="btn oro piena" data-fai="bozzaScelta" data-v="${esc(x.id)}">${icona('scintilla', 18)}Scelgo questa · ≈ ${euro(costo)}</button>`}` : '<p class="nota">Non riuscita: ' + esc((lavoro && lavoro.errore) || 'riprova') + '</p>'}
+        : `<button class="btn oro piena" data-fai="bozzaScelta" data-v="${esc(x.id)}">${icona('scintilla', 18)}Scelgo questa · ≈ ${euro(costoDi(x))}</button>`}` : '<p class="nota">Non riuscita: ' + esc((lavoro && lavoro.errore) || 'riprova') + '</p>'}
     </div>`; }).join('')}
     <div id="lavoroFoglio"></div>`);
   foglioAperto = 'bozze';
