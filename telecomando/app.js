@@ -9,7 +9,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
 const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 const euro = n => (n < .1 ? n.toFixed(3) : n.toFixed(2)).replace('.', ',') + ' $';
-const VERSIONE = '6.30';
+const VERSIONE = '6.31';
 /* 8/11 · l'app si aggiorna da sola (Maurizio: «vedo ancora il quadrato con la doppia finestra»: sul telefono restava la
    versione vecchia anche dopo averla chiusa). Quando torna in primo piano, e ogni 10 minuti, chiede al server quale
    app.js c'è adesso; se è un'altra, ricarica (mai mentre un lavoro AI è in corso) */
@@ -1403,23 +1403,51 @@ const lettore = new LettoreBard({tuoniDaSoli: true, quandoCambia: d => { if (d.m
 lettore.applica(bardStato); lettore.suScena(scena); lettore.imposta({qui: suonoQui()});
 document.addEventListener('pointerdown', () => { if (suonoQui()) lettore.sblocca(); }, {passive: true});
 setInterval(() => { lettore.imposta({muto: inSerata()}); if (scheda === 'bard') aggiornaBard(); }, 3000);
+/* 13/11: la libreria di Bard si legge subito (non solo aprendo Bard), così il TV riceve i suoni del paesaggio */
+setTimeout(() => { if (bardLibStato === 'da caricare' && (casa || CASA_PRIVATA)) caricaBard(); }, 2500);
 
 const bardDi = tipo => bardLib.filter(x => x.tipo === tipo);
 const voceBard = x => x ? {id: x.id, url: x.url, titolo: x.titolo} : null;
-async function caricaBard(){
-  if (!CASA_PRIVATA){ bardLibStato = 'Collega il telefono alla tua stanza (Impostazioni → Stanza e schermi) per usare Bard.'; if (scheda === 'bard') disegnaBard(); return; }
-  bardLibStato = 'carico'; if (scheda === 'bard') disegnaBard();
-  try {
+/* 13/11 · la libreria di Bard anche col link della stanza (prima solo con l'account: Maurizio vedeva «Collega il
+   telefono…» e Bard restava vuoto). Col link i file stanno accanto ai paesaggi, nel deposito pubblico. */
+async function bardElencoFile(){
+  if (CASA_PRIVATA){
     const file = (await Accesso.elenco(CASA_PRIVATA)).filter(f => bardDaNome(f.name));
     const firme = await Accesso.firma(CASA_PRIVATA, file.map(f => f.name), Object.fromEntries(file.map(f => [f.name, f.updated_at || ''])));
-    bardLib = file.map(f => Object.assign(bardDaNome(f.name), {url: firme[f.name]})).filter(x => x.url).sort((a, b) => a.titolo.localeCompare(b.titolo, 'it'));
+    return file.map(f => ({nome: f.name, url: firme[f.name]}));
+  }
+  const cart = 'finestre/' + await cartellaDi(casa);
+  const {data, error} = await clientDeposito().storage.from(DEPOSITO).list(cart, {limit: 1000, search: 'bard-'});
+  if (error) throw new Error(error.message);
+  return (data || []).filter(f => bardDaNome(f.name)).map(f => ({nome: f.name, url: urlPubblico(cart + '/' + f.name) + '?v=' + (Date.parse(f.updated_at || '') || 0).toString(36)}));
+}
+async function bardSalvaFile(nome, blob, mime){
+  if (CASA_PRIVATA) return Accesso.carica(CASA_PRIVATA, nome, blob, mime);
+  const {error} = await clientDeposito().storage.from(DEPOSITO).upload('finestre/' + await cartellaDi(casa) + '/' + nome, blob, {upsert: true, contentType: mime, cacheControl: '31536000'});
+  if (error) throw new Error('Caricamento non riuscito: ' + error.message);
+}
+async function bardTogliFile(nomi){
+  if (CASA_PRIVATA) return Accesso.togli(CASA_PRIVATA, nomi);
+  const cart = 'finestre/' + await cartellaDi(casa);
+  const {error} = await clientDeposito().storage.from(DEPOSITO).remove(nomi.map(n => cart + '/' + n));
+  if (error) throw new Error(error.message);
+}
+async function caricaBard(){
+  if (!CASA_PRIVATA && !casa){ bardLibStato = 'Collega il telefono alla tua stanza (Impostazioni → Stanza e schermi) per usare Bard.'; if (scheda === 'bard') disegnaBard(); return; }
+  bardLibStato = 'carico'; if (scheda === 'bard') disegnaBard();
+  try {
+    bardLib = (await bardElencoFile()).map(f => Object.assign(bardDaNome(f.nome), {url: f.url})).filter(x => x.url).sort((a, b) => a.titolo.localeCompare(b.titolo, 'it'));
     bardLibStato = 'ok';
     /* gli indirizzi firmati cambiano: lo stato si rifà con quelli nuovi */
     const per = new Map(bardLib.map(x => [x.tipo + ':' + x.id, x]));
     if (bardStato.sottofondo) bardStato.sottofondo = voceBard(per.get('sottofondo:' + bardStato.sottofondo.id));
     if (bardStato.musica) bardStato.musica.brani = bardDi('musica').map(voceBard);
     bardStato.registrazioni = Object.fromEntries(bardDi('tempo').map(x => [x.id, x.url]));
+    const vitaPrima = JSON.stringify(bardStato.suoniVita || {});
+    bardStato.suoniVita = Object.fromEntries(bardDi('vita').map(x => [x.id, x.url]));
     lettore.applica(bardStato);
+    /* suoni del paesaggio nuovi (appena preparati): anche il TV li deve avere */
+    if (JSON.stringify(bardStato.suoniVita) !== vitaPrima && !inSerata()) mandaBard({}, true);
   } catch(e) { bardLibStato = e.message; }
   if (scheda === 'bard') disegnaBard();
 }
@@ -1428,6 +1456,7 @@ function mandaBard(parte, piano = false){
   if (inSerata()){ avviso('Serata in corso: i suoni li comanda DMaster', true); return false; }
   Object.assign(bardStato, parte || {});
   bardStato.registrazioni = Object.fromEntries(bardDi('tempo').map(x => [x.id, x.url]));
+  if (bardLibStato === 'ok') bardStato.suoniVita = Object.fromEntries(bardDi('vita').map(x => [x.id, x.url]));
   bardStato.rev = Date.now();
   scrivi('bard-stato', bardStato);
   lettore.applica(bardStato); lettore.imposta({qui: suonoQui()});
@@ -1455,13 +1484,15 @@ function atmosferaDiAdesso(nome, conFinestre){
   return {id: Date.now().toString(36), nome: String(nome).trim().slice(0, 30),
     sottofondo: bardStato.sottofondo ? bardStato.sottofondo.id : null,
     musica: m.acceso ? {id: ora ? ora.id : (m.brani && m.brani[m.i || 0] ? m.brani[m.i || 0].id : null), casuale: !!m.casuale} : null,
-    tempo: !!(bardStato.tempo && bardStato.tempo.acceso),
+    tempo: !!(bardStato.tempo && bardStato.tempo.acceso), vita: vitaOn(),
     finestre: conFinestre ? {meteo: scena.meteo || 'sereno', ora: scena.ora || 'vera'} : null};
 }
 function applicaAtmosfera(a){
   const brani = bardDi('musica').map(voceBard), sott = a.sottofondo && bardDi('sottofondo').find(x => x.id === a.sottofondo);
   const i = a.musica ? Math.max(0, brani.findIndex(b => b.id === a.musica.id)) : 0;
+  /* 13/11: al chiuso (taverna, grotta, cripta…) i suoni del paesaggio tacciono; all'aperto si accendono */
   const ok = mandaBard({sottofondo: voceBard(sott) || null, tempo: Object.assign({volume: .6}, bardStato.tempo, {acceso: !!a.tempo}),
+    ...(a.vita == null ? {} : {vita: Object.assign({volume: .55}, bardStato.vita, {acceso: !!a.vita})}),
     musica: a.musica && brani.length ? {acceso: true, casuale: !!a.musica.casuale, i, brani} : Object.assign({}, bardStato.musica || {}, {acceso: false, brani})});
   if (!ok) return;
   if (a.finestre){ if (comandaDM()) avviso('Le finestre sono in mano a DMaster: cambio solo i suoni', true); else cambia({meteo: a.finestre.meteo, ora: a.finestre.ora, acceso: true}); }
@@ -1578,47 +1609,136 @@ function aggiornaConsole(s){
   }
 }
 
+/* ═══ 13/11 · BARD COME ILLUSIONIST (Maurizio: «Bard è primordiale, va sviluppato anche quello»; scelte: suoni del
+   paesaggio, libreria pronta con l'AI, Bard dipinto, atmosfere con un tocco).
+   Una schermata: in alto quello che si sente adesso (come il paesaggio in onda di Illusionist), tre tasti rapidi
+   (paesaggio · tempo · silenzio), poi atmosfere, sottofondi, musica ed effetti coi medaglioni dipinti; i volumi in un
+   gruppo che si apre. «Prepara i suoni» fa con l'AI (ElevenLabs) quello che manca, una volta sola. */
+const BARD_DOTAZIONE = {
+  sottofondo: [
+    {id:'d-taverna', nome:'Taverna', med:'boccale', prompt:'Busy medieval tavern ambience: murmuring voices, laughter, clinking tankards, crackling fireplace, no music'},
+    {id:'d-bosco', nome:'Bosco di giorno', med:'albero', prompt:'Deep forest ambience by day: leaves rustling, distant birds, a woodpecker far away, no music'},
+    {id:'d-bosco-notte', nome:'Bosco di notte', med:'civetta', prompt:'Dark forest at night: crickets, an owl far away, branches creaking softly, eerie calm, no music'},
+    {id:'d-castello', nome:'Sala del castello', med:'castello', prompt:'Great hall of a stone castle: crackling hearth, distant footsteps and voices echoing, no music'},
+    {id:'d-mercato', nome:'Mercato', med:'mercato', prompt:'Medieval market square: crowd chatter, merchants calling, chickens, cart wheels on cobblestones, no music'},
+    {id:'d-grotta', nome:'Grotta', med:'grotta', prompt:'Damp cave interior: water dripping, low rumble, distant echoes, wind moaning in tunnels, no music'},
+    {id:'d-porto', nome:'Porto', med:'onda', prompt:'Small medieval harbor: water lapping on wooden hulls, ropes creaking, seagulls, distant sailors, no music'},
+    {id:'d-accampamento', nome:'Accampamento', med:'fuoco', prompt:'Night camp in the wilderness: campfire crackling, horses snorting, soft wind, crickets, no music'},
+    {id:'d-cripta', nome:'Cripta', med:'candela', prompt:'Ancient crypt: deep silence, faint dripping water, distant stone grinding, low ominous drone, no music'},
+    {id:'d-abbazia', nome:'Abbazia', med:'campana', prompt:'Inside a medieval stone abbey: distant monks chanting softly, long reverb, a bell far away'},
+  ],
+  musica: [
+    {id:'d-allegra', nome:'Taverna allegra', prompt:'Lively medieval tavern folk tune, lute, fiddle and hand drum, cheerful dance rhythm, instrumental'},
+    {id:'d-viaggio', nome:'In viaggio', prompt:'Adventurous medieval fantasy travel music, lute, recorder and strings, steady walking tempo, hopeful, instrumental'},
+    {id:'d-mistero', nome:'Mistero', prompt:'Mysterious dark fantasy music, low strings, harp, subtle percussion, slow and tense, instrumental'},
+    {id:'d-battaglia', nome:'Battaglia', prompt:'Epic medieval battle music, war drums, horns and strings, fast and intense, instrumental'},
+    {id:'d-notte', nome:'Notte quieta', prompt:'Calm nocturnal medieval music, solo lute and soft wooden flute, gentle and slow, instrumental'},
+    {id:'d-festa', nome:'Festa al castello', prompt:'Festive medieval court music, recorders, lute, tambourine and bagpipe, joyful, instrumental'},
+    {id:'d-malinconia', nome:'Malinconia', prompt:'Melancholic medieval ballad, hurdy-gurdy and lute, slow and sad, instrumental'},
+    {id:'d-sacro', nome:'Sacro', prompt:'Sacred medieval music, slow organ drone, distant bells and soft strings, reverent and calm, instrumental'},
+  ],
+  effetto: [
+    {id:'d-porta', nome:'Porta', prompt:'Heavy wooden medieval door slamming shut with iron latch, short reverb'},
+    {id:'d-passi', nome:'Passi', prompt:'Slow heavy footsteps on a stone floor approaching, medieval boots'},
+    {id:'d-magia', nome:'Magia', prompt:'Magical spell casting, shimmering whoosh with a crystalline chime'},
+    {id:'d-fuoco', nome:'Fuoco', prompt:'Fire bursting into flames with a roaring whoosh and crackling'},
+    {id:'d-ringhio', nome:'Ringhio', prompt:'Deep menacing beast growl in the dark, close and threatening'},
+    {id:'d-scrigno', nome:'Scrigno', prompt:'Old wooden treasure chest unlocking and creaking open, coins shifting'},
+    {id:'d-spade', nome:'Spade', prompt:'Two steel swords clashing twice, sharp metallic ring'},
+    {id:'d-frecce', nome:'Frecce', prompt:'A volley of arrows whistling through the air and thudding into wood'},
+    {id:'d-scudo', nome:'Scudo', prompt:'A heavy blow striking a wooden and iron shield, loud thud'},
+    {id:'d-grido', nome:'Grido', prompt:'A group of warriors shouting a battle cry, medieval, outdoors'},
+    {id:'d-meccanismo', nome:'Meccanismo', prompt:'Ancient stone and bronze mechanism grinding and clicking into place'},
+    {id:'d-pietra', nome:'Pietra', prompt:'A heavy stone block sliding slowly across a stone floor'},
+    {id:'d-clic', nome:'Clic', prompt:'A metal key turning in an old lock, a single clean click'},
+    {id:'d-giusto', nome:'Giusto', prompt:'Short magical success chime, warm and bright, fantasy'},
+    {id:'d-sbagliato', nome:'Sbagliato', prompt:'Short low dull failure tone, a stone thud with a faint echo'},
+  ],
+};
+/* prezzi dell'API di ElevenLabs (novembre 2026): un suono ≈ 0,12 $, la musica ≈ 0,30 $ al minuto */
+const BARD_PREZZO = {suono: .12, minutoMusica: .30}, BARD_MIN_DOTAZIONE = 2;
+const BARD_GRUPPI = [['vita', 'albero', 'Suoni del paesaggio', 'uccelli, grilli, fiume, campane… seguono quello che si vede'],
+  ['sottofondo', 'onda', 'Sottofondi', 'taverna, bosco, castello, mercato, grotta…'], ['musica', 'liuto', 'Musiche', 'otto brani medievali strumentali, 2 minuti l\'uno'],
+  ['effetto', 'fulmine', 'Effetti', 'porta, passi, spade, magia, scrigno…']];
+const dotazioneDi = g => g === 'vita' ? BARD_VITA : BARD_DOTAZIONE[g];
+const mancaDi = g => dotazioneDi(g).filter(x => !bardLib.some(y => y.tipo === g && y.id === x.id));
+const prezzoDi = (g, n) => n * (g === 'musica' ? BARD_PREZZO.minutoMusica * BARD_MIN_DOTAZIONE : BARD_PREZZO.suono);
+/* le atmosfere pronte: si accendono con un tocco quando i loro suoni ci sono */
+const ATMOSFERE_PRONTE = [
+  {id:'p-taverna', nome:'Taverna di sera', med:'boccale', sottofondo:'d-taverna', musica:{id:'d-allegra'}, vita:false, tempo:true, finestre:{ora:'notte', meteo:'sereno'}},
+  {id:'p-viaggio', nome:'In viaggio', med:'paesaggio', sottofondo:null, musica:{id:'d-viaggio'}, vita:true, tempo:true, finestre:{ora:'giorno', meteo:'sereno'}},
+  {id:'p-bosco', nome:'Bosco di notte', med:'albero', sottofondo:'d-bosco-notte', musica:{id:'d-notte'}, vita:true, tempo:true, finestre:{ora:'notte', meteo:'nebbia'}},
+  {id:'p-mercato', nome:'Mercato in città', med:'mercato', sottofondo:'d-mercato', musica:{id:'d-festa'}, vita:false, tempo:true, finestre:{ora:'giorno', meteo:'sereno'}},
+  {id:'p-tempesta', nome:'Tempesta', med:'temporale', sottofondo:null, musica:{id:'d-mistero'}, vita:true, tempo:true, finestre:{ora:'notte', meteo:'temporale'}},
+  {id:'p-grotta', nome:'Nella grotta', med:'grotta', sottofondo:'d-grotta', musica:{id:'d-mistero'}, vita:false, tempo:false, finestre:null},
+  {id:'p-abbazia', nome:'Abbazia all\'alba', med:'campana', sottofondo:'d-abbazia', musica:{id:'d-sacro'}, vita:false, tempo:true, finestre:{ora:'alba', meteo:'nebbia'}},
+  {id:'p-castello', nome:'Festa al castello', med:'castello', sottofondo:'d-castello', musica:{id:'d-festa'}, vita:false, tempo:true, finestre:{ora:'tramonto', meteo:'sereno'}},
+  {id:'p-battaglia', nome:'Battaglia', med:'spade', sottofondo:null, musica:{id:'d-battaglia'}, vita:true, tempo:true, finestre:null},
+  {id:'p-cripta', nome:'Cripta', med:'candela', sottofondo:'d-cripta', musica:{id:'d-mistero'}, vita:false, tempo:false, finestre:null},
+];
+const prontaOk = a => (!a.sottofondo || bardLib.some(x => x.tipo === 'sottofondo' && x.id === a.sottofondo)) && (!a.musica || bardLib.some(x => x.tipo === 'musica' && x.id === a.musica.id));
+const medDi = x => { const d = [...BARD_DOTAZIONE.sottofondo, ...BARD_DOTAZIONE.effetto].find(y => y.id === x.id); return (d && d.med) || medaglioneDaNome(x.titolo, x.tipo === 'sottofondo' ? 'sottofondo' : x.tipo === 'musica' ? 'liuto' : 'effetto'); };
+const vitaOn = () => !!(bardStato.vita ? bardStato.vita.acceso : true);
+/* che cosa si sente adesso del paesaggio: quelli che ci sono in libreria */
+function vitaInOnda(){
+  const ora = !scena.ora || scena.ora === 'vera' ? oraVera() : scena.ora;
+  const su = bardVitaAdesso(scena, ora), lib = new Set(bardDi('vita').map(x => x.id));
+  return BARD_VITA.filter(v => su[v.id] && lib.has(v.id)).map(v => v.nome);
+}
+function nomePaesaggioInOnda(){ const p = libreria.find(x => x.id === scena.paesaggio); return p ? p.nome : ''; }
 function disegnaBard(){
   const s = $('#s-bard');
   if (inSerata()){ if (!consoleStato || Date.now() - consoleIl > 15000) chiediConsole(); disegnaConsole(s); return; }
   s.dataset.console = '';
   if (bardLibStato === 'da caricare') caricaBard();
   const sott = bardDi('sottofondo'), mus = bardDi('musica'), eff = bardDi('effetto'), nTempo = bardDi('tempo').length;
-  const t = bardStato.tempo || {acceso: true, volume: .6}, m = bardStato.musica || {};
+  const t = bardStato.tempo || {acceso: true, volume: .6}, m = bardStato.musica || {}, vi = Object.assign({acceso: true, volume: .55}, bardStato.vita || {});
   const pronto = bardLibStato === 'ok';
-  s.innerHTML = testa('liuto', 'Bard', 'Musiche e suoni della stanza') + `<div class="problema" hidden></div>
+  const mancano = pronto ? BARD_GRUPPI.reduce((n, [g]) => n + mancaDi(g).length, 0) : 0;
+  const mie = bardStato.atmosfere || [];
+  const pronte = ATMOSFERE_PRONTE.filter(a => !mie.some(x => x.id === a.id));
+  s.innerHTML = testa('liuto', 'Bard', 'Quello che si sente adesso') + `<div class="problema" hidden></div>
     <div class="in-mano-avviso" id="bardSerata" hidden><b>Serata in corso</b> I suoni della stanza li fa DMaster dal portatile. Quando chiudi la serata Bard torna qui da solo.</div>
-    <div class="dove-suona">${icona('altoparlante', 18)}<span id="bardDove"></span><button class="btn piccolo" data-fai="vaiImpBard">Cambia</button></div>
+    <div class="bard-onda">
+      <div class="bard-onda-testa"><span class="tondo">${medaglione('liuto', 44)}</span><div><b>${esc(nomePaesaggioInOnda() || 'La stanza')}</b><small id="bardDove"></small></div><button class="btn piccolo" data-fai="vaiImpBard" aria-label="Dove suona">${icona('altoparlante', 16)}</button></div>
+      <ul class="bard-righe" id="bardRighe"></ul>
+    </div>
     ${!pronto ? `<p class="vuoto">${bardLibStato === 'carico' ? 'Carico i suoni della stanza…' : esc(bardLibStato)}</p>` : ''}
-    ${pronto ? `<div class="sezione">${titolo('stella', 'Atmosfere', (bardStato.atmosfere || []).length ? 'un tocco per tutto' : '')}
-      <div class="suoni">${(bardStato.atmosfere || []).map(a => `<button class="suono atmosfera con-med" data-fai="atmApplica" data-v="${esc(a.id)}">${medaglione(medAtmosfera(a), 28)}${esc(a.nome)}</button>`).join('')}
-        <button class="suono" data-fai="atmNuova" style="border-style:dashed;color:var(--tenue)">+ salva quella di adesso</button></div></div>` : ''}
-    <div class="sezione">${titolo('pioggia', 'Tempo')}
-      <div class="pannello" style="padding:2px 14px">${interruttoreMed('bardTempo', scena.meteo && scena.meteo !== 'sereno' ? MED_METEO[scena.meteo] || 'pioggia' : 'giorno', 'Suoni del tempo', nTempo ? 'Seguono le finestre: pioggia, vento, neve, tuoni coi lampi' : 'Seguono le finestre. Le registrazioni non sono ancora nella stanza (si copiano da DMaster): per ora un suono più semplice', t.acceso)}
-        ${cursore('volTempo', 'altoparlante', 'Volume', 0, 100, Math.round(t.volume * 100), Math.round(t.volume * 100) + '%')}</div></div>
-    ${pronto ? `<div class="sezione">${titolo('onda', 'Sottofondo', sott.length ? 'tocca per accendere o spegnere' : '')}
-      ${sott.length ? `<div class="suoni">${sott.map(x => `<button class="suono con-med" data-fai="bardSott" data-v="${esc(x.id)}" aria-pressed="${!!(bardStato.sottofondo && bardStato.sottofondo.id === x.id)}">${medaglione(medaglioneDaNome(x.titolo, 'sottofondo'), 28)}${esc(x.titolo)}</button>`).join('')}</div>
-        <div class="pannello" style="margin-top:10px">${cursore('volSott', 'altoparlante', 'Volume', 0, 100, Math.round(bardStato.volSottofondo * 100), Math.round(bardStato.volSottofondo * 100) + '%')}</div>`
-        : pronto ? '<p class="nota" style="margin-top:0">Ancora nessun sottofondo: «+ Aggiungi un suono» qui sotto.</p>' : ''}</div>
-    <div class="sezione">${titolo('nota', 'Musica')}
-      ${mus.length ? `<div class="comandi-musica">
+    <div class="rapide in-riga">
+      <button class="btn${vi.acceso ? ' oro' : ''}" data-fai="bardVita" id="btnVita">${icona('albero', 20)}<span>Paesaggio</span></button>
+      <button class="btn${t.acceso ? ' oro' : ''}" data-fai="bardTempo" id="btnTempoB">${icona('nuvola', 20)}<span>Tempo</span></button>
+      <button class="btn" data-fai="bardSilenzio">${icona('chiudi', 20)}<span>Silenzio</span></button>
+    </div>
+    ${pronto && mancano ? `<button class="bard-prepara" data-fai="bardPrepara">${medaglione('pennello', 40)}<span><b>Prepara i suoni con l'AI</b><small>${mancano} suoni da fare una volta sola: paesaggio, sottofondi, musiche, effetti</small></span>${icona('freccia', 18)}</button>` : ''}
+    ${pronto ? `<div class="sezione">${titolo('stella', 'Atmosfere', 'un tocco: suoni e finestre insieme')}
+      <div class="pads c5">${[...mie.map(a => pad('atmApplica', a.id, a.med || medAtmosfera(a), a.nome, false, 40)),
+        ...pronte.map(a => prontaOk(a) ? pad('atmPronta', a.id, a.med, a.nome, false, 40) : `<button class="pad spento" data-fai="bardPrepara" title="${esc(a.nome)}: prepara prima i suoni"><span class="tondo">${medaglione(a.med, 40)}</span><span>${esc(a.nome)}</span></button>`),
+        pad('atmNuova', 'nuova', 'aggiungi', 'Salva questa', false, 40)].join('')}</div></div>` : ''}
+    ${pronto && sott.length ? `<div class="sezione">${titolo('onda', 'Sottofondi', 'tocca per accendere o spegnere')}
+      <div class="pads c5">${sott.map(x => pad('bardSott', x.id, medDi(x), x.titolo, !!(bardStato.sottofondo && bardStato.sottofondo.id === x.id), 40)).join('')}</div></div>` : ''}
+    ${pronto && mus.length ? `<div class="sezione">${titolo('nota', 'Musica')}
+      <div class="comandi-musica">
           <button class="btn ${m.acceso ? 'oro' : ''}" data-fai="bardPlay" id="bardPlay">${icona(m.acceso ? 'pausa' : 'play', 18)}${m.acceso ? 'Ferma' : 'Suona'}</button>
           <button class="btn" data-fai="bardAvanti">${icona('avanti', 18)}Avanti</button>
           <button class="pillola" data-fai="bardCaso" aria-pressed="${!!m.casuale}">${icona('caso', 16)}A caso</button></div>
-        <div class="brani">${mus.map((x, i) => `<button class="brano" data-fai="bardBrano" data-v="${i}" data-id="${esc(x.id)}">${icona('nota', 16)}<span>${esc(x.titolo)}</span></button>`).join('')}</div>
-        <div class="pannello" style="margin-top:10px">${cursore('volMusica', 'altoparlante', 'Volume', 0, 100, Math.round(bardStato.volMusica * 100), Math.round(bardStato.volMusica * 100) + '%')}</div>`
-        : pronto ? '<p class="nota" style="margin-top:0">Ancora nessuna musica: «+ Aggiungi un suono» qui sotto.</p>' : ''}</div>
-    <div class="sezione">${titolo('fulmine', 'Effetti', eff.length ? 'tocca per suonare' : '')}
-      ${eff.length ? `<div class="pads c5">${eff.map(x => pad('bardEffetto', x.id, medaglioneDaNome(x.titolo), x.titolo, false, 46)).join('')}</div>
-        <div class="pannello" style="margin-top:10px">${cursore('volEff', 'altoparlante', 'Volume', 0, 100, Math.round(bardStato.volEffetti * 100), Math.round(bardStato.volEffetti * 100) + '%')}</div>`
-        : '<p class="nota" style="margin-top:0">Ancora nessun effetto: «+ Aggiungi un suono» qui sotto.</p>'}</div>` : ''}
-    ${CASA_PRIVATA ? `<button class="btn oro piena" style="margin-top:18px" data-fai="bardAggiungi">${icona('piu', 18)}Aggiungi un suono</button>
-    ${gruppo('bard-gestisci', 'manopole', 'Gestisci i suoni', bardLib.length + ' nella stanza', `
-      ${(bardStato.atmosfere || []).length ? `<ul class="membri">${bardStato.atmosfere.map(a => `<li><span><b>${esc(a.nome)}</b><small>atmosfera${a.finestre ? ' · con le finestre' : ''}</small></span><button class="btn piccolo pericolo" data-fai="atmTogli" data-v="${esc(a.id)}">Togli</button></li>`).join('')}</ul>` : ''}
-      <ul class="membri">${bardLib.map(x => `<li><span><b>${esc(x.titolo)}</b><small>${{tempo: 'tempo', sottofondo: 'sottofondo', musica: 'musica', effetto: 'effetto'}[x.tipo]}</small></span><button class="btn piccolo pericolo" data-fai="bardTogli" data-v="${esc(x.file)}">Togli</button></li>`).join('') || '<li><span class="nota">Nessun suono.</span></li>'}</ul>
-      <p class="nota">I suoni di DMaster arrivano con «Copia i suoni nella stanza» nella pagina Atmosfera di DMaster.</p>
-      <button class="btn piena" data-fai="bardRicarica">${icona('ricarica', 18)}Rileggi la libreria</button>`)}` : ''}`;
+        <div class="brani">${mus.map((x, i) => `<button class="brano" data-fai="bardBrano" data-v="${i}" data-id="${esc(x.id)}">${icona('nota', 16)}<span>${esc(x.titolo)}</span></button>`).join('')}</div></div>` : ''}
+    ${pronto && eff.length ? `<div class="sezione">${titolo('fulmine', 'Effetti', 'tocca per suonare')}
+      <div class="pads c5">${eff.map(x => pad('bardEffetto', x.id, medDi(x), x.titolo, false, 40)).join('')}</div></div>` : ''}
+    <div class="sezione">${gruppo('bard-volumi', 'manopole', 'Volumi', '', `
+      ${cursore('volVita', 'albero', 'Paesaggio', 0, 100, Math.round(vi.volume * 100), Math.round(vi.volume * 100) + '%')}
+      ${cursore('volTempo', 'nuvola', 'Tempo', 0, 100, Math.round(t.volume * 100), Math.round(t.volume * 100) + '%')}
+      ${cursore('volSott', 'onda', 'Sottofondo', 0, 100, Math.round(bardStato.volSottofondo * 100), Math.round(bardStato.volSottofondo * 100) + '%')}
+      ${cursore('volMusica', 'nota', 'Musica', 0, 100, Math.round(bardStato.volMusica * 100), Math.round(bardStato.volMusica * 100) + '%')}
+      ${cursore('volEff', 'fulmine', 'Effetti', 0, 100, Math.round(bardStato.volEffetti * 100), Math.round(bardStato.volEffetti * 100) + '%')}
+      ${nTempo ? '' : '<p class="nota">Il tempo per ora è un suono semplice fatto dal telefono: le registrazioni vere si copiano da DMaster.</p>'}`)}
+    ${pronto ? gruppo('bard-gestisci', 'piu', 'Aggiungi o togli', bardLib.length + ' suoni nella stanza', `
+      <button class="btn oro piena" data-fai="bardAggiungi">${icona('piu', 18)}Aggiungi un suono</button>
+      ${mancano ? '' : `<button class="btn piena" style="margin-top:8px" data-fai="bardPrepara">${icona('scintilla', 18)}Rifai i suoni pronti</button>`}
+      ${mie.length ? `<ul class="membri">${mie.map(a => `<li><span><b>${esc(a.nome)}</b><small>atmosfera${a.finestre ? ' · con le finestre' : ''}</small></span><button class="btn piccolo pericolo" data-fai="atmTogli" data-v="${esc(a.id)}">Togli</button></li>`).join('')}</ul>` : ''}
+      <ul class="membri">${bardLib.map(x => `<li><span><b>${esc(x.titolo)}</b><small>${{tempo: 'tempo', sottofondo: 'sottofondo', musica: 'musica', effetto: 'effetto', vita: 'paesaggio'}[x.tipo]}</small></span><button class="btn piccolo pericolo" data-fai="bardTogli" data-v="${esc(x.file)}">Togli</button></li>`).join('') || '<li><span class="nota">Nessun suono.</span></li>'}</ul>
+      <button class="btn piena" data-fai="bardRicarica">${icona('ricarica', 18)}Rileggi la libreria</button>`) : ''}</div>`;
   const lega = (id, fn) => legaCursore(id, (v, o) => { o.textContent = v + '%'; fn(v / 100); });
+  lega('volVita', v => mandaBard({vita: Object.assign({acceso: true}, bardStato.vita, {volume: v})}, true));
   lega('volTempo', v => mandaBard({tempo: Object.assign({}, bardStato.tempo, {volume: v})}, true));
   lega('volSott', v => mandaBard({volSottofondo: v}, true));
   lega('volMusica', v => mandaBard({volMusica: v}, true));
@@ -1636,6 +1756,76 @@ function aggiornaBard(){
     : 'Suona dal <b>TV della stanza</b>' + (bardTvSuona === false ? ' · il TV non risponde' : '');
   const m = bardStato.musica || {}, ora = bardOra && m.acceso ? bardOra.id : null;
   s.querySelectorAll('.brano').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.id === ora)));
+  /* quello che si sente adesso */
+  const r = $('#bardRighe');
+  if (r){
+    const t = bardStato.tempo || {}, met = scena.meteo || 'sereno', brano = ora && bardDi('musica').find(x => x.id === ora);
+    const vita = vitaOn() ? vitaInOnda() : [];
+    const righe = [
+      ['albero', 'Paesaggio', !vitaOn() ? 'spento' : vita.length ? vita.join(' · ') : bardDi('vita').length ? 'niente adesso, a quest\'ora e con questo tempo' : 'da preparare', vitaOn() && vita.length],
+      [MED_METEO[met] || 'giorno', 'Tempo', !t.acceso ? 'spento' : met === 'sereno' ? (scena.vento > .3 ? 'vento' : 'quiete') : ((METEO.find(x => x[0] === met) || [,,met])[2]).toLowerCase(), t.acceso && met !== 'sereno'],
+      ['onda', 'Sottofondo', bardStato.sottofondo ? bardStato.sottofondo.titolo : 'nessuno', !!bardStato.sottofondo],
+      ['liuto', 'Musica', m.acceso ? (brano ? brano.titolo : 'in arrivo…') : 'ferma', !!m.acceso]];
+    const html = righe.map(([med, k, v, su]) => `<li class="${su ? 'su' : ''}"><span class="tondo">${medaglione(med, 26)}</span><b>${k}</b><span>${esc(v)}</span></li>`).join('');
+    if (r.dataset.html !== html){ r.dataset.html = html; r.innerHTML = html; }
+  }
+  const bv = $('#btnVita'); if (bv) bv.classList.toggle('oro', vitaOn());
+  const bt = $('#btnTempoB'); if (bt) bt.classList.toggle('oro', !!(bardStato.tempo && bardStato.tempo.acceso));
+}
+/* «Prepara i suoni con l'AI»: i gruppi da fare, con il costo, e Avvia */
+let bardScelti = null;
+function apriPrepara(){
+  if (!bardScelti) bardScelti = new Set(BARD_GRUPPI.map(g => g[0]).filter(g => mancaDi(g).length));
+  const righe = BARD_GRUPPI.map(([g, med, nome, sotto]) => { const n = mancaDi(g).length, tutti = dotazioneDi(g).length;
+    return {g, med, nome, sotto, n: n || tutti, rifai: !n}; });
+  const tot = righe.filter(x => bardScelti.has(x.g)).reduce((a, x) => a + prezzoDi(x.g, x.n), 0);
+  apriFoglio(`<h3 class="foglio-titolo">Prepara i suoni</h3>
+    <p class="nota" style="margin-top:0">Li genera l'AI una volta sola con la tua chiave ElevenLabs e restano nella stanza: li sentono il TV, i telefoni e DMaster.</p>
+    <div class="pannello" style="padding:2px 14px">${righe.map(x => `<div class="interruttore" role="switch" tabindex="0" data-fai="bardSceglie" data-v="${x.g}" aria-checked="${bardScelti.has(x.g)}"><span class="tondo" style="display:block;border-radius:999px;line-height:0">${medaglione(x.med, 40)}</span><span><b>${esc(x.nome)} · ${x.n}${x.rifai ? ' (li rifaccio)' : ''}</b><small>${esc(x.sotto)} · ≈ ${euro(prezzoDi(x.g, x.n))}</small></span><i class="levetta"></i></div>`).join('')}</div>
+    ${imp.chiavi.elevenlabs ? `<button class="btn oro piena" style="margin-top:14px" data-fai="bardPreparaVia"${tot ? '' : ' disabled'}>${icona('scintilla', 18)}Avvia · ≈ ${euro(tot)}</button>`
+      : `<div class="problema fisso" style="margin-top:14px">${icona('chiave', 20)}<div><b>Manca la chiave ElevenLabs</b><span>Mettila in Impostazioni → AI e chiavi, poi torna qui.</span></div></div>`}
+    <p class="nota">Prezzi dell'API di ElevenLabs: con un abbonamento si scalano i crediti del piano. Una musica richiede circa un minuto, un suono pochi secondi: tieni l'app aperta finché non ho finito.</p>
+    <div id="lavoroFoglio"></div>`);
+  foglioAperto = 'bard-prepara';
+}
+async function preparaVia(){
+  const gruppi = BARD_GRUPPI.map(g => g[0]).filter(g => bardScelti && bardScelti.has(g));
+  const lista = gruppi.flatMap(g => { const m = mancaDi(g); return (m.length ? m : dotazioneDi(g)).map(x => ({g, x})); });
+  if (!lista.length) return;
+  const b = document.querySelector('[data-fai="bardPreparaVia"]'); if (b) b.hidden = true;
+  const t = setInterval(() => rapportoLavoro(), 20000);
+  try {
+    await conLavoro('bardPrepara', async L => {
+      let fatti = 0, fermo = null;
+      const uno = async ({g, x}) => {
+        if (fermo) return;
+        const k = g + ':' + x.id, nome = x.nome;
+        passo(k, 'ora', nome + '…');
+        try {
+          const v = g === 'vita' ? x : null;
+          const blob = await generaSuono(g === 'vita' ? (v.modo === 'letto' ? 'sottofondo' : 'effetto') : g, x.prompt, g === 'musica' ? {minuti: BARD_MIN_DOTAZIONE} : {});
+          await bardSalvaFile(bardNomeFile(g, x.id, nome, 'mp3'), blob, 'audio/mpeg');
+          risolto('ElevenLabs'); fatti++; L.av = fatti / lista.length * 100;
+          passo(k, 'fatto', nome);
+        } catch(e) {
+          passo(k, 'errore', nome + ': ' + e.message);
+          if (e.tipo === 'credito' || e.tipo === 'chiave'){ fermo = e; segnala(e); }
+        }
+      };
+      /* i suoni due alla volta (ElevenLabs ne accetta pochi insieme), le musiche una alla volta */
+      const suoni = lista.filter(y => y.g !== 'musica'), musiche = lista.filter(y => y.g === 'musica');
+      for (let i = 0; i < suoni.length; i += 2) await Promise.all(suoni.slice(i, i + 2).map(uno));
+      for (const y of musiche) await uno(y);
+      passo('fine', 'ora', 'Rileggo la libreria…');
+      await caricaBard(); mandaBard({}, false);
+      passo('fine', fermo ? 'errore' : 'fatto', fermo ? `Fatti ${fatti} su ${lista.length}: ${fermo.message}` : `Fatti ${fatti} su ${lista.length}: sono nella stanza`);
+      if (fermo) throw fermo;
+    });
+  } finally { clearInterval(t); rapportoLavoro(); bardScelti = null; if (scheda === 'bard') disegnaBard(); }
+}
+function applicaPronta(a){
+  const mio = Object.assign({}, a);
+  applicaAtmosfera(mio);
 }
 
 /* ── generare con l'AI (ElevenLabs, con la chiave messa nelle Impostazioni) ── */
@@ -1654,10 +1844,10 @@ async function inInglese(testo, tipo){
     const j = await r.json(); return (j.choices && j.choices[0] && j.choices[0].message.content || testo).trim();
   } catch(e) { return testo; }
 }
-async function generaSuono(tipo, prompt){
+async function generaSuono(tipo, prompt, o = {}){
   const chiave = imp.chiavi.elevenlabs, h = {'xi-api-key': chiave, 'Content-Type': 'application/json', 'Accept': 'audio/mpeg'};
   const r = tipo === 'musica'
-    ? await fetch('https://api.elevenlabs.io/v1/music/stream', {method: 'POST', headers: h, body: JSON.stringify({prompt, duration_ms: bardMinuti * 60000, force_instrumental: true})})
+    ? await fetch('https://api.elevenlabs.io/v1/music/stream', {method: 'POST', headers: h, body: JSON.stringify({prompt, duration_ms: (o.minuti || bardMinuti) * 60000, force_instrumental: true})})
     : await fetch('https://api.elevenlabs.io/v1/sound-generation?output_format=mp3_44100_128', {method: 'POST', headers: h,
         body: JSON.stringify(Object.assign({text: prompt, prompt_influence: .5, model_id: 'eleven_text_to_sound_v2'}, tipo === 'sottofondo' ? {loop: true, duration_seconds: 22} : {}))});
   if (!r.ok) throw erroreAI('ElevenLabs', r.status, await r.text().catch(() => ''));
@@ -1685,7 +1875,7 @@ function apriBardAggiungi(){
 }
 async function salvaNellaStanza(tipo, titolo, blob, est){
   const nome = bardNomeFile(tipo, Date.now().toString(36), titolo, est);
-  await Accesso.carica(CASA_PRIVATA, nome, blob, BARD_MIME[est] || blob.type || 'audio/mpeg');
+  await bardSalvaFile(nome, blob, BARD_MIME[est] || blob.type || 'audio/mpeg');
   await caricaBard();
   return bardLib.find(x => x.file === nome);
 }
@@ -1809,7 +1999,7 @@ function disegnaImpostazioni(){
 const BLOCCATE_DA_DM = new Set(['ora', 'meteo', 'fps', 'accendi', 'lampo', 'vento', 'movimento', 'prospettiva', 'prospettivaViva', 'mostra', 'nFinestre', 'bordi', 'ricaricaFinestre']);
 const AZIONI = {
   chiudiProblema: () => risolto(),
-  bardTempo: () => { const t = Object.assign({acceso: true, volume: .6}, bardStato.tempo); if (mandaBard({tempo: Object.assign(t, {acceso: !t.acceso})})) disegnaBard(); },
+  bardTempo: () => { const t = Object.assign({acceso: true, volume: .6}, bardStato.tempo); if (mandaBard({tempo: Object.assign(t, {acceso: !t.acceso})})){ aggiornaBard(); avviso(t.acceso ? 'Suoni del tempo accesi' : 'Suoni del tempo spenti'); } },
   bardSott: v => { const x = bardDi('sottofondo').find(y => y.id === v); if (mandaBard({sottofondo: bardStato.sottofondo && bardStato.sottofondo.id === v ? null : voceBard(x)})) disegnaBard(); },
   bardPlay: () => { const m = Object.assign({i: 0, casuale: false}, bardStato.musica || {}); m.acceso = !m.acceso; m.brani = bardDi('musica').map(voceBard); if (mandaBard({musica: m})) disegnaBard(); },
   bardBrano: v => { const m = Object.assign({casuale: false}, bardStato.musica || {}, {acceso: true, i: +v, brani: bardDi('musica').map(voceBard)}); if (mandaBard({musica: m})){ bardOra = {i: +v, id: m.brani[+v].id}; disegnaBard(); } },
@@ -1836,6 +2026,13 @@ const AZIONI = {
   conModo: v => { nemicoModo = v; const id = foglioAperto && foglioAperto.nemico; if (id) apriNemico(id); },
   conATerra: v => { comando({azione: 'aTerra', id: foglioAperto && foglioAperto.nemico, giu: v === '1'}); chiudiFoglio(); },
   atmApplica: v => { const a = (bardStato.atmosfere || []).find(x => x.id === v); if (a) applicaAtmosfera(a); },
+  atmPronta: v => { const a = ATMOSFERE_PRONTE.find(x => x.id === v); if (a) applicaAtmosfera(a); },
+  bardVita: () => { const v = Object.assign({acceso: true, volume: .55}, bardStato.vita); v.acceso = !v.acceso; if (mandaBard({vita: v})){ aggiornaBard(); avviso(v.acceso ? 'Suoni del paesaggio accesi' : 'Suoni del paesaggio spenti'); } },
+  bardSilenzio: () => { const m = Object.assign({}, bardStato.musica || {}, {acceso: false});
+    if (mandaBard({sottofondo: null, musica: m, tempo: Object.assign({volume: .6}, bardStato.tempo, {acceso: false}), vita: Object.assign({volume: .55}, bardStato.vita, {acceso: false})})){ disegnaBard(); avviso('Silenzio: riaccendi quello che vuoi'); } },
+  bardPrepara: () => { bardScelti = null; apriPrepara(); },
+  bardSceglie: v => { if (!bardScelti) bardScelti = new Set(); bardScelti.has(v) ? bardScelti.delete(v) : bardScelti.add(v); apriPrepara(); },
+  bardPreparaVia: () => preparaVia(),
   atmNuova: () => apriSalvaAtmosfera(),
   atmFin: (v, b) => b.setAttribute('aria-checked', String(b.getAttribute('aria-checked') !== 'true')),
   atmSalva: () => { const nome = ($('#atmNome') || {}).value || ''; if (!nome.trim()){ avviso('Dagli un nome.', true); return; }
@@ -1849,7 +2046,7 @@ const AZIONI = {
   bardGenera: () => generaBard(),
   bardFileScegli: () => { const i = $('#bardFile'); i && i.click(); },
   bardTogli: async (v, b) => { if (b.dataset.conferma !== '1'){ b.dataset.conferma = '1'; b.textContent = 'Sicuro?'; return; }
-    try { await Accesso.togli(CASA_PRIVATA, [v]); await caricaBard(); avviso('Tolto dalla stanza'); } catch(e) { avviso(e.message, true); } },
+    try { await bardTogliFile([v]); await caricaBard(); avviso('Tolto dalla stanza'); } catch(e) { avviso(e.message, true); } },
   bardRicarica: () => caricaBard(),
   bardDove: v => { mandaBard({dove: v}); if (v === ID_TELEFONO) lettore.sblocca(); disegnaImpostazioni(); },
   ingresso: () => vai(scheda === 'crea' ? 'paesaggi' : scheda === 'paesaggi' ? 'finestre' : ultimaPrincipale), apriScheda: v => vai(v),
@@ -1870,7 +2067,7 @@ const AZIONI = {
     const d = {tipo: v, seme: Math.floor(Math.random() * 1e9)};
     if (canale.manda('effetto', d)) avviso(v === 'nebbia' ? 'La nebbia sale dalle valli: in mezzo minuto arriva sotto l\'abbazia, resta un minuto e poi se ne va' : (EFFETTI.find(e => e[0] === v) || [, , 'Effetto'])[2]);   /* 9/11: «non ho capito come funziona» */
     postaAnteprima({tipo: 'effetto', effetto: d});
-    if (suonoQui()){ if (v === 'tuono') lettore.tuono(6, .4); if (v === 'raffica' && lettore.raffica) lettore.raffica(); }
+    if (suonoQui()){ if (v === 'tuono') lettore.tuono(6, .4); if (v === 'raffica' && lettore.raffica) lettore.raffica(); if (v === 'stormo') lettore.colpoVita('stormo'); }
   },
   lampo: () => { if (canale.manda('lampo')) avviso('Lampo!'); postaAnteprima({tipo:'lampo'}); if (suonoQui()) lettore.tuono(); },
   vaiPaesaggi: () => vai('paesaggi'), vaiCrea: () => { chiudiFoglio(); vai('crea'); }, vaiImp: () => vai('impostazioni'),

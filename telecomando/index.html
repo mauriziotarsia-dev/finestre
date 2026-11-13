@@ -296,6 +296,29 @@ details.gruppo .campo > span{margin-top:6px}
 .tv-mini span{position:absolute;left:4px;bottom:4px;display:flex;gap:4px;align-items:center;padding:2px 6px;border-radius:99px;background:rgba(6,8,12,.8);font:500 9px var(--display);letter-spacing:.1em;color:var(--crema)}
 .tv-mini[aria-pressed="true"]{border-color:var(--oro)}
 /* 4.1 · Bard */
+/* 13/11 · Bard come Illusionist: quello che si sente adesso, in alto */
+.bard-onda{border:1px solid var(--filo-forte);border-radius:14px;background:radial-gradient(120% 90% at 20% 0%,rgba(212,175,55,.1),transparent 60%),var(--pannello);padding:12px 12px 6px;margin:0 0 10px;box-shadow:0 14px 34px rgba(0,0,0,.45)}
+.bard-onda-testa{display:flex;align-items:center;gap:12px;padding-bottom:8px;border-bottom:1px solid var(--filo)}
+.bard-onda-testa .tondo{flex:none;border-radius:999px;line-height:0;box-shadow:0 0 12px rgba(240,203,91,.35)}
+.bard-onda-testa div{flex:1;min-width:0}
+.bard-onda-testa b{display:block;font:500 17px/1.15 var(--display);letter-spacing:.12em;text-transform:uppercase;color:var(--testo);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bard-onda-testa small{display:block;margin-top:3px;font:italic 500 15px/1.25 var(--libro);color:var(--crema)} .bard-onda-testa small b{display:inline;font:inherit;letter-spacing:0;text-transform:none;color:var(--oro-luce)}
+.bard-righe{list-style:none;margin:6px 0 0;padding:0}
+.bard-righe li{display:flex;align-items:center;gap:10px;padding:5px 0;font-size:14px;color:var(--spento)}
+.bard-righe li .tondo{flex:none;line-height:0;border-radius:999px;opacity:.45;filter:saturate(.4)}
+.bard-righe li b{flex:none;width:86px;font:500 10.5px var(--display);letter-spacing:.16em;text-transform:uppercase}
+.bard-righe li span:last-child{flex:1;min-width:0;font:italic 500 16px/1.25 var(--libro)}
+.bard-righe li.su{color:var(--crema)} .bard-righe li.su b{color:var(--oro-luce)} .bard-righe li.su .tondo{opacity:1;filter:none;box-shadow:0 0 8px rgba(240,203,91,.45)}
+.bard-prepara{display:flex;align-items:center;gap:12px;width:100%;margin:12px 0 4px;padding:10px 12px;border:1px solid var(--filo-forte);border-radius:12px;background:var(--oro-veste);color:var(--crema);text-align:left;cursor:pointer}
+.bard-prepara span{flex:1;min-width:0} .bard-prepara b{display:block;font:500 12.5px var(--display);letter-spacing:.14em;text-transform:uppercase;color:var(--oro-luce)}
+.bard-prepara small{display:block;margin-top:3px;font:italic 500 15px/1.25 var(--libro);color:var(--crema)} .bard-prepara .ic{color:var(--oro)} .bard-prepara .med{flex:none}
+.pad.spento .tondo{opacity:.35;filter:grayscale(.7)} .pad.spento{color:var(--spento)}
+#s-bard .rapide.in-riga{margin-top:4px}
+#s-bard .rapide.in-riga .btn{min-height:40px}
+#s-bard .pads{gap:2px}
+#s-bard .pad{padding:3px 0 2px}
+#s-bard .pad > span:last-child{white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;text-align:center;padding:0 2px}
+#s-bard .rapide.in-riga .btn{letter-spacing:.03em}
 .dove-suona{display:flex;align-items:center;gap:10px;margin:0 0 6px;padding:10px 12px;border:1px solid var(--bordo);border-radius:10px;background:var(--incasso);font-size:14px;color:var(--crema)}
 .dove-suona .ic{color:var(--oro)} .dove-suona span{flex:1;min-width:0} .dove-suona b{color:var(--oro-luce);font-weight:500}
 .suoni{display:flex;flex-wrap:wrap;gap:8px}
@@ -429,14 +452,14 @@ body.principale .testa .torna{display:none}
 <script src="../js/supabase.js?v=2.1.0"></script>
 <script src="../js/canale.js?v=2.2.0"></script>
 <script src="../js/icone.js?v=2.4.0"></script>
-<script src="../js/medaglioni.js?v=2"></script>
+<script src="../js/medaglioni.js?v=3"></script>
 <script src="../js/accesso.js?v=8"></script>
 <script src="../js/libreria.js?v=2.12"></script>
 <script src="../js/ai.js?v=2.12"></script>
 <script src="../js/fermo.js?v=2"></script>
 <script src="../js/foto-online.js?v=2.1.0"></script>
 <script src="../js/profondita.js?v=2.1.0"></script>
-<script src="../js/bard.js?v=6"></script>
-<script src="app.js?v=6.30"></script>
+<script src="../js/bard.js?v=7"></script>
+<script src="app.js?v=6.31"></script>
 </body>
 </html>

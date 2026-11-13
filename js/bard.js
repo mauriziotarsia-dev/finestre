@@ -12,7 +12,84 @@
       musica:{brani:[{id,url,titolo}], i, casuale, acceso}|null, volMusica, volEffetti}
    ═══════════════════════════════════════════════════════════════════════════ */
 const BARD_PRED = {rev:0, dove:'stanza', tempo:{acceso:true, volume:.6}, registrazioni:{}, sottofondo:null, volSottofondo:.6,
-  musica:null, volMusica:.5, volEffetti:.8};
+  musica:null, volMusica:.5, volEffetti:.8, vita:{acceso:true, volume:.55}, suoniVita:{}};
+
+/* ═══ 13/11 · I SUONI DEL PAESAGGIO (Maurizio: «abbiamo sviluppato pesantemente Illusionist, mentre Bard è primordiale»)
+   Come la vita del paesaggio di Illusionist (js/vita.js), ma da sentire: partono da soli e seguono quello che si vede.
+   · L'ORA: uccelli all'alba e di giorno, grilli al tramonto e di notte, la civetta e il lupo di notte;
+   · IL TEMPO: con pioggia e temporale gli uccelli tacciono, con la neve resta quasi solo l'acqua; con la nebbia meno;
+   · IL PAESAGGIO: le parole del suo nome (…@castello.valle.fiume.colline.boschi) dicono se c'è un fiume, il mare, una
+     città, un'abbazia, un bosco; il fiume si sente solo dove c'è, le campane solo dove c'è un campanile;
+   · due modi: «letto» = un tappeto in loop (22 s senza giunte, come i sottofondi); «colpo» = un verso ogni tanto, a
+     intervalli casuali, ogni volta un po' a destra o a sinistra e un po' più acuto o più grave (così non si ripete uguale).
+   Le registrazioni le fa l'AI una volta sola (ElevenLabs, «Prepara i suoni» nell'app): file «bard-vita__<id>__…» nella stanza.
+   ogni: [minimo, massimo] secondi fra un colpo e l'altro. */
+const BARD_VITA = [
+  {id:'uccelli-alba', nome:'Uccelli all\'alba', med:'uccello', modo:'letto', ore:['alba'], vol:.55,
+   prompt:'Dawn chorus in a quiet European countryside: many songbirds singing together, blackbirds and robins, no wind, no people, no music'},
+  {id:'uccelli-giorno', nome:'Uccelli di giorno', med:'uccello', modo:'letto', ore:['giorno'], vol:.32,
+   prompt:'Sparse songbirds in a calm sunny meadow, occasional chirps and short songs far apart, gentle, no wind, no people, no music'},
+  {id:'cuculo', nome:'Cuculo', med:'uccello', modo:'colpo', ore:['alba', 'giorno'], vol:.35, ogni:[90, 260], parole:/bosc|forest|collin|vall|selv|querc/,
+   prompt:'A single distant cuckoo calling four times in the woods, nothing else'},
+  {id:'rapace', nome:'Rapace', med:'uccello', modo:'colpo', ore:['giorno'], vol:.32, ogni:[80, 240], parole:/vall|mont|castell|collin|rup|picch|torr/,
+   prompt:'A single distant hawk cry echoing over a wide valley, nothing else'},
+  {id:'grilli', nome:'Grilli', med:'grillo', modo:'letto', ore:['tramonto', 'notte'], vol:.42,
+   prompt:'Crickets chirping steadily on a calm warm night in the countryside, no other animals, no wind, no music'},
+  {id:'civetta', nome:'Civetta', med:'civetta', modo:'colpo', ore:['notte'], vol:.4, ogni:[45, 140],
+   prompt:'A tawny owl hooting twice in a distant forest at night, nothing else'},
+  {id:'lupo', nome:'Lupo', med:'ringhio', modo:'colpo', ore:['notte'], vol:.28, ogni:[300, 900], parole:/bosc|forest|mont|selv|nev|pin/,
+   prompt:'A lone wolf howling very far away in the mountains at night, long echo, nothing else'},
+  {id:'rane', nome:'Rane', med:'onda', modo:'letto', ore:['tramonto', 'notte'], vol:.28, parole:/fium|lag|palud|stagn|torrent|canal|ruscell/,
+   prompt:'Frogs croaking softly near a quiet river bank at night, steady, no music'},
+  {id:'fiume', nome:'Fiume', med:'onda', modo:'letto', vol:.34, parole:/fium|torrent|ruscell|cascat/, ancheNeve:true,
+   prompt:'A gentle river flowing over stones, steady water heard from a short distance, no birds, no wind, no music'},
+  {id:'mare', nome:'Mare', med:'onda', modo:'letto', vol:.4, parole:/mare|cost|port|spiagg|scogl|golf|baia|isol/, ancheNeve:true,
+   prompt:'Calm sea waves washing on a pebble shore heard from a distance, steady, no gulls, no music'},
+  {id:'gabbiani', nome:'Gabbiani', med:'uccello', modo:'colpo', ore:['alba', 'giorno', 'tramonto'], vol:.3, ogni:[35, 110], parole:/mare|port|cost|spiagg|scogl|baia/,
+   prompt:'A few seagulls calling in the distance over the sea, nothing else'},
+  {id:'fronde', nome:'Fronde al vento', med:'albero', modo:'letto', vol:.3, parole:/bosc|forest|alber|selv|querc|pin|cipress|oliv|faggi|castagn/, colVento:true,
+   prompt:'Wind gently rustling the leaves of a large forest, soft and continuous, no birds, no music'},
+  {id:'citta', nome:'Città lontana', med:'mercato', modo:'letto', ore:['giorno'], vol:.22, parole:/citt|borg|villagg|mercat|torri|paese|porto/,
+   prompt:'Distant medieval town heard from far away outside the walls: faint voices, a blacksmith hammering, cart wheels, very soft and distant, no music'},
+  {id:'campane', nome:'Campane', med:'campana', modo:'colpo', ore:['alba', 'giorno', 'tramonto'], vol:.42, ogni:[240, 720], parole:/abbazi|monaster|chies|campanil|citt|borg|villagg|cattedral|convent|pieve/, ancheNeve:true,
+   prompt:'A distant medieval church bell tolling slowly five times across a valley, natural reverb, nothing else'},
+  {id:'cani', nome:'Cani lontani', med:'ringhio', modo:'colpo', ore:['tramonto', 'notte'], vol:.25, ogni:[100, 320], parole:/citt|borg|villagg|fattori|campagn|cascin|paese/,
+   prompt:'A dog barking a few times far away in a village at night, nothing else'},
+  {id:'pecore', nome:'Pecore', med:'campana', modo:'colpo', ore:['giorno'], vol:.28, ogni:[70, 220], parole:/campagn|pascol|collin|prat|fattori|cascin|coltiv/,
+   prompt:'Sheep bleating and a cowbell far away in hilly pastures, nothing else'},
+  /* quando nelle finestre passa lo stormo (l'effetto di Illusionist) */
+  {id:'stormo', nome:'Stormo', med:'stormo', modo:'effetto', vol:.55,
+   prompt:'A flock of small birds flying past overhead, many wings flapping and chirping, passing by and fading away'},
+];
+const BARD_VITA_ID = Object.fromEntries(BARD_VITA.map(v => [v.id, v]));
+/* le parole di un paesaggio: dal nome del file della sua immagine (…_painterly_valle-col-castello@castello.valle.fiume_giorno.jpg) */
+function bardParole(sc){
+  const im = sc && sc.immagini; if (!im) return '';
+  const u = im.giorno || im['est-giorno'] || Object.values(im).find(x => typeof x === 'string') || '';
+  let n = ''; try { n = decodeURIComponent(String(u).split('?')[0].split('/').pop()); } catch(e) { n = String(u); }
+  return n.toLowerCase().replace(/^[a-z0-9]+_(?:painterly|inked|classic_oil|foto|video)_/, '').replace(/_[a-z-]+\.(?:jpg|png)$/, '').replace(/[^a-z]+/g, ' ');
+}
+/* quanto si sente ogni suono del paesaggio adesso (0 = niente) */
+function bardVitaAdesso(sc, ora){
+  const out = {}; if (!sc || sc.acceso === false || sc.yt) return out;
+  const m = sc.meteo || 'sereno', k = sc.intensita == null ? .75 : sc.intensita, parole = bardParole(sc);
+  const vento = sc.vento == null ? (BARD_VENTO[m] || .15) : sc.vento;
+  for (const v of BARD_VITA){
+    if (v.modo === 'effetto') continue;
+    if (v.ore && !v.ore.includes(ora)) continue;
+    if (v.parole && !v.parole.test(parole)) continue;
+    let f = 1;
+    const animale = !['fiume', 'mare', 'fronde', 'citta', 'campane'].includes(v.id);
+    if (m === 'pioggia') f = animale ? (v.id === 'rane' ? .8 : 0) : .7;
+    else if (m === 'temporale') f = animale ? 0 : .5;
+    else if (m === 'neve') f = v.ancheNeve ? .6 : 0;
+    else if (m === 'nebbia') f = animale ? .6 * (1 - .4 * k) : .8;
+    else if (m === 'nuvoloso') f = animale ? .8 : 1;
+    if (v.colVento) f *= Math.min(1.6, .35 + 1.3 * vento);
+    if (f > .02) out[v.id] = v.vol * f;
+  }
+  return out;
+}
 /* ⚠ 4/11 · I LAMPI DEL TEMPORALE (Maurizio: «devono essere più casuali, non ogni X secondi sempre»).
    Un temporale vero ha fasi: minuti agitati con lampi ravvicinati (a volte due o tre di fila), poi pause
    lunghe; lampi lontani e deboli col tuono tardi e basso, lampi vicini forti col tuono quasi subito.
@@ -80,7 +157,7 @@ class LettoreBard {
       const x = this.ctx = new C();
       this.master = x.createGain(); this.master.connect(x.destination);
       this.canali = {};
-      for (const k of ['tempo', 'sottofondo', 'musica', 'effetti']){ const g = x.createGain(); g.gain.value = 0; g.connect(this.master); this.canali[k] = g; }
+      for (const k of ['tempo', 'sottofondo', 'musica', 'effetti', 'vita']){ const g = x.createGain(); g.gain.value = 0; g.connect(this.master); this.canali[k] = g; }
     }
     if (this.ctx.state === 'suspended') this.ctx.resume().catch(() => {});
     return this.ctx;
@@ -136,18 +213,19 @@ class LettoreBard {
     }
   }
   _ferma(posto){ const ora = this.strati[posto]; if (!ora) return; this._rampa(ora.g, 0, 2); const s = ora.src; setTimeout(() => { try { s && s.stop(); } catch(e) {} }, 2200); delete this.strati[posto]; }
-  async _colpo(chiave, url, volume = 1, canale = 'effetti', dopo = 0, sintetico){
+  async _colpo(chiave, url, volume = 1, canale = 'effetti', dopo = 0, sintetico, pan = 0, rate = 1){
     const x = this._ctx(); if (!x) return;
     try {
-      const g = x.createGain(); g.gain.value = volume; g.connect(this.canali[canale]);
-      if (url){ const b = await this._carica(chiave, url); const s = x.createBufferSource(); s.buffer = b; s.connect(g); s.start(x.currentTime + dopo); }
+      const g = x.createGain(); g.gain.value = volume;
+      if (pan && x.createStereoPanner){ const p = x.createStereoPanner(); p.pan.value = pan; g.connect(p); p.connect(this.canali[canale]); } else g.connect(this.canali[canale]);
+      if (url){ const b = await this._carica(chiave, url); const s = x.createBufferSource(); s.buffer = b; s.playbackRate.value = rate; s.connect(g); s.start(x.currentTime + dopo); }
       else if (sintetico) sintetico(x, g, x.currentTime + dopo);
     } catch(e) { console.warn('[bard] effetto', chiave, e.message); }
   }
 
   /* ── lo stato ────────────────────────────────────────────────────────────── */
   applica(stato){ this.stato = Object.assign({}, BARD_PRED, stato || {}); this._aggiorna(); }
-  suScena(scena){ this.scena = scena; this._aggiorna(); }
+  suScena(scena){ this.scena = scena; this.vitaAdesso = null; this._aggiorna(); }
   imposta({qui, muto}){ if (qui != null) this.qui = !!qui; if (muto != null) this.muto = !!muto; this._aggiorna(); }
   _aggiorna(){
     const s = this.stato, on = this.attivo;
@@ -157,9 +235,11 @@ class LettoreBard {
     this._rampa(this.canali.sottofondo, on ? s.volSottofondo : 0);
     this._rampa(this.canali.musica, on ? s.volMusica : 0);
     this._rampa(this.canali.effetti, on ? s.volEffetti : 0, .2);
+    this._rampa(this.canali.vita, on && s.vita && s.vita.acceso ? (s.vita.volume == null ? .55 : s.vita.volume) : 0);
     /* spento (o non tocca a lui): i loop si fermano dopo la dissolvenza, così non consumano */
     if (!on){ setTimeout(() => { if (!this.attivo){ Object.keys(this.strati).forEach(k => this._ferma(k)); if (this.el) this.el.pause(); } }, 1800); return; }
     this._tempo();
+    this._vita();
     if (s.sottofondo && s.sottofondo.url) this._loop('sottofondo', 'sottofondo', 'f:' + s.sottofondo.id, s.sottofondo.url, 1); else this._ferma('sottofondo');
     this._musica();
   }
@@ -201,8 +281,41 @@ class LettoreBard {
     const url = this.sintetico ? null : bardRegistrazione(this.stato.registrazioni || {}, 'raffica');
     if (url) this._colpo('t:raffica', url, .8 * BARD_GUADAGNO.raffica, 'tempo');
   }
+  /* ── i suoni del paesaggio ───────────────────────────────────────────────── */
+  _oraScena(){ const o = (this.scena || {}).ora; return !o || o === 'vera' ? (typeof oraVera === 'function' ? oraVera() : 'giorno') : o; }
+  _vita(){
+    const s = this.stato, reg = s.suoniVita || {}, acceso = s.vita && s.vita.acceso;
+    const ora = this._oraScena();
+    this.vitaAdesso = acceso ? bardVitaAdesso(this.scena, ora) : {};
+    for (const v of BARD_VITA){
+      if (v.modo !== 'letto') continue;
+      const vol = this.vitaAdesso[v.id], url = reg[v.id];
+      if (vol && url) this._loop('v-' + v.id, 'vita', 'v:' + v.id, url, vol); else this._ferma('v-' + v.id);
+    }
+    this.vitaFirma = JSON.stringify(this.vitaAdesso) + ora;
+  }
+  /** un verso del paesaggio, adesso (anche per lo stormo che passa nelle finestre) */
+  colpoVita(id, volume){
+    const v = BARD_VITA_ID[id], url = (this.stato.suoniVita || {})[id];
+    if (!this.attivo || !v || !url || !(this.stato.vita && this.stato.vita.acceso)) return false;
+    this._colpo('v:' + id, url, volume != null ? volume : v.vol, 'vita', 0, null, (Math.random() * 2 - 1) * .6, .93 + Math.random() * .14);
+    return true;
+  }
   _ogniTanto(){
     if (!this.attivo || !this.ctx) return;
+    /* i suoni del paesaggio: l'ora vera cambia da sola; i colpi arrivano a intervalli casuali */
+    { const ora = this._oraScena();
+      if (!this.vitaAdesso || this.vitaOra !== ora){ this.vitaOra = ora; this._vita(); }
+      const adesso = Date.now(), prossimi = this.prossimiColpi || (this.prossimiColpi = {});
+      for (const v of BARD_VITA){
+        if (v.modo !== 'colpo') continue;
+        const vol = this.vitaAdesso[v.id];
+        if (!vol || !(this.stato.suoniVita || {})[v.id]){ delete prossimi[v.id]; continue; }
+        const [a, b] = v.ogni || [60, 180];
+        if (!prossimi[v.id]){ prossimi[v.id] = adesso + (a * .3 + Math.random() * (b - a * .3)) * 1000; continue; }
+        if (adesso > prossimi[v.id]){ this.colpoVita(v.id, vol * (.7 + .5 * Math.random())); prossimi[v.id] = adesso + (a + Math.random() * (b - a)) * 1000; }
+      }
+    }
     const sc = this.scena || {}, ora = Date.now(), reg = this.stato.registrazioni || {};
     const vento = sc.vento == null ? (BARD_VENTO[sc.meteo] || 0) : sc.vento;
     /* sul telefono (senza finestre) i tuoni seguono gli stessi lampi delle finestre */
@@ -328,17 +441,17 @@ function sintTuono(x, uscita, quando, lontano = false){
 /* ── la libreria di Bard nel deposito della stanza: tutto nel nome del file ──
    bard-<tipo>__<id>__<titolo>.<est>    tipo (accanto ai paesaggi, nella cartella della libreria): tempo | sottofondo | musica | effetto
    per il tempo l'id è quello della registrazione (pioggia, temporale, vento, neve, tuono1-3, raffica) */
-const BARD_TIPI = ['tempo', 'sottofondo', 'musica', 'effetto'];
+const BARD_TIPI = ['tempo', 'sottofondo', 'musica', 'effetto', 'vita'];
 const BARD_TEMPO = {pioggia:'Pioggia', temporale:'Temporale', vento:'Vento', neve:'Neve', tuono1:'Tuono 1', tuono2:'Tuono 2', tuono3:'Tuono 3', raffica:'Raffica'};
-const BARD_NOME = /^bard-(tempo|sottofondo|musica|effetto)__([a-z0-9-]+)__([a-z0-9-]*)\.(mp3|m4a|aac|ogg|oga|webm|wav|flac)$/;
+const BARD_NOME = /^bard-(tempo|sottofondo|musica|effetto|vita)__([a-z0-9-]+)__([a-z0-9-]*)\.(mp3|m4a|aac|ogg|oga|webm|wav|flac)$/;
 function bardSlug(t, max = 60){ return String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, max).replace(/-+$/, ''); }
 function bardNomeFile(tipo, id, titolo, est = 'mp3'){ return `bard-${tipo}__${bardSlug(id, 40) || Date.now().toString(36)}__${bardSlug(titolo)}.${est}`; }
 function bardDaNome(nome){
   const m = String(nome).match(BARD_NOME); if (!m) return null;
   const [, tipo, id, s] = m;
-  const titolo = tipo === 'tempo' && BARD_TEMPO[id] ? BARD_TEMPO[id] : (s.replace(/-/g, ' ').replace(/^./, c => c.toUpperCase()) || 'Senza nome');
+  const titolo = tipo === 'tempo' && BARD_TEMPO[id] ? BARD_TEMPO[id] : tipo === 'vita' && BARD_VITA_ID[id] ? BARD_VITA_ID[id].nome : (s.replace(/-/g, ' ').replace(/^./, c => c.toUpperCase()) || 'Senza nome');
   return {tipo, id, titolo, file: nome};
 }
 const BARD_MIME = {mp3:'audio/mpeg', m4a:'audio/mp4', aac:'audio/aac', ogg:'audio/ogg', oga:'audio/ogg', webm:'audio/webm', wav:'audio/wav', flac:'audio/flac'};
 
-if (typeof module !== 'undefined') module.exports = {LettoreBard, BARD_PRED, BARD_TEMPO, bardNomeFile, bardDaNome, bardSlug, BARD_MIME};
+if (typeof module !== 'undefined') module.exports = {LettoreBard, BARD_PRED, BARD_TEMPO, BARD_VITA, bardVitaAdesso, bardParole, bardNomeFile, bardDaNome, bardSlug, BARD_MIME};

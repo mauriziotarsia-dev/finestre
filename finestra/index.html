@@ -31,7 +31,7 @@
 <script src="../js/vista.js?v=5.48"></script>
 <script src="../js/inseguitore.js?v=1"></script>
 <script src="../js/uccelli.js?v=10"></script>
-<script src="../js/bard.js?v=6"></script>
+<script src="../js/bard.js?v=7"></script>
 <script>
 /* ═══════════════════════════════════════════════════════════════════════════
    La pagina che il Raspberry mostra dietro il traforo.
@@ -454,7 +454,7 @@ function effetto(d){
   const ora = performance.now(), r = bardRng((d.seme || Math.floor(Math.random() * 1e9)) >>> 0);
   if (d.tipo === 'meteora'){ const x0 = .1 + r() * .8, y0 = .03 + r() * .15, verso = r() < .5 ? -1 : 1;
     meteora = {t0: ora, dur: 700 + r() * 500, k: 0, da: [x0, y0, x0 + verso * (.25 + r() * .25), y0 + .06 + r() * .1]}; prossimaMeteora = ora + 40000; }
-  else if (d.tipo === 'stormo'){ stormoFino = ora + 45000; stormi.nuovoStormo(); }
+  else if (d.tipo === 'stormo'){ stormoFino = ora + 45000; stormi.nuovoStormo(); if (bard) bard.colpoVita('stormo'); }
   else if (d.tipo === 'raffica'){ rafficaDa = ora; rafficaSeme = r() * 50; if (bard) bard.raffica(); }
   else if (d.tipo === 'tuono') scocca({forza: .18 + r() * .12, x: .1 + r() * .8, impulsi: 1, seme: Math.floor(r() * 1e9), tuono: 5 + r() * 4, volTuono: .35 + r() * .15});
   /* 'nebbia' (nebbia che sale): dal 9/11 è nella scena (nebbiaSale), non è più un effetto che passa */
