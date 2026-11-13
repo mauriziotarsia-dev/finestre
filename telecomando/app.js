@@ -9,7 +9,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
 const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 const euro = n => (n < .1 ? n.toFixed(3) : n.toFixed(2)).replace('.', ',') + ' $';
-const VERSIONE = '6.39';
+const VERSIONE = '6.40';
 /* 8/11 · l'app si aggiorna da sola (Maurizio: «vedo ancora il quadrato con la doppia finestra»: sul telefono restava la
    versione vecchia anche dopo averla chiusa). Quando torna in primo piano, e ogni 10 minuti, chiede al server quale
    app.js c'è adesso; se è un'altra, ricarica (mai mentre un lavoro AI è in corso) */
@@ -1408,7 +1408,10 @@ async function bozzeVia(){
       /* la foto di riferimento (la stanza vera), scaricata una volta */
       let rif = null;
       if (d.riferimento){ try { const r = await fetch(d.riferimento, {cache: 'no-store'}); if (r.ok) rif = await r.blob(); } catch(e) {} if (!rif) throw new Error('Non riesco a scaricare la foto della stanza: riprova.'); }
-      await Promise.all(d.opzioni.map(async x => {
+      let primoErrore = null;
+      await Promise.all(d.opzioni.map(async x => { try { await unaBozza(x); } catch(e) { primoErrore = primoErrore || e; passo('b-' + x.id + '-n', 'errore', x.id + ' · ' + e.message); segnala(e); } }));
+      if (primoErrore && !d.opzioni.some(x => (bozzeStato.fatte || {})[x.id])) throw primoErrore;
+      async function unaBozza(x){
         if ((bozzeStato.fatte || {})[x.id]) return;
         const kn = 'b-' + x.id + '-n', ke = 'b-' + x.id + '-e', stile = x.stile || d.stile || imp.stile;
         const qualita = bozzaQualita(x, d), modello = bozzaModello(x, d), grande = bozzaGrande(x, d), lato = grande ? 3840 : 1600, mm = Ai.modello(modello);
@@ -1429,7 +1432,7 @@ async function bozzeVia(){
         const urlEst = await caricaBozza(d.chiave, x.id, 'est', est);
         passo(ke, 'fatto', x.id + ' · TV');
         bozzeStato.fatte[x.id] = {nord: urlNord, est: urlEst, chi, grande}; salvaBozze(); rapportoLavoro({bozze: bozzeStato.fatte});
-      }));
+      }
     });
   } finally { rapportoLavoro({messaggio: lavoro && lavoro.errore ? 'bozze: errore ' + lavoro.errore : 'bozze pronte', bozze: bozzeStato.fatte}); }
   if (d.opzioni.some(x => bozzeStato.fatte[x.id])) mostraBozze(d);

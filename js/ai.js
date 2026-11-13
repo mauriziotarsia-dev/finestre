@@ -83,6 +83,13 @@ const Ai = {
   },
 
   async openaiImmagine(o, modello, foto){
+    /* 13/11 notte · il 4K ci mette minuti: la prima prova (richiesta diretta) è caduta con «Load failed» (Safari chiude
+       una connessione muta). In 4K si chiede in sottofondo e si controlla ogni pochi secondi, come per le animazioni;
+       se il sottofondo non va, si torna alla richiesta diretta. */
+    if (o.grande){
+      try { return await this.openaiSottofondo(o, modello, foto); }
+      catch(e){ if (!e.ripiega) throw e; }
+    }
     try { return await this.openaiUna(o, modello, foto, this.livelloOpenai(modello, o.qualita)); }
     catch(e){
       /* GPT Image 2.5 non disponibile su questa chiave (modello sconosciuto o non abilitato): stessa richiesta con GPT Image 2 */
@@ -90,6 +97,49 @@ const Ai = {
         return await this.openaiUna(o, 'gpt-image-2', foto, this.livelloOpenai('gpt-image-2', o.qualita));
       throw e;
     }
+  },
+  async openaiSottofondo(o, modello, foto){
+    const chiave = (o.chiavi || {}).openai;
+    if (!chiave) throw new Error('Serve la chiave OpenAI: mettila nelle Impostazioni.');
+    const intest = {'Authorization':'Bearer ' + chiave, 'Content-Type':'application/json'};
+    const contenuto = [{type:'input_text', text:o.prompt}];
+    if (foto) contenuto.push({type:'input_image', image_url:'data:' + (foto.type || 'image/jpeg') + ';base64,' + await this.inBase64(foto)});
+    const strumento = {type:'image_generation', model:modello, size:'3840x2160', quality:this.livelloOpenai(modello, o.qualita), action: foto ? 'edit' : 'generate', output_format:'png'};
+    const ripiega = e => { e.ripiega = true; return e; };
+    let r, it = null;
+    for (const guida of ['gpt-5.5', 'gpt-5']){
+      for (let giro = 0; giro < 3; giro++){
+        const corpo = {model:guida, background:true, input:[{role:'user', content:contenuto}], tools:[strumento], tool_choice:{type:'image_generation'},
+          instructions:'Call the image generation tool exactly once, passing the user\'s text as the prompt word for word, without rewriting, shortening or adding anything.'};
+        try { r = await fetch('https://api.openai.com/v1/responses', {method:'POST', headers:intest, body:JSON.stringify(corpo)}); }
+        catch(e){ if (giro < 1) continue; throw ripiega(this.rete('OpenAI', e)); }
+        if (r.ok){ it = await r.json(); break; }
+        const e = await this.errore(r, 'OpenAI');
+        if (r.status === 400 && /quality/i.test(e.testo || '') && strumento.quality !== 'high'){ strumento.quality = 'high'; continue; }
+        if (r.status === 400 && /size/i.test(e.testo || '') && strumento.size !== '2560x1440'){ strumento.size = '2560x1440'; continue; }
+        if ((r.status === 400 || r.status === 404 || r.status === 403) && /model/i.test(e.testo || '') && !new RegExp(modello.replace(/\./g, '\\.')).test(e.testo || '')) break;   /* manca il modello guida: si prova l'altro */
+        if (r.status === 400 || r.status === 404 || r.status === 403) throw ripiega(e);
+        throw e;
+      }
+      if (it) break;
+    }
+    if (!it) throw ripiega(new Error('Sottofondo non disponibile.'));
+    const inizio = Date.now();
+    while (it.status && !/^(completed|failed|cancelled|incomplete)$/.test(it.status)){
+      await new Promise(ok => setTimeout(ok, 4000));
+      if (Date.now() - inizio > 15 * 60 * 1000) throw new Error('OpenAI ci sta mettendo troppo: riprova più tardi.');
+      try { r = await fetch('https://api.openai.com/v1/responses/' + encodeURIComponent(it.id), {headers:{'Authorization':'Bearer ' + chiave}}); } catch(e) { continue; }   /* un controllo perso non ferma niente */
+      if (!r.ok) throw await this.errore(r, 'OpenAI');
+      it = await r.json();
+    }
+    const chiamata = (it.output || []).filter(x => x.type === 'image_generation_call' && x.result).pop();
+    if (!chiamata){
+      const testo = (it.output || []).flatMap(x => x.content || []).map(c => c.text || '').join(' ').trim();
+      const m = (it.error && it.error.message) || (it.incomplete_details && it.incomplete_details.reason) || testo;
+      if (/safety|moderation|policy/i.test(m)){ const e = new Error('OpenAI ha rifiutato la richiesta per le sue regole. Prova a cambiare la descrizione.'); e.tipo = 'regole'; throw e; }
+      throw new Error('OpenAI non ha fatto l\'immagine' + (m ? ': ' + String(m).slice(0, 200) : '.'));
+    }
+    return {b64: chiamata.result, mime: 'image/' + (chiamata.output_format || 'png'), misura: chiamata.size || strumento.size, modello};
   },
   async openaiUna(o, modello, foto, livello){
     const chiave = (o.chiavi || {}).openai;
@@ -163,6 +213,10 @@ const Ai = {
        (5504×3072 in 16:9). Il 4K ci mette di più: si chiede a flusso, con i «pensieri» del modello che arrivano mentre
        lavora, così la connessione non resta muta (Safari la chiude dopo un minuto senza dati). */
     const tre = /^gemini-3/.test(modello);
+    if (tre && o.grande){
+      try { return await this.googleSottofondo(o, modello, foto, chiave); }
+      catch(e){ if (!e.ripiega) throw e; }
+    }
     const config = {responseModalities:['IMAGE'], imageConfig: Object.assign({aspectRatio: Ai.rapporto(o.misura)}, tre ? {imageSize: o.grande ? '4K' : '2K'} : {})};
     const corpo = conPensieri => JSON.stringify({contents:[{parts:parti}], generationConfig: Object.assign({}, config, conPensieri ? {thinkingConfig:{includeThoughts:true}} : {})});
     const intest = {'Content-Type':'application/json', 'x-goog-api-key':chiave};
@@ -181,7 +235,8 @@ const Ai = {
         const lettore = r.body.getReader(), dec = new TextDecoder();
         let resto = '', finale = null, fine = '';
         for (;;){
-          const {value, done} = await lettore.read(); if (done) break;
+          let pezzo; try { pezzo = await lettore.read(); } catch(e) { throw this.rete('Google', e); }
+          const {value, done} = pezzo; if (done) break;
           resto += dec.decode(value, {stream:true});
           let k;
           while ((k = resto.search(/\r?\n\r?\n/)) >= 0){
@@ -212,6 +267,37 @@ const Ai = {
     const d = p && (p.inlineData || p.inline_data);
     if (!d) throw new Error('Google non ha mandato l\'immagine' + (j.candidates && j.candidates[0] && j.candidates[0].finishReason ? ' (' + j.candidates[0].finishReason + ')' : '') + '.');
     return {b64:d.data, mime:d.mimeType || d.mime_type || 'image/png', misura: Ai.rapporto(o.misura), modello};
+  },
+
+  async googleSottofondo(o, modello, foto, chiave){
+    const base = 'https://generativelanguage.googleapis.com/v1beta/interactions';
+    const intest = {'Content-Type':'application/json', 'x-goog-api-key':chiave};
+    const input = [];
+    if (foto) input.push({type:'image', data: await this.inBase64(foto), mime_type: foto.type || 'image/jpeg'});
+    input.push({type:'text', text:o.prompt});
+    const corpo = {model:modello, input, response_format:{type:'image', aspect_ratio: Ai.rapporto(o.misura), image_size:'4K'}, background:true};
+    const ripiega = e => { e.ripiega = true; return e; };
+    let r;
+    try { r = await fetch(base, {method:'POST', headers:intest, body:JSON.stringify(corpo)}); }
+    catch(e){ try { r = await fetch(base, {method:'POST', headers:intest, body:JSON.stringify(corpo)}); } catch(e2) { throw ripiega(this.rete('Google', e2)); } }
+    if (!r.ok){ const e = await this.errore(r, 'Google'); if (r.status === 400 || r.status === 404) throw ripiega(e); throw e; }
+    let it = await r.json();
+    const inizio = Date.now();
+    while (it.status && it.status !== 'completed' && it.status !== 'failed' && it.status !== 'cancelled'){
+      await new Promise(ok => setTimeout(ok, 4000));
+      if (Date.now() - inizio > 15 * 60 * 1000) throw new Error('Google ci sta mettendo troppo: riprova più tardi.');
+      try { r = await fetch(base + '/' + encodeURIComponent(it.id), {headers:{'x-goog-api-key':chiave}}); } catch(e) { continue; }
+      if (!r.ok) throw await this.errore(r, 'Google');
+      it = await r.json();
+    }
+    if (it.status === 'failed' || it.status === 'cancelled') throw new Error('Google non è riuscito a fare l\'immagine: ' + ((it.error && it.error.message) || it.status));
+    const parti = (it.steps || []).filter(x => x.type === 'model_output').flatMap(x => x.content || []).concat(it.outputs || []);
+    const img = parti.filter(x => x.type === 'image' && (x.data || x.uri) && !x.thought).pop() || it.output_image;
+    if (!img){ const t = parti.find(x => x.type === 'text'); throw new Error('Google non ha mandato l\'immagine' + (t ? ': ' + String(t.text).slice(0, 200) : '.')); }
+    if (img.data) return {b64: img.data, mime: img.mime_type || 'image/png', misura: Ai.rapporto(o.misura), modello};
+    const d = await fetch(img.uri, {headers:{'x-goog-api-key':chiave}});
+    if (!d.ok) throw await this.errore(d, 'Google');
+    return {b64: await this.inBase64(await d.blob()), mime: img.mime_type || 'image/png', misura: Ai.rapporto(o.misura), modello};
   },
 
   inBase64(blob){ return new Promise((ok, no) => { const fr = new FileReader(); fr.onload = () => ok(String(fr.result).split(',')[1]); fr.onerror = no; fr.readAsDataURL(blob); }); },
