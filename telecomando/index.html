@@ -296,6 +296,14 @@ details.gruppo .campo > span{margin-top:6px}
 .tv-mini span{position:absolute;left:4px;bottom:4px;display:flex;gap:4px;align-items:center;padding:2px 6px;border-radius:99px;background:rgba(6,8,12,.8);font:500 9px var(--display);letter-spacing:.1em;color:var(--crema)}
 .tv-mini[aria-pressed="true"]{border-color:var(--oro)}
 /* 4.1 · Bard */
+/* 13/11 · le bozze: la vista larga delle finestrelle (coi due lati segnati) e il TV */
+.bozza{margin:14px 0 18px;padding-top:12px;border-top:1px solid var(--filo)} .bozza > b{display:block;font:500 13px var(--display);letter-spacing:.14em;text-transform:uppercase;color:var(--oro-luce);margin-bottom:8px}
+.bozza-nord,.bozza-est{position:relative;border-radius:8px;overflow:hidden;border:1px solid var(--filo-forte);margin-bottom:8px;line-height:0}
+.bozza-nord img,.bozza-est img{width:100%;height:auto;display:block}
+/* le due strisce viste dalle finestrelle (finestra/index.html, striscia()): alte quanto il panorama, larghe circa un quinto, 5 cm in comune al centro */
+.bozza-nord i{position:absolute;top:0;bottom:0;width:20.5%;border:2px solid rgba(240,203,91,.9);border-radius:3px}
+.bozza-nord i.sx{left:32.5%} .bozza-nord i.dx{right:32.5%}
+.bozza-nord span,.bozza-est span{position:absolute;left:8px;bottom:6px;font:500 10px/1 var(--display);letter-spacing:.16em;text-transform:uppercase;color:#fff;background:rgba(0,0,0,.55);padding:4px 6px;border-radius:4px}
 /* 13/11 · Bard come Illusionist: quello che si sente adesso, in alto */
 .bard-onda{border:1px solid var(--filo-forte);border-radius:14px;background:radial-gradient(120% 90% at 20% 0%,rgba(212,175,55,.1),transparent 60%),var(--pannello);padding:12px 12px 6px;margin:0 0 10px;box-shadow:0 14px 34px rgba(0,0,0,.45)}
 .bard-onda-testa{display:flex;align-items:center;gap:12px;padding-bottom:8px;border-bottom:1px solid var(--filo)}
@@ -460,6 +468,6 @@ body.principale .testa .torna{display:none}
 <script src="../js/foto-online.js?v=2.1.0"></script>
 <script src="../js/profondita.js?v=2.1.0"></script>
 <script src="../js/bard.js?v=8"></script>
-<script src="app.js?v=6.32"></script>
+<script src="app.js?v=6.33"></script>
 </body>
 </html>

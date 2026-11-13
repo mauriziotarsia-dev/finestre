@@ -9,7 +9,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
 const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 const euro = n => (n < .1 ? n.toFixed(3) : n.toFixed(2)).replace('.', ',') + ' $';
-const VERSIONE = '6.32';
+const VERSIONE = '6.33';
 /* 8/11 · l'app si aggiorna da sola (Maurizio: «vedo ancora il quadrato con la doppia finestra»: sul telefono restava la
    versione vecchia anche dopo averla chiusa). Quando torna in primo piano, e ogni 10 minuti, chiede al server quale
    app.js c'è adesso; se è un'altra, ricarica (mai mentre un lavoro AI è in corso) */
@@ -118,6 +118,7 @@ const gestoreCanale = {
     if (evento === 'aggiornaVecchi'){ chiediAggiornaVecchi(d); return; }
     if (evento === 'rifaiAnim'){ chiediRifaiAnim(d); return; }
     if (evento === 'crea'){ chiediCrea(d); return; }
+    if (evento === 'bozze'){ chiediBozze(d); return; }
     if (evento === 'console'){ suConsole(d); return; }
     if (evento === 'consoleScheda'){ suScheda(d); return; }
     if (evento === 'bardOra'){ if (!suonoQui()){ bardOra = d.musica || null; if (scheda === 'bard') aggiornaBard(); } return; }
@@ -1030,20 +1031,22 @@ const LUCI_INTERNO = {
   tramonto:'Change only the light to sunset: warm orange sunbeams slant low through the small windows across the room, the hearth fire and the candles glowing; everything else identical.',
   notte:'Change only the light to night: the windows are dark blue, the room is lit only by the hearth fire, candles and iron lanterns, warm golden pools of light and deep soft shadows; everything else identical.'
 };
-function promptInterno(descrizione, centro, stile){
+/* vista: da dove si guarda (13/11, le tre proposte: dall'alto, all'altezza degli occhi, dalla galleria del primo piano) */
+const VISTA_INTERNO = 'seen through a small window high in the wall of the room next door: the viewer looks into the room from above, slightly downward, as if peeking from an upper floor';
+function promptInterno(descrizione, centro, stile, vista){
   const s = STILI.find(x => x.id === stile) || STILI[0];
   return `${s.prefisso}.
-One wide picture (16:9) of the inside of ${descrizione}, seen through a small window high in the wall of the room next door: the viewer looks into the room from above, slightly downward, as if peeking from an upper floor.
+One wide picture (16:9) of the inside of ${descrizione}, ${vista || VISTA_INTERNO}.
 The picture IS the view itself: no window frame, no wall edge, no curtains, no sill, nothing of the viewer's room in the foreground.
 Composition: ${centro} stands EXACTLY at the horizontal centre of the picture, compact, about one tenth of the picture width, fully visible. On both sides the room continues and is rich and interesting on its own: tables and benches, barrels, shelves with jugs and plates, hanging herbs and hams, iron candle chandeliers, rough stone walls and heavy dark wooden beams. Believable scale, natural perspective, depth with several layers (near, middle, far).
 A few patrons sit at the tables in the middle distance, seen small, calm, dressed in medieval clothes; nobody looks at the viewer, nobody stands close.
 No text, no signs with letters, no signature, no watermark, no border, no vignette.
 ${LUCI_INTERNO.giorno}`;
 }
-const promptEstInterno = desc => `The input image shows the inside of a room seen from a small high window in one of its walls. Paint the SAME room seen from another small high window in the next wall, 90 degrees to the right, as one wide picture (16:9, like a large window).
+const promptEstInterno = (desc, vista) => `The input image shows the inside of a room seen from a window in one of its walls. Paint the SAME room seen from another window in the next wall, 90 degrees to the right, from the same height, as one wide picture (16:9, like a large window).
 It is the same room: same walls, beams, floor, furniture style, same people's clothing, same light and time of day, same painting style, palette and level of detail. What is at the centre of the input image is NOT in this view (it stays far to the left, out of frame).
 The main element of this view, fully visible and centered in the width: ${desc || 'the great stone hearth with a roaring fire, with long tables and patrons in front of it'}.
-The viewer looks into the room from above, slightly downward. A few patrons at the tables, seen from a distance, calm, nobody looks at the viewer, nobody stands close.
+${vista ? 'Viewpoint: ' + vista + '.' : 'The viewer looks into the room from above, slightly downward.'} A few patrons at the tables, calm, nobody looks at the viewer.
 The picture IS the view itself: no window frame, no wall edge, no curtains, nothing of the viewer's room. No text, no signs with letters, no signature, no watermark, no border, no vignette.
 ${LUCI_INTERNO.giorno}`;
 const promptLuceInterno = ora => `Same exact room, view and composition as the input image: every wall, beam, table, bench, barrel, object and person stays in the same place, same framing, same style. ${LUCI_INTERNO[ora]} Do not add a window frame, text or borders.`;
@@ -1177,9 +1180,11 @@ async function faiProfondita(p, foto, est = false){
 /* la vista per il TV (verso est): dipinta guardando quella nord, così è la stessa terra con la stessa luce e lo
    stesso stile; poi le stesse luci del giorno che ha la vista nord e la sua profondità. Il cielo che scorre è lo
    stesso delle finestrelle (è lo stesso cielo). Il mini PC la porta al 4K vero (pi/cuci-animazione.py) */
-async function faiVistaEst(p, fotoNord, descrizione, conSole){
-  passo('est-giorno', 'ora', 'TV · vista verso est: la dipingo…');
-  const r = await Ai.modifica({modello:imp.modello, chiavi:imp.chiavi, qualita:imp.qualita, prompt: eInterno(p) ? promptEstInterno(descrizione) : promptEst(descrizione), foto:fotoNord, misura:'tv',
+/* 13/11 · dalla bozza scelta all'immagine vera: stessa composizione, piena qualità */
+const PROMPT_RIFINISCI = 'Repaint this exact picture at full quality and full detail. Keep exactly the same composition, framing, viewpoint and layout: every wall, beam, object, piece of furniture and person stays in the same place with the same pose, same style, palette and light. Only improve the painting: sharper details, richer materials and textures, clean faces and hands, correct perspective. No text, no signature, no border, no vignette.';
+async function faiVistaEst(p, fotoNord, descrizione, conSole, bozzaEst = null){
+  passo('est-giorno', 'ora', 'TV · vista verso est: ' + (bozzaEst ? 'rifinisco la bozza…' : 'la dipingo…'));
+  const r = await Ai.modifica({modello:imp.modello, chiavi:imp.chiavi, qualita:imp.qualita, prompt: bozzaEst ? PROMPT_RIFINISCI : eInterno(p) ? promptEstInterno(descrizione) : promptEst(descrizione), foto: bozzaEst || fotoNord, misura:'tv',
     bozza: b64 => { lavoro.anteprime['est-giorno'] = {url:'data:image/png;base64,' + b64, bozza:true}; disegnaLavoro(); }});
   const jpg = await inJpeg(b64aBlob(r.b64, r.mime));
   p.immagini['est-giorno'] = await caricaEst(casa, p, 'giorno', jpg);
@@ -1289,8 +1294,8 @@ function rapportoLavoro(extra = {}){
 /* la stessa richiesta si legge anche dalla rete all'apertura dell'app (se il telefono era chiuso quando Claude l'ha mandata) */
 async function richiestaInRete(){
   try { const r = await fetch(SUPABASE_URL + '/storage/v1/object/public/dmaster-media/finestre/banco/richiesta-telefono.json?t=' + Date.now(), {cache: 'no-store'});
-    if (!r.ok) return; const j = await r.json(); if (!j || foglioAperto === 'aggiorna' || foglioAperto === 'rifaiAnim' || foglioAperto === 'creaRichiesta' || (lavoro && !lavoro.finito)) return;
-    if (j.crea) chiediCrea(j.crea); else if (j.rifaiAnim) chiediRifaiAnim(j.rifaiAnim); else if (j.aggiornaVecchi) chiediAggiornaVecchi(j.aggiornaVecchi); } catch(e) {}
+    if (!r.ok) return; const j = await r.json(); if (!j || foglioAperto === 'aggiorna' || foglioAperto === 'rifaiAnim' || foglioAperto === 'creaRichiesta' || foglioAperto === 'bozze' || (lavoro && !lavoro.finito)) return;
+    if (j.bozze) chiediBozze(j.bozze); else if (j.crea) chiediCrea(j.crea); else if (j.rifaiAnim) chiediRifaiAnim(j.rifaiAnim); else if (j.aggiornaVecchi) chiediAggiornaVecchi(j.aggiornaVecchi); } catch(e) {}
 }
 /* 13/11 · un paesaggio nuovo chiesto da Claude (la taverna): il foglio col costo, e Avvia sul telefono */
 let creaFatti = new Set(leggi('atm-crea-fatti', []));
@@ -1313,6 +1318,98 @@ function chiediCrea(d){
     <div id="lavoroFoglio"></div>`);
   foglioAperto = 'creaRichiesta'; chiediCrea.d = d;
   rapportoLavoro({messaggio: 'in attesa di «Avvia»', costo: Math.round(costo * 100) / 100, crea: d.nome});
+}
+/* ═══ 13/11 · LE BOZZE (Maurizio: «possiamo fare non animate 3 opzioni dall'app, facendole costare poco, giusto delle
+   bozze così decido vedendo?»). Per ogni opzione due immagini a qualità bassa (pochi centesimi): la vista larga delle
+   finestrelle e quella del TV. Si guardano in un foglio; «Scelgo questa» crea il paesaggio completo partendo proprio da
+   quelle bozze (rifinite a piena qualità, stessa composizione), con luci, profondità e animazioni. Le bozze restano in
+   finestre/banco/bozza-<chiave>-<opzione>-<vista>.jpg, così Claude le vede. */
+let bozzeStato = leggi('atm-bozze', null);
+const salvaBozze = () => scrivi('atm-bozze', bozzeStato);
+const costoBozze = n => { const m = Ai.modello(imp.modello); return n * 2 * (m.fornitore === 'openai' ? m.costo.bassa : m.costo.alta); };
+function costoDaBozza(interno){
+  const m = Ai.modello(imp.modello), mv = MODELLI_VIDEO.find(x => x.id === imp.video.modello) || MODELLI_VIDEO[0] || {euroSecondo: 0};
+  const unaVista = (m.costo[imp.qualita] || m.costo.alta) * (1 + 3 * 1.15), nVideo = MODELLI_VIDEO.length ? nVideoCrea() : 0;
+  return unaVista * 2 + (interno ? 0 : unaVista * 1.3) + mv.euroSecondo * imp.video.secondi * nVideo;
+}
+function chiediBozze(d){
+  if (!d || !d.chiave || !Array.isArray(d.opzioni) || !d.opzioni.length || (lavoro && !lavoro.finito)) return;
+  if (bozzeStato && bozzeStato.chiave === d.chiave){
+    if (bozzeStato.scelta) return;
+    if (d.opzioni.every(x => (bozzeStato.fatte || {})[x.id])){ mostraBozze(d); return; }
+  }
+  const m = Ai.modello(imp.modello), ok = !!imp.chiavi[m.fornitore], costo = costoBozze(d.opzioni.length);
+  apriFoglio(`<h3 class="foglio-titolo">Bozze · ${esc(d.titolo || 'paesaggio nuovo')}</h3>
+    <p class="nota" style="margin-top:0">${d.opzioni.length} opzioni, ferme e a bassa qualità: per ognuna la vista delle finestrelle e quella del TV. Scegli guardandole; poi creo davvero solo quella che ti piace.</p>
+    <ul class="membri">${d.opzioni.map(x => `<li><span><b>${esc(x.id)} · ${esc(x.nome)}</b><small>Finestrelle: ${esc(x.centroIt || '')}<br>TV: ${esc(x.descEstIt || '')}</small></span></li>`).join('')}</ul>
+    <button class="btn oro piena" style="margin-top:14px" data-fai="bozzeVia"${ok ? '' : ' disabled'}>${icona('pennello', 18)}Fai le bozze · ≈ ${euro(costo)}</button>
+    ${ok ? '' : `<p class="nota">Manca la chiave ${m.fornitore === 'google' ? 'Google' : 'OpenAI'} nelle Impostazioni.</p>`}
+    <p class="nota">Ci vogliono uno o due minuti. Le bozze restano: le riapri da questo foglio finché non scegli.</p>
+    <div id="lavoroFoglio"></div>`);
+  foglioAperto = 'bozze'; chiediBozze.d = d;
+  rapportoLavoro({messaggio: 'bozze in attesa di «Fai le bozze»', costo: Math.round(costo * 1000) / 1000});
+}
+async function caricaBozza(chiave, id, vista, blob){
+  const nome = 'bozza-' + bardSlug(chiave) + '-' + bardSlug(id) + '-' + vista + '.jpg';
+  const r = await fetch(SUPABASE_URL + '/storage/v1/object/dmaster-media/finestre/banco/' + nome, {method: 'POST',
+    headers: {apikey: SUPABASE_CHIAVE_PUBBLICA, Authorization: 'Bearer ' + SUPABASE_CHIAVE_PUBBLICA, 'Content-Type': 'image/jpeg', 'x-upsert': 'true', 'cache-control': 'max-age=60'}, body: blob});
+  if (!r.ok) throw new Error('Bozza non salvata (' + r.status + ')');
+  return SUPABASE_URL + '/storage/v1/object/public/dmaster-media/finestre/banco/' + nome + '?v=' + Date.now().toString(36);
+}
+async function bozzeVia(){
+  const d = chiediBozze.d; if (!d) return;
+  const b = document.querySelector('[data-fai="bozzeVia"]'); if (b) b.hidden = true;
+  if (!bozzeStato || bozzeStato.chiave !== d.chiave) bozzeStato = {chiave: d.chiave, richiesta: d, fatte: {}, scelta: null};
+  bozzeStato.richiesta = d; salvaBozze();
+  try {
+    await conLavoro('bozze', async L => {
+      const stile = d.stile || imp.stile;
+      await Promise.all(d.opzioni.map(async x => {
+        if ((bozzeStato.fatte || {})[x.id]) return;
+        const kn = 'b-' + x.id + '-n', ke = 'b-' + x.id + '-e';
+        passo(kn, 'ora', x.id + ' · finestrelle…');
+        const rn = await Ai.crea({modello: imp.modello, chiavi: imp.chiavi, qualita: 'bassa', misura: 'tv',
+          prompt: x.interno ? promptInterno(x.descrizione, x.centro || 'the main counter', stile, x.vista) : promptLargo(x.descrizione, stile)});
+        const nord = await inJpeg(b64aBlob(rn.b64, rn.mime), 1600);
+        const urlNord = await caricaBozza(d.chiave, x.id, 'nord', nord);
+        passo(kn, 'fatto', x.id + ' · finestrelle'); passo(ke, 'ora', x.id + ' · TV…');
+        const re = await Ai.modifica({modello: imp.modello, chiavi: imp.chiavi, qualita: 'bassa', misura: 'tv', foto: nord,
+          prompt: x.interno ? promptEstInterno(x.descEst, x.vista) : promptEst(x.descEst || '')});
+        const est = await inJpeg(b64aBlob(re.b64, re.mime), 1600);
+        const urlEst = await caricaBozza(d.chiave, x.id, 'est', est);
+        passo(ke, 'fatto', x.id + ' · TV');
+        bozzeStato.fatte[x.id] = {nord: urlNord, est: urlEst}; salvaBozze(); rapportoLavoro({bozze: bozzeStato.fatte});
+      }));
+    });
+  } finally { rapportoLavoro({messaggio: lavoro && lavoro.errore ? 'bozze: errore ' + lavoro.errore : 'bozze pronte', bozze: bozzeStato.fatte}); }
+  if (d.opzioni.some(x => bozzeStato.fatte[x.id])) mostraBozze(d);
+}
+function mostraBozze(d){
+  const f = (bozzeStato && bozzeStato.fatte) || {}, costo = costoDaBozza(d.opzioni.some(x => x.interno));
+  apriFoglio(`<h3 class="foglio-titolo">Bozze · ${esc(d.titolo || 'paesaggio nuovo')}</h3>
+    <p class="nota" style="margin-top:0">Sopra la vista larga delle finestrelle: i due riquadri dorati sono, all'incirca, quello che si vede da ciascuna finestrella. Sotto il TV. Sono bozze: la versione vera ha più dettaglio e la stessa composizione.</p>
+    ${d.opzioni.map(x => { const b = f[x.id]; return `<div class="bozza">
+      <b>${esc(x.id)} · ${esc(x.nome)}</b>
+      ${b ? `<div class="bozza-nord"><img alt="Finestrelle ${esc(x.id)}" src="${esc(b.nord)}"><i class="sx"></i><i class="dx"></i><span>Finestrelle</span></div>
+      <div class="bozza-est"><img alt="TV ${esc(x.id)}" src="${esc(b.est)}"><span>TV</span></div>
+      <button class="btn oro piena" data-fai="bozzaScelta" data-v="${esc(x.id)}">${icona('scintilla', 18)}Scelgo questa · ≈ ${euro(costo)}</button>` : '<p class="nota">Non riuscita: ' + esc((lavoro && lavoro.errore) || 'riprova') + '</p>'}
+    </div>`; }).join('')}
+    <div id="lavoroFoglio"></div>`);
+  foglioAperto = 'bozze';
+}
+async function bozzaScelta(id){
+  const d = bozzeStato && bozzeStato.richiesta, x = d && d.opzioni.find(y => y.id === id), b = x && bozzeStato.fatte[id];
+  if (!b) return;
+  document.querySelectorAll('[data-fai="bozzaScelta"]').forEach(e => e.hidden = true);
+  bozzeStato.scelta = id; salvaBozze();
+  const prendi = async u => { const r = await fetch(u, {cache: 'no-store'}); if (!r.ok) throw new Error('Bozza non trovata (' + r.status + ')'); return await r.blob(); };
+  const t = setInterval(() => rapportoLavoro(), 20000);
+  try {
+    const nord = await prendi(b.nord), est = await prendi(b.est);
+    rapportoLavoro({messaggio: 'scelta la bozza ' + id + ': creo'});
+    await creaPaesaggio(Object.assign({}, x, {stile: d.stile, bozza: {nord, est}}));
+  } catch(e) { bozzeStato.scelta = null; salvaBozze(); avviso(e.message, true); }
+  finally { clearInterval(t); rapportoLavoro({messaggio: lavoro && lavoro.errore ? 'errore: ' + lavoro.errore : 'finito (bozza ' + id + ')'}); }
 }
 async function creaRichiestaVia(){
   const d = chiediCrea.d; if (!d) return;
@@ -1415,10 +1512,12 @@ async function creaPaesaggio(o){
     const parole = [...new Set([...(o.parole || []), ...paroleChiave(nome, descrizione), ...(interno ? ['interno'] : [])])].slice(0, 11);
     if (interno && !parole.includes('interno')) parole[parole.length - 1] = 'interno';
     const p = {id: Date.now().toString(36), tipo: stile, nome, parole, immagini:{}, animati:{}, file:[], fuoco:null, creato: Date.now()};
-    passo('giorno', 'ora', 'Giorno: lo sto dipingendo con ' + m.nome + '…');
-    const largo = interno || largoPerLeFinestrelle();
-    const r = await Ai.crea({modello:imp.modello, chiavi:imp.chiavi, qualita:imp.qualita, prompt: interno ? promptInterno(descrizione, o.centro || 'the main counter', stile) : largo ? promptLargo(descrizione, stile) : promptBase(descrizione, stile), misura: largo ? 'tv' : undefined,
-      bozza: b64 => { L.anteprime.giorno = {url:'data:image/png;base64,' + b64, bozza:true}; disegnaLavoro(); }});
+    passo('giorno', 'ora', 'Giorno: ' + (o.bozza ? 'rifinisco la bozza scelta' : 'lo sto dipingendo') + ' con ' + m.nome + '…');
+    const largo = interno || !!o.bozza || largoPerLeFinestrelle();
+    const anteprima = b64 => { L.anteprime.giorno = {url:'data:image/png;base64,' + b64, bozza:true}; disegnaLavoro(); };
+    const r = o.bozza
+      ? await Ai.modifica({modello:imp.modello, chiavi:imp.chiavi, qualita:imp.qualita, prompt: PROMPT_RIFINISCI, foto: o.bozza.nord, misura:'tv', bozza: anteprima})
+      : await Ai.crea({modello:imp.modello, chiavi:imp.chiavi, qualita:imp.qualita, prompt: interno ? promptInterno(descrizione, o.centro || 'the main counter', stile, o.vista) : largo ? promptLargo(descrizione, stile) : promptBase(descrizione, stile), misura: largo ? 'tv' : undefined, bozza: anteprima});
     const jpg = await inJpeg(b64aBlob(r.b64, r.mime));
     p.immagini.giorno = await caricaLuce(casa, p, 'giorno', jpg);
     L.anteprime.giorno = {url:p.immagini.giorno}; passo('giorno', 'fatto', 'Giorno'); L.p = p;
@@ -1429,7 +1528,7 @@ async function creaPaesaggio(o){
     aggiornaInLibreria(p);
     await faiProfondita(p, jpg); aggiornaInLibreria(p);
     if (!interno){ await faiComignoli(p, jpg); aggiornaInLibreria(p); }
-    if (conTv){ try { await faiVistaEst(p, jpg, descEst, true); aggiornaInLibreria(p); } catch(e) { passo('est-giorno', 'errore', 'TV · vista verso est: ' + e.message); segnala(e); } }
+    if (conTv){ try { await faiVistaEst(p, jpg, descEst, true, o.bozza ? o.bozza.est : null); aggiornaInLibreria(p); } catch(e) { passo('est-giorno', 'errore', 'TV · vista verso est: ' + e.message); segnala(e); } }
     if (imp.cielo !== false && !interno){ await faiCieli(p); aggiornaInLibreria(p); }
     /* le animazioni: ogni luce, finestrelle e TV (4/11) */
     if (imp.anima) await animaTutto(p, animMancanti(p));
@@ -2376,6 +2475,9 @@ const AZIONI = {
   cieloToggle: () => { imp.cielo = imp.cielo === false; salvaImp(); disegnaCrea(); },
   crea: () => crea(),
   creaRichiestaVia: () => creaRichiestaVia(),
+  bozzeVia: () => bozzeVia(),
+  bozzaScelta: v => bozzaScelta(v),
+  bozzeRivedi: () => { const d = leggi('atm-bozze', null); if (d && d.richiesta) mostraBozze(d.richiesta); },
   modello: v => { imp.modello = v; salvaImp(); disegnaImpostazioni(); },
   qualita: v => { imp.qualita = v; salvaImp(); disegnaImpostazioni(); },
   secondi: v => { imp.video.secondi = +v; salvaImp(); disegnaImpostazioni(); },
