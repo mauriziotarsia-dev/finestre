@@ -9,7 +9,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
 const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 const euro = n => (n < .1 ? n.toFixed(3) : n.toFixed(2)).replace('.', ',') + ' $';
-const VERSIONE = '6.37';
+const VERSIONE = '6.38';
 /* 8/11 · l'app si aggiorna da sola (Maurizio: «vedo ancora il quadrato con la doppia finestra»: sul telefono restava la
    versione vecchia anche dopo averla chiusa). Quando torna in primo piano, e ogni 10 minuti, chiede al server quale
    app.js c'è adesso; se è un'altra, ricarica (mai mentre un lavoro AI è in corso) */
@@ -1062,7 +1062,7 @@ It is part of the same old building, so it is built and furnished in the same wa
 `;
 /* 13/11 sera · «ancora più simili, quindi più povere di elementi: armatura simile, torce a parete, stesse pietre, stesse
    travi»: la versione fedele, che copia lo stile della stanza e lascia la sala spoglia come lei */
-const PROMPT_STANZA_FEDELE = PROMPT_STANZA + `Be very faithful to the photos, as if both rooms were built by the same hands at the same time: the walls are the same sandstone ashlar, the ceiling has the same heavy dark wooden beams, the light comes from the same black wrought-iron torch sconces with flame-like lights fixed to the walls, the fireplace has the same cream plastered hood above stone jambs with carved corbels and the same kind of wrought-iron trophy (a shield with crossed halberds, swords and a helmet), the windows have the same pale stone gothic tracery, the chairs are the same dark carved high-backed gothic chairs.
+const PROMPT_STANZA_FEDELE = PROMPT_STANZA + `Be very faithful to the photos, as if both rooms were built by the same hands at the same time: the walls are the same sandstone ashlar, the ceiling is plastered in a warm ochre earth colour with only a few dark wooden beams crossing it (no wooden plank ceiling), the light comes from the same black wrought-iron torch sconces with flame-like lights fixed to the walls, the fireplace has the same cream plastered hood above stone jambs with carved corbels and the same kind of wrought-iron trophy (a shield with crossed halberds, swords and a helmet), the windows have the same pale stone gothic tracery, the chairs are the same dark carved high-backed gothic chairs.
 Keep it SPARSE like the photos: mostly bare stone walls, only a few pieces of furniture and a few objects, empty floor space, no clutter, no hanging hams or herbs, no shelves crowded with jugs, no piles of barrels.
 
 `;
@@ -1408,7 +1408,7 @@ async function bozzeVia(){
         passo(kn, 'ora', x.id + ' · finestrelle…');
         const testo = x.interno ? promptInterno(x.descrizione, x.centro || 'the main counter', stile, x.vista, {luce: x.luce, persone: x.persone, lati: x.lati}) : promptLargo(x.descrizione, stile);
         const rn = rif && x.conStanza !== false
-          ? await Ai.modifica({modello: imp.modello, chiavi: imp.chiavi, qualita, misura: 'tv', foto: rif, prompt: (d.fedele ? PROMPT_STANZA_FEDELE : PROMPT_STANZA) + testo})
+          ? await Ai.modifica({modello: imp.modello, chiavi: imp.chiavi, qualita, misura: 'tv', foto: rif, prompt: (d.fedele ? PROMPT_STANZA_FEDELE : PROMPT_STANZA) + (d.stanzaInPiu ? d.stanzaInPiu + '\n\n' : '') + testo})
           : await Ai.crea({modello: imp.modello, chiavi: imp.chiavi, qualita, misura: 'tv', prompt: testo});
         const nord = await inJpeg(b64aBlob(rn.b64, rn.mime), 1600);
         const urlNord = await caricaBozza(d.chiave, x.id, 'nord', nord);
