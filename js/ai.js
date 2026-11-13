@@ -5,10 +5,14 @@
    ═══════════════════════════════════════════════════════════════════════════ */
 
 const MODELLI_IMMAGINE = [
-  {id:'openai:gpt-image-2',       nome:'GPT Image 2',        fornitore:'openai', note:'Il più recente di OpenAI. Proporzione esatta del foro (2:5).', costo:{alta:.19, media:.05, bassa:.012}},
+  /* 13/11 sera · Maurizio: «aumentiamo risoluzione, dettagli, realismo, ombre, luci». GPT Image 2.5 (OpenAI, 8/9/2026,
+     «sunburst» = il più capace) ha due livelli in più sopra «alta» (xhigh, max) e arriva al 4K (3840×2160).
+     Costi: per immagine alla misura normale; costo4k: alla misura 4K, per livello. */
+  {id:'openai:gpt-image-2.5-sunburst', nome:'GPT Image 2.5', fornitore:'openai', note:'Il più nuovo di OpenAI: luci più credibili e più dettaglio, fino al 4K.', costo:{alta:.06, media:.016, bassa:.007}, costo4k:{alta:.10, altissima:.18, massima:.40, media:.026, bassa:.011}},
+  {id:'openai:gpt-image-2',       nome:'GPT Image 2',        fornitore:'openai', note:'Proporzione esatta del foro (2:5).', costo:{alta:.19, media:.05, bassa:.012}, costo4k:{alta:.40, media:.10, bassa:.025}},
   {id:'openai:gpt-image-1',       nome:'GPT Image 1',        fornitore:'openai', note:'Il modello di DMaster. Verticale 2:3, la finestra taglia i lati.', costo:{alta:.25, media:.063, bassa:.016}},
   {id:'openai:gpt-image-1-mini',  nome:'GPT Image 1 mini',   fornitore:'openai', note:'Economico, per le prove.', costo:{alta:.052, media:.015, bassa:.006}},
-  {id:'google:gemini-3-pro-image-preview', nome:'Nano Banana Pro', fornitore:'google', note:'Google, molto realistico. Verticale 9:16.', costo:{alta:.14, media:.14, bassa:.14}},
+  {id:'google:gemini-3-pro-image-preview', nome:'Nano Banana Pro', fornitore:'google', note:'Google, molto realistico, fino al 4K. Verticale 9:16.', costo:{alta:.14, media:.14, bassa:.14}, costo4k:{alta:.24, altissima:.24, massima:.24, media:.24, bassa:.24}},
   {id:'google:gemini-2.5-flash-image',     nome:'Nano Banana',     fornitore:'google', note:'Google, veloce ed economico. Verticale 9:16.', costo:{alta:.039, media:.039, bassa:.039}},
 ];
 /* Animazioni: Gemini Omni Flash di Google (Interactions API), con la chiave Google.
@@ -61,25 +65,41 @@ const Ai = {
     return m.fornitore === 'google' ? this.googleImmagine(o, m.id.split(':')[1], o.foto) : this.openaiImmagine(o, m.id.split(':')[1], o.foto);
   },
 
+  /* quanto costa un'immagine (grande = 4K, quando il modello ci arriva) */
+  costoDi(id, qualita = 'alta', grande = false){ const m = this.modello(id), t = grande && m.costo4k ? m.costo4k : m.costo; return t[qualita] || t.alta || m.costo.alta; },
+  /* i livelli: bassa, media, alta, altissima (xhigh), massima (max); gli ultimi due solo GPT Image 2.5, gli altri si fermano ad «alta» */
+  livelloOpenai(modello, qualita){ const due5 = /^gpt-image-2\.5/.test(modello);
+    return qualita === 'media' ? 'medium' : qualita === 'bassa' ? 'low' : qualita === 'altissima' && due5 ? 'xhigh' : qualita === 'massima' && due5 ? 'max' : 'high'; },
   rapporto(misura){ return misura === 'orizzontale' ? '21:9' : misura === 'tv' ? '16:9' : '9:16'; },
-  misureOpenai(modello, preferita){
+  misureOpenai(modello, preferita, grande){
+    /* grande: il 4K vero (3840×2160) dove il modello ci arriva (GPT Image 2 e 2.5); se no si scende */
+    if (preferita === 'tv' && grande && /^gpt-image-2/.test(modello)) return ['3840x2160', '2560x1440', '2048x1152', '1536x1024'];
     /* orizzontale: il cielo panoramico (largo 5 per 2) */
-    if (preferita === 'orizzontale') return modello === 'gpt-image-2' ? ['2080x832', '1536x1024'] : ['1536x1024'];
+    if (preferita === 'orizzontale') return /^gpt-image-2/.test(modello) ? ['2080x832', '1536x1024'] : ['1536x1024'];
     /* tv: la vista est del TV, 16:9 (poi il mini PC la porta al 4K vero, pi/cuci-animazione.py) */
-    if (preferita === 'tv') return modello === 'gpt-image-2' ? ['2560x1440', '2048x1152', '1536x1024'] : ['1536x1024'];
-    const tutte = modello === 'gpt-image-2' ? ['832x2080', '1024x1536'] : ['1024x1536'];
+    if (preferita === 'tv') return /^gpt-image-2/.test(modello) ? ['2560x1440', '2048x1152', '1536x1024'] : ['1536x1024'];
+    const tutte = /^gpt-image-2/.test(modello) ? ['832x2080', '1024x1536'] : ['1024x1536'];
     return preferita ? [preferita, ...tutte.filter(x => x !== preferita)] : tutte;
   },
 
   async openaiImmagine(o, modello, foto){
+    try { return await this.openaiUna(o, modello, foto, this.livelloOpenai(modello, o.qualita)); }
+    catch(e){
+      /* GPT Image 2.5 non disponibile su questa chiave (modello sconosciuto o non abilitato): stessa richiesta con GPT Image 2 */
+      if (/^gpt-image-2\.5/.test(modello) && (e.status === 404 || e.status === 403 || (e.status === 400 && /model/i.test(e.testo || '') && /exist|not found|invalid|unsupported|access|verif/i.test(e.testo || ''))))
+        return await this.openaiUna(o, 'gpt-image-2', foto, this.livelloOpenai('gpt-image-2', o.qualita));
+      throw e;
+    }
+  },
+  async openaiUna(o, modello, foto, livello){
     const chiave = (o.chiavi || {}).openai;
     if (!chiave) throw new Error('Serve la chiave OpenAI: mettila nelle Impostazioni.');
     const url = 'https://api.openai.com/v1/images/' + (foto ? 'edits' : 'generations');
     let ultimo = null, flusso = true;
-    for (const misura of this.misureOpenai(modello, o.misura)){
-      for (let giro = 0; giro < 3; giro++){
+    for (const misura of this.misureOpenai(modello, o.misura, o.grande)){
+      for (let giro = 0; giro < 4; giro++){
         let corpo, intest = {'Authorization':'Bearer ' + chiave};
-        const base = {model:modello, prompt:o.prompt, size:misura, quality:o.qualita === 'media' ? 'medium' : o.qualita === 'bassa' ? 'low' : 'high', n:1};
+        const base = {model:modello, prompt:o.prompt, size:misura, quality:livello, n:1};
         if (foto){
           corpo = new FormData(); for (const k in base) corpo.append(k, base[k]);
           corpo.append('image', foto, 'riferimento.' + (foto.type.includes('png') ? 'png' : 'jpg'));
@@ -99,11 +119,12 @@ const Ai = {
           throw this.rete('OpenAI', e);
         }
         if (r.ok){
-          if (b64) return {b64, mime:'image/png', misura};
+          if (b64) return {b64, mime:'image/png', misura, modello};
           ultimo = new Error('OpenAI non ha mandato l\'immagine.'); break;
         }
         ultimo = await this.errore(r, 'OpenAI');
         if (r.status === 400 && /stream|partial/i.test(ultimo.testo || '') && flusso){ flusso = false; continue; }
+        if (r.status === 400 && /quality/i.test(ultimo.testo || '') && (livello === 'xhigh' || livello === 'max')){ livello = 'high'; continue; }   /* livello non accettato: «alta» */
         break;
       }
       if (!(ultimo && ultimo.status === 400 && /size|dimension|resolution/i.test(ultimo.testo || ''))) break;   /* misura non accettata: prova la successiva */
@@ -138,18 +159,59 @@ const Ai = {
     const parti = [];
     if (foto) parti.push({inline_data:{mime_type:foto.type || 'image/jpeg', data: await this.inBase64(foto)}});
     parti.push({text:o.prompt});
-    const richiesta = () => fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modello}:generateContent`, {
-      method:'POST', headers:{'Content-Type':'application/json', 'x-goog-api-key':chiave},
-      body: JSON.stringify({contents:[{parts:parti}], generationConfig:{responseModalities:['IMAGE'], imageConfig:{aspectRatio: Ai.rapporto(o.misura)}}})
-    });
+    /* 13/11 sera · la misura: senza «imageSize» Nano Banana Pro dà solo l'1K (1376×768). 2K normale, 4K se grande
+       (5504×3072 in 16:9). Il 4K ci mette di più: si chiede a flusso, con i «pensieri» del modello che arrivano mentre
+       lavora, così la connessione non resta muta (Safari la chiude dopo un minuto senza dati). */
+    const tre = /^gemini-3/.test(modello);
+    const config = {responseModalities:['IMAGE'], imageConfig: Object.assign({aspectRatio: Ai.rapporto(o.misura)}, tre ? {imageSize: o.grande ? '4K' : '2K'} : {})};
+    const corpo = conPensieri => JSON.stringify({contents:[{parts:parti}], generationConfig: Object.assign({}, config, conPensieri ? {thinkingConfig:{includeThoughts:true}} : {})});
+    const intest = {'Content-Type':'application/json', 'x-goog-api-key':chiave};
+    const base = `https://generativelanguage.googleapis.com/v1beta/models/${modello}`;
+    if (tre){
+      for (const conPensieri of [true, false]){
+        let r;
+        try { r = await fetch(base + ':streamGenerateContent?alt=sse', {method:'POST', headers:intest, body: corpo(conPensieri)}); }
+        catch(e) { break; }                                     /* la rete: si riprova sotto, senza flusso */
+        if (!r.ok){
+          const e = await this.errore(r, 'Google');
+          if (r.status === 400 && conPensieri && /think|thought/i.test(e.testo || '')) continue;
+          if (r.status === 400 || r.status === 404) break;      /* il flusso non va: si prova la richiesta normale */
+          throw e;
+        }
+        const lettore = r.body.getReader(), dec = new TextDecoder();
+        let resto = '', finale = null, fine = '';
+        for (;;){
+          const {value, done} = await lettore.read(); if (done) break;
+          resto += dec.decode(value, {stream:true});
+          let k;
+          while ((k = resto.search(/\r?\n\r?\n/)) >= 0){
+            const blocco = resto.slice(0, k); resto = resto.slice(k).replace(/^\r?\n\r?\n/, '');
+            const dati = blocco.split(/\r?\n/).filter(l => l.startsWith('data:')).map(l => l.slice(5).trim()).join('');
+            if (!dati) continue;
+            let ev; try { ev = JSON.parse(dati); } catch(e) { continue; }
+            if (ev.error){ const finto = {status: ev.error.code || 400, text: async () => JSON.stringify({error: ev.error})}; throw await this.errore(finto, 'Google'); }
+            for (const c of ev.candidates || []){
+              if (c.finishReason) fine = c.finishReason;
+              for (const x of (c.content && c.content.parts) || []){
+                const d = x.inlineData || x.inline_data;
+                if (d && !x.thought) finale = d; else if (d && o.bozza) o.bozza(d.data);
+              }
+            }
+          }
+        }
+        if (finale) return {b64:finale.data, mime:finale.mimeType || finale.mime_type || 'image/png', misura: Ai.rapporto(o.misura), modello};
+        throw new Error('Google non ha mandato l\'immagine' + (fine ? ' (' + fine + ')' : '') + '.');
+      }
+    }
+    const richiesta = () => fetch(base + ':generateContent', {method:'POST', headers:intest, body: corpo(false)});
     let r;
     try { r = await richiesta(); } catch(e) { try { r = await richiesta(); } catch(e2) { throw this.rete('Google', e2); } }
     if (!r.ok) throw await this.errore(r, 'Google');
     const j = await r.json();
-    const p = (j.candidates || []).flatMap(c => (c.content && c.content.parts) || []).find(x => (x.inlineData || x.inline_data));
+    const p = (j.candidates || []).flatMap(c => (c.content && c.content.parts) || []).filter(x => (x.inlineData || x.inline_data) && !x.thought).pop();
     const d = p && (p.inlineData || p.inline_data);
     if (!d) throw new Error('Google non ha mandato l\'immagine' + (j.candidates && j.candidates[0] && j.candidates[0].finishReason ? ' (' + j.candidates[0].finishReason + ')' : '') + '.');
-    return {b64:d.data, mime:d.mimeType || d.mime_type || 'image/png', misura: Ai.rapporto(o.misura)};
+    return {b64:d.data, mime:d.mimeType || d.mime_type || 'image/png', misura: Ai.rapporto(o.misura), modello};
   },
 
   inBase64(blob){ return new Promise((ok, no) => { const fr = new FileReader(); fr.onload = () => ok(String(fr.result).split(',')[1]); fr.onerror = no; fr.readAsDataURL(blob); }); },

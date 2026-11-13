@@ -9,7 +9,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
 const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 const euro = n => (n < .1 ? n.toFixed(3) : n.toFixed(2)).replace('.', ',') + ' $';
-const VERSIONE = '6.38';
+const VERSIONE = '6.39';
 /* 8/11 · l'app si aggiorna da sola (Maurizio: «vedo ancora il quadrato con la doppia finestra»: sul telefono restava la
    versione vecchia anche dopo averla chiusa). Quando torna in primo piano, e ogni 10 minuti, chiede al server quale
    app.js c'è adesso; se è un'altra, ricarica (mai mentre un lavoro AI è in corso) */
@@ -914,7 +914,8 @@ const STILI = [
      più realistico» — interni raccolti a lume di candela, ombre profonde, bagliori ambra, oggetti nitidi */
   {id:'lume', nome:'Lume di candela', nota:'Buio e raccolto, candele e camino, ombre profonde: realistico.',
    tela:'radial-gradient(30% 30% at 35% 45%,#ffcf7a 0,#c8742a 35%,transparent 70%),linear-gradient(180deg,#1a120c 0,#2e2016 60%,#0e0a07 100%)',
-   prefisso:'Photorealistic, highly detailed render of a medieval fantasy interior with physically based materials and realistic exposure: dark and intimate, lit mainly by candles, iron lanterns and the hearth fire; warm amber and honey glow with soft halos around the flames, deep clean shadows that fall to near black in the corners, a faint smoky haze near the floor; crisp textures on rough stone, old worn wood, pewter, ceramics, bread and wax, with subtle imperfections, wear and dust; realistic proportions and scale, not glossy, not plastic, not cartoonish'},
+   /* 13/11 notte · «si vede che è finto… aumentiamo dettagli, realismo, ombre, luci»: non più «render» ma una foto vera */
+   prefisso:'An unretouched night photograph of a real, centuries-old medieval interior, shot on location with a full-frame camera and a 24 mm lens at f/2.8, ISO 3200, lit only by real flames (candles, wall torches, the hearth): dark and intimate, warm amber light with a fast natural falloff, deep true shadows that fall to near black in the corners, a soft glow around each flame and faint wood smoke in the air; every surface is a real, aged material in sharp fine detail: rough hand-cut stone with chipped edges and crumbling recessed mortar, lime plaster with hairline cracks, stains and soot, old wood with deep grain, scratches, worn edges and wax drips, dented pewter; nothing looks modelled, rendered or new: not CGI, not a 3D render, not a video game, no perfectly straight edges, no repeated textures, no plastic or uniform surfaces'},
   {id:'fiaba', nome:'Illustrazione fantasy', nota:'Calda, colorata e accogliente: si vede che è un\'illustrazione.',
    tela:'radial-gradient(50% 50% at 50% 40%,#ffd27a 0,#e07a3a 45%,transparent 70%),linear-gradient(180deg,#3a5a8a 0,#7a4a8a 100%)',
    prefisso:'Warm and cosy high-end fantasy illustration, like premium storybook or video game concept art: rich saturated colours, crisp clean shapes and detail, bright and inviting light, cheerful atmosphere'}
@@ -1062,7 +1063,7 @@ It is part of the same old building, so it is built and furnished in the same wa
 `;
 /* 13/11 sera · «ancora più simili, quindi più povere di elementi: armatura simile, torce a parete, stesse pietre, stesse
    travi»: la versione fedele, che copia lo stile della stanza e lascia la sala spoglia come lei */
-const PROMPT_STANZA_FEDELE = PROMPT_STANZA + `Be very faithful to the photos, as if both rooms were built by the same hands at the same time: the walls are the same sandstone ashlar, the ceiling is plastered in a warm ochre earth colour with only a few dark wooden beams crossing it (no wooden plank ceiling), the light comes from the same black wrought-iron torch sconces with flame-like lights fixed to the walls, the fireplace has the same cream plastered hood above stone jambs with carved corbels and the same kind of wrought-iron trophy (a shield with crossed halberds, swords and a helmet), the windows have the same pale stone gothic tracery, the chairs are the same dark carved high-backed gothic chairs.
+const PROMPT_STANZA_FEDELE = PROMPT_STANZA + `Be very faithful to the photos, as if both rooms were built by the same hands at the same time: the walls are the same sandstone ashlar, the ceiling is plastered in a warm ochre earth colour with only a few dark wooden beams crossing it (no wooden plank ceiling), the light comes from the same black wrought-iron torch sconces fixed to the walls, here with real burning flames, the fireplace has the same cream plastered hood above stone jambs with carved corbels and the same kind of wrought-iron trophy (a shield with crossed halberds, swords and a helmet), the windows have the same pale stone gothic tracery, the chairs are the same dark carved high-backed gothic chairs.
 Keep it SPARSE like the photos: mostly bare stone walls, only a few pieces of furniture and a few objects, empty floor space, no clutter, no hanging hams or herbs, no shelves crowded with jugs, no piles of barrels.
 
 `;
@@ -1362,7 +1363,11 @@ function chiediCrea(d){
    finestre/banco/bozza-<chiave>-<opzione>-<vista>.jpg, così Claude le vede. */
 let bozzeStato = leggi('atm-bozze', null);
 const salvaBozze = () => scrivi('atm-bozze', bozzeStato);
-const costoBozze = (n, d = {}) => { const m = Ai.modello(imp.modello); return n * (d.soloFinestrelle ? 1 : 2) * (m.fornitore === 'openai' ? m.costo[d.qualita || 'bassa'] : m.costo.alta); };
+/* 13/11 sera · ogni opzione può avere il suo modello, il suo livello e il 4K («grande»): così si confrontano anche i modelli */
+const bozzaModello = (x, d) => x.modello || d.modello || imp.modello;
+const bozzaQualita = (x, d) => x.qualita || d.qualita || 'bassa';
+const bozzaGrande = (x, d) => !!(x.grande != null ? x.grande : d.grande);
+const costoBozze = (n, d = {}) => (d.opzioni || []).reduce((a, x) => a + (d.soloFinestrelle ? 1 : 2) * Ai.costoDi(bozzaModello(x, d), bozzaQualita(x, d), bozzaGrande(x, d)), 0) || n * (d.soloFinestrelle ? 1 : 2) * Ai.costoDi(imp.modello, d.qualita || 'bassa');
 function costoDaBozza(interno){
   const m = Ai.modello(imp.modello), mv = MODELLI_VIDEO.find(x => x.id === imp.video.modello) || MODELLI_VIDEO[0] || {euroSecondo: 0};
   const unaVista = (m.costo[imp.qualita] || m.costo.alta) * (1 + 3 * 1.15), nVideo = MODELLI_VIDEO.length ? nVideoCrea() : 0;
@@ -1374,13 +1379,14 @@ function chiediBozze(d){
     if (bozzeStato.scelta) return;
     if (d.opzioni.every(x => (bozzeStato.fatte || {})[x.id])){ mostraBozze(d); return; }
   }
-  const m = Ai.modello(imp.modello), ok = !!imp.chiavi[m.fornitore], costo = costoBozze(d.opzioni.length, d);
+  const forn = [...new Set(d.opzioni.map(x => Ai.modello(bozzaModello(x, d)).fornitore))], manca = forn.filter(f => !imp.chiavi[f]);
+  const m = {fornitore: manca[0] || forn[0]}, ok = manca.length < forn.length, costo = costoBozze(d.opzioni.length, d);
   apriFoglio(`<h3 class="foglio-titolo">Bozze · ${esc(d.titolo || 'paesaggio nuovo')}</h3>
     <p class="nota" style="margin-top:0">${esc(d.spiega || d.opzioni.length + ' opzioni, ferme e a bassa qualità: per ognuna la vista delle finestrelle e quella del TV. Scegli guardandole; poi creo davvero solo quella che ti piace.')}</p>
-    <ul class="membri">${d.opzioni.map(x => `<li><span><b>${esc(x.id)} · ${esc(x.nome)}</b><small>${x.notaIt ? esc(x.notaIt) : 'Finestrelle: ' + esc(x.centroIt || '') + '<br>TV: ' + esc(x.descEstIt || '')}</small></span></li>`).join('')}</ul>
+    <ul class="membri">${d.opzioni.map(x => `<li><span><b>${esc(x.id)} · ${esc(x.nome)}</b><small>${x.notaIt ? esc(x.notaIt) : 'Finestrelle: ' + esc(x.centroIt || '') + '<br>TV: ' + esc(x.descEstIt || '')}${x.modello || d.modello ? '<br>' + esc(Ai.modello(bozzaModello(x, d)).nome) + (bozzaGrande(x, d) ? ' · 4K' : '') + (imp.chiavi[Ai.modello(bozzaModello(x, d)).fornitore] ? '' : ' · manca la chiave') : ''}</small></span></li>`).join('')}</ul>
     <button class="btn oro piena" style="margin-top:14px" data-fai="bozzeVia"${ok ? '' : ' disabled'}>${icona('pennello', 18)}Fai le bozze · ≈ ${euro(costo)}</button>
     ${ok ? '' : `<p class="nota">Manca la chiave ${m.fornitore === 'google' ? 'Google' : 'OpenAI'} nelle Impostazioni.</p>`}
-    <p class="nota">Ci vogliono uno o due minuti. Le bozze restano: le riapri da questo foglio finché non scegli.</p>
+    <p class="nota">${d.grande || d.opzioni.some(x => x.grande) ? 'In 4K ci vogliono alcuni minuti: tieni l\'app aperta e lo schermo acceso.' : 'Ci vogliono uno o due minuti.'} Le bozze restano: le riapri da questo foglio finché non scegli.</p>
     <div id="lavoroFoglio"></div>`);
   foglioAperto = 'bozze'; chiediBozze.d = d;
   rapportoLavoro({messaggio: 'bozze in attesa di «Fai le bozze»', costo: Math.round(costo * 1000) / 1000});
@@ -1404,23 +1410,25 @@ async function bozzeVia(){
       if (d.riferimento){ try { const r = await fetch(d.riferimento, {cache: 'no-store'}); if (r.ok) rif = await r.blob(); } catch(e) {} if (!rif) throw new Error('Non riesco a scaricare la foto della stanza: riprova.'); }
       await Promise.all(d.opzioni.map(async x => {
         if ((bozzeStato.fatte || {})[x.id]) return;
-        const kn = 'b-' + x.id + '-n', ke = 'b-' + x.id + '-e', stile = x.stile || d.stile || imp.stile, qualita = d.qualita || 'bassa';
-        passo(kn, 'ora', x.id + ' · finestrelle…');
+        const kn = 'b-' + x.id + '-n', ke = 'b-' + x.id + '-e', stile = x.stile || d.stile || imp.stile;
+        const qualita = bozzaQualita(x, d), modello = bozzaModello(x, d), grande = bozzaGrande(x, d), lato = grande ? 3840 : 1600, mm = Ai.modello(modello);
+        if (!imp.chiavi[mm.fornitore]){ passo(kn, 'errore', x.id + ' · manca la chiave ' + (mm.fornitore === 'google' ? 'Google' : 'OpenAI')); return; }
+        passo(kn, 'ora', x.id + ' · finestrelle' + (grande ? ' in 4K' : '') + '…');
         const testo = x.interno ? promptInterno(x.descrizione, x.centro || 'the main counter', stile, x.vista, {luce: x.luce, persone: x.persone, lati: x.lati}) : promptLargo(x.descrizione, stile);
         const rn = rif && x.conStanza !== false
-          ? await Ai.modifica({modello: imp.modello, chiavi: imp.chiavi, qualita, misura: 'tv', foto: rif, prompt: (d.fedele ? PROMPT_STANZA_FEDELE : PROMPT_STANZA) + (d.stanzaInPiu ? d.stanzaInPiu + '\n\n' : '') + testo})
-          : await Ai.crea({modello: imp.modello, chiavi: imp.chiavi, qualita, misura: 'tv', prompt: testo});
-        const nord = await inJpeg(b64aBlob(rn.b64, rn.mime), 1600);
+          ? await Ai.modifica({modello, chiavi: imp.chiavi, qualita, grande, misura: 'tv', foto: rif, prompt: (d.fedele ? PROMPT_STANZA_FEDELE : PROMPT_STANZA) + (d.stanzaInPiu ? d.stanzaInPiu + '\n\n' : '') + testo})
+          : await Ai.crea({modello, chiavi: imp.chiavi, qualita, grande, misura: 'tv', prompt: testo});
+        const nord = await inJpeg(b64aBlob(rn.b64, rn.mime), lato), chi = mm.nome + (rn.modello && !mm.id.endsWith(rn.modello) ? ' (fatta con ' + rn.modello + ')' : '');
         const urlNord = await caricaBozza(d.chiave, x.id, 'nord', nord);
         passo(kn, 'fatto', x.id + ' · finestrelle');
-        if (d.soloFinestrelle){ bozzeStato.fatte[x.id] = {nord: urlNord}; salvaBozze(); rapportoLavoro({bozze: bozzeStato.fatte}); return; }
+        if (d.soloFinestrelle){ bozzeStato.fatte[x.id] = {nord: urlNord, chi, grande}; salvaBozze(); rapportoLavoro({bozze: bozzeStato.fatte}); return; }
         passo(ke, 'ora', x.id + ' · TV…');
-        const re = await Ai.modifica({modello: imp.modello, chiavi: imp.chiavi, qualita, misura: 'tv', foto: nord,
+        const re = await Ai.modifica({modello, chiavi: imp.chiavi, qualita, grande, misura: 'tv', foto: nord,
           prompt: x.interno ? promptEstInterno(x.descEst, x.vista) : promptEst(x.descEst || '')});
-        const est = await inJpeg(b64aBlob(re.b64, re.mime), 1600);
+        const est = await inJpeg(b64aBlob(re.b64, re.mime), lato);
         const urlEst = await caricaBozza(d.chiave, x.id, 'est', est);
         passo(ke, 'fatto', x.id + ' · TV');
-        bozzeStato.fatte[x.id] = {nord: urlNord, est: urlEst}; salvaBozze(); rapportoLavoro({bozze: bozzeStato.fatte});
+        bozzeStato.fatte[x.id] = {nord: urlNord, est: urlEst, chi, grande}; salvaBozze(); rapportoLavoro({bozze: bozzeStato.fatte});
       }));
     });
   } finally { rapportoLavoro({messaggio: lavoro && lavoro.errore ? 'bozze: errore ' + lavoro.errore : 'bozze pronte', bozze: bozzeStato.fatte}); }
@@ -1429,13 +1437,14 @@ async function bozzeVia(){
 function mostraBozze(d){
   const f = (bozzeStato && bozzeStato.fatte) || {}, costo = costoDaBozza(d.opzioni.some(x => x.interno));
   apriFoglio(`<h3 class="foglio-titolo">Bozze · ${esc(d.titolo || 'paesaggio nuovo')}</h3>
-    <p class="nota" style="margin-top:0">Sopra la vista larga delle finestrelle: i due riquadri dorati sono, all'incirca, quello che si vede da ciascuna finestrella. Sotto il TV. Sono bozze: la versione vera ha più dettaglio e la stessa composizione.</p>
+    <p class="nota" style="margin-top:0">${d.scopo === 'stile' ? esc(d.spiega || '') : 'Sopra la vista larga delle finestrelle: i due riquadri dorati sono, all\'incirca, quello che si vede da ciascuna finestrella. Sotto il TV. Sono bozze: la versione vera ha più dettaglio e la stessa composizione.'} Tocca un'immagine per vederla a piena risoluzione e ingrandirla.</p>
     ${d.opzioni.map(x => { const b = f[x.id]; return `<div class="bozza">
       <b>${esc(x.id)} · ${esc(x.nome)}</b>
       ${x.notaIt ? `<p class="nota" style="margin:0 0 8px">${esc(x.notaIt)}</p>` : ''}
-      ${b ? `<div class="bozza-nord"><img alt="Finestrelle ${esc(x.id)}" src="${esc(b.nord)}">${d.scopo === 'stile' ? '' : '<i class="sx"></i><i class="dx"></i>'}<span>${d.scopo === 'stile' ? esc(x.nome) : 'Finestrelle'}</span></div>
-      ${b.est ? `<div class="bozza-est"><img alt="TV ${esc(x.id)}" src="${esc(b.est)}"><span>TV</span></div>` : ''}
-      ${d.scopo === 'stile' ? `<button class="btn oro piena" data-fai="bozzaStile" data-v="${esc(x.id)}">${icona('pennello', 18)}Uso questo stile</button>`
+      ${b && b.chi ? `<p class="nota" style="margin:0 0 6px">${esc(b.chi)}${b.grande ? ' · 4K' : ''}</p>` : ''}
+      ${b ? `<a class="bozza-nord" href="${esc(b.nord)}" target="_blank" rel="noopener"><img alt="Finestrelle ${esc(x.id)}" src="${esc(b.nord)}">${d.scopo === 'stile' ? '' : '<i class="sx"></i><i class="dx"></i>'}<span>${d.scopo === 'stile' ? esc(x.nome) : 'Finestrelle'}</span></a>
+      ${b.est ? `<a class="bozza-est" href="${esc(b.est)}" target="_blank" rel="noopener"><img alt="TV ${esc(x.id)}" src="${esc(b.est)}"><span>TV</span></a>` : ''}
+      ${d.scopo === 'stile' ? `<button class="btn oro piena" data-fai="bozzaStile" data-v="${esc(x.id)}">${icona('pennello', 18)}${esc(d.bottone || 'Uso questo stile')}</button>`
         : `<button class="btn oro piena" data-fai="bozzaScelta" data-v="${esc(x.id)}">${icona('scintilla', 18)}Scelgo questa · ≈ ${euro(costo)}</button>`}` : '<p class="nota">Non riuscita: ' + esc((lavoro && lavoro.errore) || 'riprova') + '</p>'}
     </div>`; }).join('')}
     <div id="lavoroFoglio"></div>`);
@@ -1449,7 +1458,7 @@ async function bozzaScelta(id){
   const prendi = async u => { const r = await fetch(u, {cache: 'no-store'}); if (!r.ok) throw new Error('Bozza non trovata (' + r.status + ')'); return await r.blob(); };
   const t = setInterval(() => rapportoLavoro(), 20000);
   try {
-    const nord = await prendi(b.nord), est = await prendi(b.est);
+    const nord = await prendi(b.nord), est = b.est ? await prendi(b.est) : null;
     rapportoLavoro({messaggio: 'scelta la bozza ' + id + ': creo'});
     await creaPaesaggio(Object.assign({}, x, {stile: x.stile || d.stile, bozza: {nord, est}}));
   } catch(e) { bozzeStato.scelta = null; salvaBozze(); avviso(e.message, true); }
@@ -2523,8 +2532,8 @@ const AZIONI = {
   bozzaScelta: v => bozzaScelta(v),
   /* le bozze degli stili: la scelta la legge Claude (lavoro-telefono.json) e rifà le bozze della taverna in quello stile */
   bozzaStile: v => { const d = bozzeStato && bozzeStato.richiesta, x = d && d.opzioni.find(y => y.id === v); if (!x) return;
-    bozzeStato.scelta = v; salvaBozze(); rapportoLavoro({messaggio: 'stile scelto: ' + (x.stile || v), stileScelto: x.stile || v});
-    chiudiFoglio(); avviso('Stile scelto: ' + x.nome + '. Claude rifà le bozze in questo stile.'); },
+    bozzeStato.scelta = v; salvaBozze(); rapportoLavoro({messaggio: 'scelta la bozza ' + v + ' · ' + x.nome, stileScelto: x.stile || v, sceltaBozza: v, chiave: d.chiave});
+    chiudiFoglio(); avviso(d.bottone ? 'Scelta: ' + x.nome + '. Claude prepara il resto così.' : 'Stile scelto: ' + x.nome + '. Claude rifà le bozze in questo stile.'); },
   bozzeRivedi: () => { const d = leggi('atm-bozze', null); if (d && d.richiesta) mostraBozze(d.richiesta); },
   modello: v => { imp.modello = v; salvaImp(); disegnaImpostazioni(); },
   qualita: v => { imp.qualita = v; salvaImp(); disegnaImpostazioni(); },
