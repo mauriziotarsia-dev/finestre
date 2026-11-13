@@ -9,7 +9,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
 const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 const euro = n => (n < .1 ? n.toFixed(3) : n.toFixed(2)).replace('.', ',') + ' $';
-const VERSIONE = '6.34';
+const VERSIONE = '6.35';
 /* 8/11 · l'app si aggiorna da sola (Maurizio: «vedo ancora il quadrato con la doppia finestra»: sul telefono restava la
    versione vecchia anche dopo averla chiusa). Quando torna in primo piano, e ogni 10 minuti, chiede al server quale
    app.js c'è adesso; se è un'altra, ricarica (mai mentre un lavoro AI è in corso) */
@@ -910,6 +910,11 @@ const STILI = [
   {id:'film', nome:'Film in costume', nota:'Come un fotogramma di un grande film storico, luce naturale.',
    tela:'linear-gradient(180deg,#2f3d46 0,#b88a52 48%,#5a4430 52%,#1f1a14 100%)',
    prefisso:'Still frame from a big-budget historical film, cinematic but bright and naturally exposed, realistic set dressing, practical light from fire and windows mixed with soft daylight, natural colour grading, sharp focus, no heavy darkness and no crushed blacks'},
+  /* 13/11 sera · Maurizio, con quattro immagini di esempio: «proverei con taverne più scure, vedi questo stile, reso un po'
+     più realistico» — interni raccolti a lume di candela, ombre profonde, bagliori ambra, oggetti nitidi */
+  {id:'lume', nome:'Lume di candela', nota:'Buio e raccolto, candele e camino, ombre profonde: realistico.',
+   tela:'radial-gradient(30% 30% at 35% 45%,#ffcf7a 0,#c8742a 35%,transparent 70%),linear-gradient(180deg,#1a120c 0,#2e2016 60%,#0e0a07 100%)',
+   prefisso:'Photorealistic, highly detailed render of a medieval fantasy interior with physically based materials and realistic exposure: dark and intimate, lit mainly by candles, iron lanterns and the hearth fire; warm amber and honey glow with soft halos around the flames, deep clean shadows that fall to near black in the corners, a faint smoky haze near the floor; crisp textures on rough stone, old worn wood, pewter, ceramics, bread and wax, with subtle imperfections, wear and dust; realistic proportions and scale, not glossy, not plastic, not cartoonish'},
   {id:'fiaba', nome:'Illustrazione fantasy', nota:'Calda, colorata e accogliente: si vede che è un\'illustrazione.',
    tela:'radial-gradient(50% 50% at 50% 40%,#ffd27a 0,#e07a3a 45%,transparent 70%),linear-gradient(180deg,#3a5a8a 0,#7a4a8a 100%)',
    prefisso:'Warm and cosy high-end fantasy illustration, like premium storybook or video game concept art: rich saturated colours, crisp clean shapes and detail, bright and inviting light, cheerful atmosphere'}
@@ -1047,16 +1052,18 @@ const LUCI_INTERNO = {
 };
 /* vista: da dove si guarda (13/11, le tre proposte: dall'alto, all'altezza degli occhi, dalla galleria del primo piano) */
 const VISTA_INTERNO = 'seen through a small window high in the wall of the room next door: the viewer looks into the room from above, slightly downward, as if peeking from an upper floor';
-function promptInterno(descrizione, centro, stile, vista){
+/* o: {luce (al posto della luce del giorno), persone ('' = nessuno)} */
+function promptInterno(descrizione, centro, stile, vista, o = {}){
   const s = STILI.find(x => x.id === stile) || STILI[0];
+  const persone = o.persone != null ? o.persone : 'A few patrons sit at the tables in the middle distance, seen small, calm, dressed in medieval clothes; nobody looks at the viewer, nobody stands close.';
   return `${s.prefisso}.
 One wide picture (16:9) of the inside of ${descrizione}, ${vista || VISTA_INTERNO}.
 The picture IS the view itself: no window frame, no wall edge, no curtains, no sill, nothing of the viewer's room in the foreground.
 Composition: ${centro} stands EXACTLY at the horizontal centre of the picture, compact, about one tenth of the picture width, fully visible. On both sides the room continues and is rich and interesting on its own: tables and benches, barrels, shelves with jugs and plates, hanging herbs and hams, iron candle chandeliers, rough stone walls and heavy dark wooden beams. Believable scale, natural perspective, depth with several layers (near, middle, far).
-A few patrons sit at the tables in the middle distance, seen small, calm, dressed in medieval clothes; nobody looks at the viewer, nobody stands close.
-Well lit and clearly readable everywhere: bright, natural exposure, visible details also in the corners, no murky darkness, no heavy brown haze, no dark vignetting.
+${persone || 'Nobody is in the room: the place is ready and waiting, candles lit, food and drinks on the tables.'}
+${o.luce ? 'Dark and intimate but never muddy or grey: clean deep shadows and warm, saturated pools of light; everything the light touches is crisp and detailed.' : 'Well lit and clearly readable everywhere: bright, natural exposure, visible details also in the corners, no murky darkness, no heavy brown haze, no dark vignetting.'}
 No text, no signs with letters, no signature, no watermark, no border, no vignette.
-${LUCI_INTERNO.giorno}`;
+${o.luce || LUCI_INTERNO.giorno}`;
 }
 const promptEstInterno = (desc, vista) => `The input image shows the inside of a room seen from a window in one of its walls. Paint the SAME room seen from another window in the next wall, 90 degrees to the right, from the same height, as one wide picture (16:9, like a large window).
 It is the same room: same walls, beams, floor, furniture style, same people's clothing, same light and time of day, same painting style, palette and level of detail. What is at the centre of the input image is NOT in this view (it stays far to the left, out of frame).
@@ -1383,7 +1390,7 @@ async function bozzeVia(){
         const kn = 'b-' + x.id + '-n', ke = 'b-' + x.id + '-e', stile = x.stile || d.stile || imp.stile, qualita = d.qualita || 'bassa';
         passo(kn, 'ora', x.id + ' · finestrelle…');
         const rn = await Ai.crea({modello: imp.modello, chiavi: imp.chiavi, qualita, misura: 'tv',
-          prompt: x.interno ? promptInterno(x.descrizione, x.centro || 'the main counter', stile, x.vista) : promptLargo(x.descrizione, stile)});
+          prompt: x.interno ? promptInterno(x.descrizione, x.centro || 'the main counter', stile, x.vista, {luce: x.luce, persone: x.persone}) : promptLargo(x.descrizione, stile)});
         const nord = await inJpeg(b64aBlob(rn.b64, rn.mime), 1600);
         const urlNord = await caricaBozza(d.chiave, x.id, 'nord', nord);
         passo(kn, 'fatto', x.id + ' · finestrelle');
@@ -1535,7 +1542,7 @@ async function creaPaesaggio(o){
     const anteprima = b64 => { L.anteprime.giorno = {url:'data:image/png;base64,' + b64, bozza:true}; disegnaLavoro(); };
     const r = o.bozza
       ? await Ai.modifica({modello:imp.modello, chiavi:imp.chiavi, qualita:imp.qualita, prompt: PROMPT_RIFINISCI, foto: o.bozza.nord, misura:'tv', bozza: anteprima})
-      : await Ai.crea({modello:imp.modello, chiavi:imp.chiavi, qualita:imp.qualita, prompt: interno ? promptInterno(descrizione, o.centro || 'the main counter', stile, o.vista) : largo ? promptLargo(descrizione, stile) : promptBase(descrizione, stile), misura: largo ? 'tv' : undefined, bozza: anteprima});
+      : await Ai.crea({modello:imp.modello, chiavi:imp.chiavi, qualita:imp.qualita, prompt: interno ? promptInterno(descrizione, o.centro || 'the main counter', stile, o.vista, {luce: o.luce, persone: o.persone}) : largo ? promptLargo(descrizione, stile) : promptBase(descrizione, stile), misura: largo ? 'tv' : undefined, bozza: anteprima});
     const jpg = await inJpeg(b64aBlob(r.b64, r.mime));
     p.immagini.giorno = await caricaLuce(casa, p, 'giorno', jpg);
     L.anteprime.giorno = {url:p.immagini.giorno}; passo('giorno', 'fatto', 'Giorno'); L.p = p;
