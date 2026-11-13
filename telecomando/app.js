@@ -9,7 +9,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
 const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 const euro = n => (n < .1 ? n.toFixed(3) : n.toFixed(2)).replace('.', ',') + ' $';
-const VERSIONE = '6.36';
+const VERSIONE = '6.37';
 /* 8/11 · l'app si aggiorna da sola (Maurizio: «vedo ancora il quadrato con la doppia finestra»: sul telefono restava la
    versione vecchia anche dopo averla chiusa). Quando torna in primo piano, e ogni 10 minuti, chiede al server quale
    app.js c'è adesso; se è un'altra, ricarica (mai mentre un lavoro AI è in corso) */
@@ -1060,14 +1060,20 @@ const PROMPT_STANZA = `The input image is ONLY A REFERENCE: three photos of the 
 It is part of the same old building, so it is built and furnished in the same way: the same warm sandstone ashlar blocks (same honey-beige colour, same block size, same rough chiselled texture and pale mortar joints), the same carved pale stone gothic tracery details, the same black wrought-iron torch sconces with flames, the same heavy dark carved wood; where there is a fireplace it has a tall plastered hood like in the photos, decorated with a wrought-iron heraldic trophy of a shield, crossed swords and halberds. Match the warm amber colour temperature of the photos.
 
 `;
-/* o: {luce (al posto della luce del giorno), persone ('' = nessuno)} */
+/* 13/11 sera · «ancora più simili, quindi più povere di elementi: armatura simile, torce a parete, stesse pietre, stesse
+   travi»: la versione fedele, che copia lo stile della stanza e lascia la sala spoglia come lei */
+const PROMPT_STANZA_FEDELE = PROMPT_STANZA + `Be very faithful to the photos, as if both rooms were built by the same hands at the same time: the walls are the same sandstone ashlar, the ceiling has the same heavy dark wooden beams, the light comes from the same black wrought-iron torch sconces with flame-like lights fixed to the walls, the fireplace has the same cream plastered hood above stone jambs with carved corbels and the same kind of wrought-iron trophy (a shield with crossed halberds, swords and a helmet), the windows have the same pale stone gothic tracery, the chairs are the same dark carved high-backed gothic chairs.
+Keep it SPARSE like the photos: mostly bare stone walls, only a few pieces of furniture and a few objects, empty floor space, no clutter, no hanging hams or herbs, no shelves crowded with jugs, no piles of barrels.
+
+`;
+/* o: {luce (al posto della luce del giorno), persone ('' = nessuno), lati (com'è la sala ai lati del centro)} */
 function promptInterno(descrizione, centro, stile, vista, o = {}){
   const s = STILI.find(x => x.id === stile) || STILI[0];
   const persone = o.persone != null ? o.persone : 'A few patrons sit at the tables in the middle distance, seen small, calm, dressed in medieval clothes; nobody looks at the viewer, nobody stands close.';
   return `${s.prefisso}.
 One wide picture (16:9) of the inside of ${descrizione}, ${vista || VISTA_INTERNO}.
 The picture IS the view itself: no window frame, no wall edge, no curtains, no sill, nothing of the viewer's room in the foreground.
-Composition: ${centro} stands EXACTLY at the horizontal centre of the picture, compact, about one tenth of the picture width, fully visible. On both sides the room continues and is rich and interesting on its own: tables and benches, barrels, shelves with jugs and plates, hanging herbs and hams, iron candle chandeliers, rough stone walls and heavy dark wooden beams. Believable scale, natural perspective, depth with several layers (near, middle, far).
+Composition: ${centro} stands EXACTLY at the horizontal centre of the picture, compact, about one tenth of the picture width, fully visible. On both sides the room continues${o.lati ? ': ' + o.lati : ' and is rich and interesting on its own: tables and benches, barrels, shelves with jugs and plates, hanging herbs and hams, iron candle chandeliers, rough stone walls and heavy dark wooden beams'}. Believable scale, natural perspective, depth with several layers (near, middle, far).
 ${persone || 'Nobody is in the room: the place is ready and waiting, candles lit, food and drinks on the tables.'}
 ${o.luce ? 'Dark and intimate but never muddy or grey: clean deep shadows and warm, saturated pools of light; everything the light touches is crisp and detailed.' : 'Well lit and clearly readable everywhere: bright, natural exposure, visible details also in the corners, no murky darkness, no heavy brown haze, no dark vignetting.'}
 No text, no signs with letters, no signature, no watermark, no border, no vignette.
@@ -1400,9 +1406,9 @@ async function bozzeVia(){
         if ((bozzeStato.fatte || {})[x.id]) return;
         const kn = 'b-' + x.id + '-n', ke = 'b-' + x.id + '-e', stile = x.stile || d.stile || imp.stile, qualita = d.qualita || 'bassa';
         passo(kn, 'ora', x.id + ' · finestrelle…');
-        const testo = x.interno ? promptInterno(x.descrizione, x.centro || 'the main counter', stile, x.vista, {luce: x.luce, persone: x.persone}) : promptLargo(x.descrizione, stile);
+        const testo = x.interno ? promptInterno(x.descrizione, x.centro || 'the main counter', stile, x.vista, {luce: x.luce, persone: x.persone, lati: x.lati}) : promptLargo(x.descrizione, stile);
         const rn = rif && x.conStanza !== false
-          ? await Ai.modifica({modello: imp.modello, chiavi: imp.chiavi, qualita, misura: 'tv', foto: rif, prompt: PROMPT_STANZA + testo})
+          ? await Ai.modifica({modello: imp.modello, chiavi: imp.chiavi, qualita, misura: 'tv', foto: rif, prompt: (d.fedele ? PROMPT_STANZA_FEDELE : PROMPT_STANZA) + testo})
           : await Ai.crea({modello: imp.modello, chiavi: imp.chiavi, qualita, misura: 'tv', prompt: testo});
         const nord = await inJpeg(b64aBlob(rn.b64, rn.mime), 1600);
         const urlNord = await caricaBozza(d.chiave, x.id, 'nord', nord);
@@ -1555,7 +1561,7 @@ async function creaPaesaggio(o){
     const anteprima = b64 => { L.anteprime.giorno = {url:'data:image/png;base64,' + b64, bozza:true}; disegnaLavoro(); };
     const r = o.bozza
       ? await Ai.modifica({modello:imp.modello, chiavi:imp.chiavi, qualita:imp.qualita, prompt: PROMPT_RIFINISCI, foto: o.bozza.nord, misura:'tv', bozza: anteprima})
-      : await Ai.crea({modello:imp.modello, chiavi:imp.chiavi, qualita:imp.qualita, prompt: interno ? promptInterno(descrizione, o.centro || 'the main counter', stile, o.vista, {luce: o.luce, persone: o.persone}) : largo ? promptLargo(descrizione, stile) : promptBase(descrizione, stile), misura: largo ? 'tv' : undefined, bozza: anteprima});
+      : await Ai.crea({modello:imp.modello, chiavi:imp.chiavi, qualita:imp.qualita, prompt: interno ? promptInterno(descrizione, o.centro || 'the main counter', stile, o.vista, {luce: o.luce, persone: o.persone, lati: o.lati}) : largo ? promptLargo(descrizione, stile) : promptBase(descrizione, stile), misura: largo ? 'tv' : undefined, bozza: anteprima});
     const jpg = await inJpeg(b64aBlob(r.b64, r.mime));
     p.immagini.giorno = await caricaLuce(casa, p, 'giorno', jpg);
     L.anteprime.giorno = {url:p.immagini.giorno}; passo('giorno', 'fatto', 'Giorno'); L.p = p;
