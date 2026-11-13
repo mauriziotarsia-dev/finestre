@@ -9,7 +9,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
 const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 const euro = n => (n < .1 ? n.toFixed(3) : n.toFixed(2)).replace('.', ',') + ' $';
-const VERSIONE = '6.35';
+const VERSIONE = '6.36';
 /* 8/11 · l'app si aggiorna da sola (Maurizio: «vedo ancora il quadrato con la doppia finestra»: sul telefono restava la
    versione vecchia anche dopo averla chiusa). Quando torna in primo piano, e ogni 10 minuti, chiede al server quale
    app.js c'è adesso; se è un'altra, ricarica (mai mentre un lavoro AI è in corso) */
@@ -1052,6 +1052,14 @@ const LUCI_INTERNO = {
 };
 /* vista: da dove si guarda (13/11, le tre proposte: dall'alto, all'altezza degli occhi, dalla galleria del primo piano) */
 const VISTA_INTERNO = 'seen through a small window high in the wall of the room next door: the viewer looks into the room from above, slightly downward, as if peeking from an upper floor';
+/* 13/11 sera · CONTINUITÀ CON LA STANZA (Maurizio: «se hai le foto della mia stanza, utilizziamole per dare un senso di
+   continuità»). Le foto della stanza medievale vanno all'AI come riferimento, non come immagine da modificare: la sala
+   dietro le finestre è costruita come la stanza da cui si guarda (stessi conci di pietra, stesse torce di ferro, lo
+   stesso camino con la cappa e il trofeo), con la stessa luce calda. */
+const PROMPT_STANZA = `The input image is ONLY A REFERENCE: three photos of the real room where the viewer is standing. Do NOT edit, copy or show this room, and do not reproduce its framing. Paint a completely NEW picture as described below: the room next door, seen through an opening in the wall the two rooms share.
+It is part of the same old building, so it is built and furnished in the same way: the same warm sandstone ashlar blocks (same honey-beige colour, same block size, same rough chiselled texture and pale mortar joints), the same carved pale stone gothic tracery details, the same black wrought-iron torch sconces with flames, the same heavy dark carved wood; where there is a fireplace it has a tall plastered hood like in the photos, decorated with a wrought-iron heraldic trophy of a shield, crossed swords and halberds. Match the warm amber colour temperature of the photos.
+
+`;
 /* o: {luce (al posto della luce del giorno), persone ('' = nessuno)} */
 function promptInterno(descrizione, centro, stile, vista, o = {}){
   const s = STILI.find(x => x.id === stile) || STILI[0];
@@ -1385,12 +1393,17 @@ async function bozzeVia(){
   bozzeStato.richiesta = d; salvaBozze();
   try {
     await conLavoro('bozze', async L => {
+      /* la foto di riferimento (la stanza vera), scaricata una volta */
+      let rif = null;
+      if (d.riferimento){ try { const r = await fetch(d.riferimento, {cache: 'no-store'}); if (r.ok) rif = await r.blob(); } catch(e) {} if (!rif) throw new Error('Non riesco a scaricare la foto della stanza: riprova.'); }
       await Promise.all(d.opzioni.map(async x => {
         if ((bozzeStato.fatte || {})[x.id]) return;
         const kn = 'b-' + x.id + '-n', ke = 'b-' + x.id + '-e', stile = x.stile || d.stile || imp.stile, qualita = d.qualita || 'bassa';
         passo(kn, 'ora', x.id + ' · finestrelle…');
-        const rn = await Ai.crea({modello: imp.modello, chiavi: imp.chiavi, qualita, misura: 'tv',
-          prompt: x.interno ? promptInterno(x.descrizione, x.centro || 'the main counter', stile, x.vista, {luce: x.luce, persone: x.persone}) : promptLargo(x.descrizione, stile)});
+        const testo = x.interno ? promptInterno(x.descrizione, x.centro || 'the main counter', stile, x.vista, {luce: x.luce, persone: x.persone}) : promptLargo(x.descrizione, stile);
+        const rn = rif && x.conStanza !== false
+          ? await Ai.modifica({modello: imp.modello, chiavi: imp.chiavi, qualita, misura: 'tv', foto: rif, prompt: PROMPT_STANZA + testo})
+          : await Ai.crea({modello: imp.modello, chiavi: imp.chiavi, qualita, misura: 'tv', prompt: testo});
         const nord = await inJpeg(b64aBlob(rn.b64, rn.mime), 1600);
         const urlNord = await caricaBozza(d.chiave, x.id, 'nord', nord);
         passo(kn, 'fatto', x.id + ' · finestrelle');
