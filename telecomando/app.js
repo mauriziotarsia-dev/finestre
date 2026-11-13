@@ -9,7 +9,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
 const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 const euro = n => (n < .1 ? n.toFixed(3) : n.toFixed(2)).replace('.', ',') + ' $';
-const VERSIONE = '6.44';
+const VERSIONE = '6.45';
 /* 8/11 · l'app si aggiorna da sola (Maurizio: «vedo ancora il quadrato con la doppia finestra»: sul telefono restava la
    versione vecchia anche dopo averla chiusa). Quando torna in primo piano, e ogni 10 minuti, chiede al server quale
    app.js c'è adesso; se è un'altra, ricarica (mai mentre un lavoro AI è in corso) */
@@ -1254,12 +1254,12 @@ async function faiProfondita(p, foto, est = false){
 /* 13/11 notte · «anche quella attuale la rifai, migliorandola»: la bozza scelta rifatta come foto, al livello più alto */
 const PROMPT_RIFINISCI_FOTO = 'Recreate this exact photograph at the highest possible quality, as if it had been shot again from the same spot with a better camera and lens. Keep exactly the same composition, framing, viewpoint, room, furniture, objects and people (same faces, clothes, poses and places), the same lights and the same colours. Improve only the realism and the detail: every stone, crack, mortar joint, wood grain, plank, nail, fabric weave, hair, skin and drop of wax sharp and natural; the faces and hands of the patrons fully natural and correctly formed; the flames bright and alive with a soft glow; physically correct light from the flames, with soft shadows and contact shadows; the ochre plaster ceiling uneven and hand-made; the meeting of the stone walls and the ceiling built by hand and irregular, never a clean straight seam; deep clean blacks in the corners, without noise. No text, no signature, no border, no vignette.';
 const PROMPT_RIFINISCI = 'Repaint this exact picture at full quality and full detail. Keep exactly the same composition, framing, viewpoint and layout: every wall, beam, object, piece of furniture and person stays in the same place with the same pose, same style, palette and light. Only improve the painting: sharper details, richer materials and textures, clean faces and hands, correct perspective. No text, no signature, no border, no vignette.';
-async function faiVistaEst(p, fotoNord, descrizione, conSole, bozzaEst = null, oraBase = 'giorno', vista = null){
+async function faiVistaEst(p, fotoNord, descrizione, conSole, bozzaEst = null, oraBase = 'giorno', vista = null, estFinita = false){
   const k = 'est-' + oraBase;
-  passo(k, 'ora', 'TV · vista verso est: ' + (bozzaEst ? 'rifinisco la bozza…' : 'la dipingo…'));
-  const r = await Ai.modifica({...opzImm(), prompt: bozzaEst ? PROMPT_RIFINISCI : eInterno(p) ? promptEstInterno(descrizione, vista, oraBase !== 'giorno' || p.tipo === 'lume') : promptEst(descrizione), foto: bozzaEst || fotoNord, misura:'tv',
+  passo(k, 'ora', 'TV · vista verso est: ' + (estFinita && bozzaEst ? 'prendo la bozza scelta, già a piena qualità…' : bozzaEst ? 'rifinisco la bozza…' : 'la dipingo…'));
+  const r = estFinita && bozzaEst ? null : await Ai.modifica({...opzImm(), prompt: bozzaEst ? PROMPT_RIFINISCI : eInterno(p) ? promptEstInterno(descrizione, vista, oraBase !== 'giorno' || p.tipo === 'lume') : promptEst(descrizione), foto: bozzaEst || fotoNord, misura:'tv',
     bozza: b64 => { lavoro.anteprime[k] = {url:'data:image/png;base64,' + b64, bozza:true}; disegnaLavoro(); }});
-  const jpg = await inJpeg(b64aBlob(r.b64, r.mime), latoImm());
+  const jpg = r ? await inJpeg(b64aBlob(r.b64, r.mime), latoImm()) : await inJpeg(bozzaEst, latoImm());
   p.immagini[k] = await caricaEst(casa, p, oraBase, jpg);
   lavoro.anteprime[k] = {url:p.immagini[k]}; passo(k, 'fatto', 'TV · vista verso est');
   aggiornaInLibreria(p);
@@ -1488,21 +1488,52 @@ async function bozzeVia(){
   } finally { rapportoLavoro({messaggio: lavoro && lavoro.errore ? 'bozze: errore ' + lavoro.errore : 'bozze pronte', bozze: bozzeStato.fatte}); }
   if (d.opzioni.some(x => bozzeStato.fatte[x.id])) mostraBozze(d);
 }
+/* 14/11 · «prima di partire con le animazioni facciamo 6 immagini (3 per tv e 3 per finestrelle) e poi decidiamo quale
+   coppia prendere»: con d.coppia ogni opzione è per le finestrelle o per il TV (x.per), se ne sceglie una per parte */
+const costoCoppia = d => { const f = d.opzioni.find(x => x.per !== 'tv') || {}, mv = MODELLI_VIDEO.find(v => v.id === imp.video.modello) || MODELLI_VIDEO[0] || {euroSecondo: 0};
+  const una = Ai.costoDi(f.modello || imp.modello, f.qualita || imp.qualita, !!f.grande), g = d.giro || giroVideo(), n = pezziDi(g), sec = Math.min(10, Math.round(g / n)) * n;
+  return una * 6 + (MODELLI_VIDEO.length ? mv.euroSecondo * sec * 8 : 0); };
 function mostraBozze(d){
-  const f = (bozzeStato && bozzeStato.fatte) || {}, costoDi = x => costoDaBozza(!!x.interno, x);
+  const f = (bozzeStato && bozzeStato.fatte) || {}, costoDi = x => costoDaBozza(!!x.interno, x), coppia = (bozzeStato && bozzeStato.coppia) || {};
   apriFoglio(`<h3 class="foglio-titolo">Bozze · ${esc(d.titolo || 'paesaggio nuovo')}</h3>
     <p class="nota" style="margin-top:0">${d.scopo === 'stile' || d.spiega ? esc(d.spiega || '') : 'Sopra la vista larga delle finestrelle: i due riquadri dorati sono, all\'incirca, quello che si vede da ciascuna finestrella. Sotto il TV. Sono bozze: la versione vera ha più dettaglio e la stessa composizione.'} Tocca un'immagine per vederla a piena risoluzione e ingrandirla.</p>
     ${d.opzioni.map(x => { const b = f[x.id]; return `<div class="bozza">
       <b>${esc(x.id)} · ${esc(x.nome)}</b>
       ${x.notaIt ? `<p class="nota" style="margin:0 0 8px">${esc(x.notaIt)}</p>` : ''}
       ${b && b.chi ? `<p class="nota" style="margin:0 0 6px">${esc(b.chi)}${b.grande ? ' · 4K' : ''}</p>` : ''}
-      ${b ? `<a class="bozza-nord" href="${esc(b.nord)}" target="_blank" rel="noopener"><img alt="Finestrelle ${esc(x.id)}" src="${esc(b.nord)}">${d.scopo === 'stile' ? '' : '<i class="sx"></i><i class="dx"></i>'}<span>${d.scopo === 'stile' ? esc(x.nome) : 'Finestrelle'}</span></a>
+      ${b ? `<a class="${x.per === 'tv' ? 'bozza-est' : 'bozza-nord'}" href="${esc(b.nord)}" target="_blank" rel="noopener"><img alt="${x.per === 'tv' ? 'TV' : 'Finestrelle'} ${esc(x.id)}" src="${esc(b.nord)}">${d.scopo === 'stile' || x.per === 'tv' ? '' : '<i class="sx"></i><i class="dx"></i>'}<span>${d.scopo === 'stile' ? esc(x.nome) : x.per === 'tv' ? 'TV' : 'Finestrelle'}</span></a>
       ${b.est ? `<a class="bozza-est" href="${esc(b.est)}" target="_blank" rel="noopener"><img alt="TV ${esc(x.id)}" src="${esc(b.est)}"><span>TV</span></a>` : ''}
-      ${d.scopo === 'stile' ? `<button class="btn oro piena" data-fai="bozzaStile" data-v="${esc(x.id)}">${icona('pennello', 18)}${esc(d.bottone || 'Uso questo stile')}</button>`
+      ${d.coppia ? `<button class="btn ${coppia[x.per === 'tv' ? 't' : 'f'] === x.id ? 'oro' : ''} piena" data-fai="bozzaCoppia" data-v="${esc(x.id)}" aria-pressed="${coppia[x.per === 'tv' ? 't' : 'f'] === x.id}">${icona(x.per === 'tv' ? 'tv' : 'monofora', 18)}${coppia[x.per === 'tv' ? 't' : 'f'] === x.id ? 'Scelta per ' : 'Scelgo questa per '}${x.per === 'tv' ? 'il TV' : 'le finestrelle'}</button>`
+        : d.scopo === 'stile' ? `<button class="btn oro piena" data-fai="bozzaStile" data-v="${esc(x.id)}">${icona('pennello', 18)}${esc(d.bottone || 'Uso questo stile')}</button>`
         : `<button class="btn oro piena" data-fai="bozzaScelta" data-v="${esc(x.id)}">${icona('scintilla', 18)}Scelgo questa · ≈ ${euro(costoDi(x))}</button>`}` : '<p class="nota">Non riuscita: ' + esc((lavoro && lavoro.errore) || 'riprova') + '</p>'}
     </div>`; }).join('')}
+    ${d.coppia ? `<div class="bozza"><b>La coppia</b><p class="nota" style="margin:0 0 8px">Finestrelle: ${esc(coppia.f || 'da scegliere')} · TV: ${esc(coppia.t || 'da scegliere')}. Da queste due faccio le altre luci (giorno, alba, tramonto) e le ${MODELLI_VIDEO.length ? 8 : 0} animazioni con il giro di ${d.giro || giroVideo()} s.</p>
+      <button class="btn oro piena" data-fai="bozzaCoppiaVia"${coppia.f && coppia.t ? '' : ' disabled'}>${icona('scintilla', 18)}Creo la taverna con questa coppia · ≈ ${euro(costoCoppia(d))}</button></div>` : ''}
     <div id="lavoroFoglio"></div>`);
   foglioAperto = 'bozze';
+}
+function bozzaCoppia(id){
+  const d = bozzeStato && bozzeStato.richiesta, x = d && d.opzioni.find(y => y.id === id); if (!x) return;
+  const c = bozzeStato.coppia || (bozzeStato.coppia = {}); c[x.per === 'tv' ? 't' : 'f'] = id; salvaBozze();
+  rapportoLavoro({messaggio: 'coppia: finestrelle ' + (c.f || '?') + ', TV ' + (c.t || '?'), coppia: c});
+  const y = document.querySelector('.foglio') ? document.querySelector('.foglio').scrollTop : 0; mostraBozze(d);
+  const fo = document.querySelector('.foglio'); if (fo) fo.scrollTop = y;
+}
+async function bozzaCoppiaVia(){
+  const d = bozzeStato && bozzeStato.richiesta, c = (bozzeStato && bozzeStato.coppia) || {};
+  const xf = d && d.opzioni.find(y => y.id === c.f), xt = d && d.opzioni.find(y => y.id === c.t);
+  const bf = xf && bozzeStato.fatte[xf.id], bt = xt && bozzeStato.fatte[xt.id];
+  if (!bf || !bt) return;
+  document.querySelectorAll('[data-fai="bozzaCoppiaVia"],[data-fai="bozzaCoppia"]').forEach(e => e.hidden = true);
+  bozzeStato.scelta = c.f + '+' + c.t; salvaBozze();
+  const prendi = async u => { const r = await fetch(u, {cache: 'no-store'}); if (!r.ok) throw new Error('Bozza non trovata (' + r.status + ')'); return await r.blob(); };
+  const t = setInterval(() => rapportoLavoro(), 20000);
+  try {
+    const nord = await prendi(bf.nord), est = await prendi(bt.nord);
+    rapportoLavoro({messaggio: 'scelta la coppia ' + c.f + ' + ' + c.t + ': creo'});
+    await creaPaesaggio(Object.assign({}, xf, {stile: xf.stile || d.stile, bozza: {nord, est}, bozzaFinita: true, estFinita: true, descEst: xt.descEst || xf.descEst, giro: d.giro || xf.giro}));
+  } catch(e) { bozzeStato.scelta = null; salvaBozze(); avviso(e.message, true); }
+  finally { clearInterval(t); rapportoLavoro({messaggio: lavoro && lavoro.errore ? 'errore: ' + lavoro.errore : 'finito (coppia ' + c.f + ' + ' + c.t + ')'}); }
 }
 async function bozzaScelta(id){
   const d = bozzeStato && bozzeStato.richiesta, x = d && d.opzioni.find(y => y.id === id), b = x && bozzeStato.fatte[id];
@@ -1651,7 +1682,7 @@ async function creaPaesaggio(o){
     aggiornaInLibreria(p);
     await faiProfondita(p, jpg); aggiornaInLibreria(p);
     if (!interno){ await faiComignoli(p, jpg); aggiornaInLibreria(p); }
-    if (conTv){ try { await faiVistaEst(p, jpg, descEst, true, o.bozza && o.bozza.est || null, oraBase, o.vistaEst || null); aggiornaInLibreria(p); } catch(e) { passo('est-' + oraBase, 'errore', 'TV · vista verso est: ' + e.message); segnala(e); } }
+    if (conTv){ try { await faiVistaEst(p, jpg, descEst, true, o.bozza && o.bozza.est || null, oraBase, o.vistaEst || null, !!o.estFinita); aggiornaInLibreria(p); } catch(e) { passo('est-' + oraBase, 'errore', 'TV · vista verso est: ' + e.message); segnala(e); } }
     if (imp.cielo !== false && !interno){ await faiCieli(p); aggiornaInLibreria(p); }
     /* le animazioni: ogni luce, finestrelle e TV (4/11) */
     if (imp.anima) await animaTutto(p, animMancanti(p));
@@ -2600,6 +2631,8 @@ const AZIONI = {
   creaRichiestaVia: () => creaRichiestaVia(),
   bozzeVia: () => bozzeVia(),
   bozzaScelta: v => bozzaScelta(v),
+  bozzaCoppia: v => bozzaCoppia(v),
+  bozzaCoppiaVia: () => bozzaCoppiaVia(),
   /* le bozze degli stili: la scelta la legge Claude (lavoro-telefono.json) e rifà le bozze della taverna in quello stile */
   bozzaStile: v => { const d = bozzeStato && bozzeStato.richiesta, x = d && d.opzioni.find(y => y.id === v); if (!x) return;
     bozzeStato.scelta = v; salvaBozze(); rapportoLavoro({messaggio: 'scelta la bozza ' + v + ' · ' + x.nome, stileScelto: x.stile || v, sceltaBozza: v, chiave: d.chiave});
