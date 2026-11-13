@@ -240,11 +240,47 @@ class Cucitore:
             j += 1
 
 
-def cuci(entrata, uscita, profondita=None, immagine=None, fuoco_x=0.5, larghezza=None, veloce=False, fermo=None, maschera=None):
+def fermo_dalla_foto(rif, alta, zone, cielo):
+    """13/11 notte · Maurizio: «aumentiamo risoluzione, dettagli…». Le immagini ora arrivano in 4K, ma il fermo (tutto
+    quello che non si muove) veniva dal video, a 1080: il dettaglio del 4K si perdeva proprio quando la scena è animata.
+    Il video parte da quell'immagine con la camera ferma: si allinea la foto al video (ECC sulle parti ferme) e, se
+    combacia, il fermo è la foto a piena risoluzione; i colori del video si portano verso la foto, così dove si muove
+    (fuoco, candele, persone) non si vede il bordo. Se non combacia, resta il fermo del video. → (fermo, lut) o (None, None)"""
+    img = cv2.imread(alta)
+    if img is None: return None, None
+    H, W = img.shape[:2]; h, w = rif.shape[:2]
+    if W < w * 1.4 or abs(W / H - w / h) > .03: return None, None          # non più grande del video, o altra forma
+    piccola = cv2.resize(img, (w, h), interpolation=cv2.INTER_AREA)
+    ferme = ((cv2.resize(zone, (w, h)) < .1) & (cv2.resize(cielo, (w, h)) < .5)).astype(np.uint8)
+    if ferme.mean() < .3: return None, None                                # quasi tutto si muove: meglio il video
+    ga = cv2.GaussianBlur(cv2.cvtColor(rif, cv2.COLOR_BGR2GRAY), (0, 0), 1.2).astype(np.float32) / 255
+    gb = cv2.GaussianBlur(cv2.cvtColor(piccola, cv2.COLOR_BGR2GRAY), (0, 0), 1.2).astype(np.float32) / 255
+    M = np.eye(2, 3, dtype=np.float32)
+    try:
+        cc, M = cv2.findTransformECC(ga, gb, M, cv2.MOTION_AFFINE, (cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 200, 1e-6), ferme, 5)
+    except cv2.error:
+        return None, None
+    if cc < .9 or np.abs(M[:, :2] - np.eye(2)).max() > .05 or np.abs(M[:, 2]).max() > w * .04: return None, None
+    Mg = M.copy(); Mg[:, 2] *= W / w                                       # lo stesso allineamento a piena risoluzione
+    grande = cv2.warpAffine(img, Mg, (W, H), flags=cv2.INTER_LANCZOS4 | cv2.WARP_INVERSE_MAP, borderMode=cv2.BORDER_REFLECT)
+    allineata = cv2.warpAffine(piccola, M, (w, h), flags=cv2.INTER_LINEAR | cv2.WARP_INVERSE_MAP, borderMode=cv2.BORDER_REFLECT)
+    # i colori: per ogni canale, il video (rif) portato sulla foto dove sta fermo
+    sel = ferme.astype(bool)
+    lut = np.zeros((1, 256, 3), np.uint8)
+    for c in range(3):
+        v = rif[..., c][sel].astype(np.float32); f = allineata[..., c][sel].astype(np.float32)
+        g = (f.std() + 1e-3) / (v.std() + 1e-3); o = f.mean() - g * v.mean()
+        if not (.75 < g < 1.33) or abs(o) > 40: return None, None              # troppo diversi: non è la stessa scena
+        lut[0, :, c] = np.clip(np.arange(256) * g + o, 0, 255).astype(np.uint8)
+    return grande, lut
+
+
+def cuci(entrata, uscita, profondita=None, immagine=None, fuoco_x=0.5, larghezza=None, veloce=False, fermo=None, maschera=None, alta=None):
     n, fps, w, h = leggi_info(entrata)
     primo = next(fotogrammi(entrata))
     cielo = maschera_cielo(w, h, profondita, immagine, fuoco_x, primo)
     sp, rif, zone, guad, sost, info = analizza(entrata, n, fps, w, h, cielo)
+    foto, lut = fermo_dalla_foto(rif, alta, zone, cielo) if alta else (None, None)
     c = int(round(fps * SECONDI_GIRO))
     lung = n - c                                               # il giro: n - c fotogrammi
     # ⚠ 30/10: il video serve solo dove si muove (nebbia, fumo, acqua): il resto lo disegna il fermo a piena
@@ -269,6 +305,7 @@ def cuci(entrata, uscita, profondita=None, immagine=None, fuoco_x=0.5, larghezza
         if j < c:
             b = next(fine); t = (j + .5) / c; t = t * t * (3 - 2 * t)
             a = (b.astype(np.float32) * (1 - t) + a.astype(np.float32) * t).astype(np.uint8)
+        if lut is not None: a = cv2.LUT(a, lut)                   # i colori del video come la foto (fermo dalla foto)
         if j < 4: testa.append(a)
         ff.stdin.write(a.tobytes()); scritti += 1
     # i primi fotogrammi di nuovo in coda: così anche quelli intermedi dell'ultimo tratto guardano
@@ -281,11 +318,11 @@ def cuci(entrata, uscita, profondita=None, immagine=None, fuoco_x=0.5, larghezza
     ff.wait()
     if ff.returncode: raise RuntimeError('ffmpeg non ha finito')
     # il fermo (a piena risoluzione) e la maschera di dove si muove: la finestra compone dal vivo
-    if fermo: cv2.imwrite(fermo, rif, [cv2.IMWRITE_JPEG_QUALITY, 93])
+    if fermo: cv2.imwrite(fermo, foto if foto is not None else rif, [cv2.IMWRITE_JPEG_QUALITY, 93])
     if maschera:
         m = np.clip(zone - cielo, 0, 1)
         cv2.imwrite(maschera, (cv2.resize(m, (270, int(round(270 * h / w))), interpolation=cv2.INTER_AREA) * 255).astype(np.uint8))
-    info.update({'video': f'{W}x{H}', 'fotogrammi_in': n, 'fps_in': round(fps, 2), 'secondi_giro': round(lung / fps, 2),
+    info.update({'fermo': 'foto %dx%d' % (foto.shape[1], foto.shape[0]) if foto is not None else 'video', 'video': f'{W}x{H}', 'fotogrammi_in': n, 'fps_in': round(fps, 2), 'secondi_giro': round(lung / fps, 2),
                  'tremolio_max_px': round(float(np.abs(sp).max()), 2), 'cielo_pct': round(float(cielo.mean()) * 100, 1)})
     return info
 
@@ -321,6 +358,8 @@ def ingrandisci(img, W, H, giro=False):
     """L'immagine a W×H: Real-ESRGAN ×4 e poi ridotta (così i suoi difetti spariscono), con un quarto di
     ingrandimento classico che tiene la grana naturale (da solo Real-ESRGAN fa i cipressi lontani «di plastica»).
     giro=True per il cielo che scorre: i due lati si devono continuare, si ingrandisce con un pezzo dell'altro lato."""
+    if not giro and max(img.shape[:2]) >= 3200:                      # 13/11: già 4K dall'AI, basta il bordo della prospettiva
+        return cv2.resize(img, (W, H), interpolation=cv2.INTER_LANCZOS4)
     e = ingranditore()
     if not e: return None
     b = 32 if giro else 0
@@ -578,7 +617,11 @@ def _cuci_uno(cart, nomi, nome, base, parte, originale, larghezza, veloce):
             for kw in (base.split('@', 1)[1].split('.') if '@' in base else []):
                 if kw.startswith('fx') and kw[2:].isdigit(): fx = min(100, int(kw[2:])) / 100
             fj, mp = os.path.join(d, 'f.jpg'), os.path.join(d, 'm.png')
-            info = cuci(e, u, prof, imm, fx, larghezza, veloce, fj, mp)
+            alta = None                                                   # la foto della stessa ora: il fermo a piena risoluzione
+            ora_f = parte[len(pre) + 5:-4]
+            if f'{base}_{pre}{ora_f}.jpg' in nomi:
+                alta = os.path.join(d, 'a.jpg'); _scarica(cart, f'{base}_{pre}{ora_f}.jpg', alta)
+            info = cuci(e, u, prof, imm, fx, larghezza, veloce, fj, mp, alta)
             _chiedi('POST', f'/storage/v1/object/{DEPOSITO}/{cart}/' + urllib.parse.quote(originale), open(e, 'rb').read(), 'video/mp4')
             _chiedi('POST', f'/storage/v1/object/{DEPOSITO}/{cart}/' + urllib.parse.quote(nome), open(u, 'rb').read(), 'video/mp4',
                     {'x-upsert': 'true', 'cache-control': 'max-age=60'})

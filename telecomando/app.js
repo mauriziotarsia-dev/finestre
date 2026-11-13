@@ -9,7 +9,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
 const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 const euro = n => (n < .1 ? n.toFixed(3) : n.toFixed(2)).replace('.', ',') + ' $';
-const VERSIONE = '6.40';
+const VERSIONE = '6.41';
 /* 8/11 · l'app si aggiorna da sola (Maurizio: «vedo ancora il quadrato con la doppia finestra»: sul telefono restava la
    versione vecchia anche dopo averla chiusa). Quando torna in primo piano, e ogni 10 minuti, chiede al server quale
    app.js c'è adesso; se è un'altra, ricarica (mai mentre un lavoro AI è in corso) */
@@ -740,7 +740,7 @@ function cosaManca(p){
 }
 function animiDaFare(p, manca = cosaManca(p)){
   let n = 0;
-  for (const ora of oreDaAnimare()){
+  for (const ora of oreDaAnimare(p)){
     if ((p.immagini[ora] || manca.includes(ora)) && !p.animati[ora]) n++;
     const est = p.immagini['est-' + ora] || (manca.includes('tv') && (ora === 'giorno' || p.immagini[ora] || manca.includes(ora)));
     if (est && !p.animati['est-' + ora]) n++;
@@ -1051,6 +1051,20 @@ const LUCI_INTERNO = {
   tramonto:'Change only the light to sunset: warm orange sunbeams slant low through the small windows across the room, the hearth fire and the candles glowing; everything else identical.',
   notte:'Change only the light to night: the windows are dark blue, the room is lit only by the hearth fire, candles and iron lanterns, warm golden pools of light and deep soft shadows; everything else identical.'
 };
+/* 13/11 notte · la taverna a lume di candela (stile «lume», scelta la bozza 4A): la base è la sera, le altre ore
+   cambiano solo la luce delle finestrelle e quanto è acceso; la sala resta raccolta e buia anche di giorno */
+const LUCI_LUME = {
+  giorno:'Change only the light to daytime: soft, cool daylight comes in through the small gothic windows, making pale shafts with a little floating dust and lighting the stones and the floor near the windows; the torches, the fire and the candles are still lit and keep their warm pools of light; the room stays dim, intimate and atmospheric, darker in the corners, but everything is readable; everything else identical.',
+  alba:'Change only the light to early dawn: pale blue and pink light through the small gothic windows, the hearth fire low with glowing embers, the torches lit, only a few candles still burning, cool quiet shadows; everything else identical.',
+  tramonto:'Change only the light to sunset: warm orange sunbeams slant low through the small gothic windows across the stones and the floor, mixing with the torches, the hearth and the candles; everything else identical.',
+  notte:'Change only the light to deep night: the small windows are dark night blue, the room is lit only by the torches, the hearth fire and the candles, warm amber pools of light and deep soft shadows; everything else identical.'
+};
+/* 13/11 notte · un paesaggio fatto da una bozza in 4K: luci e TV con lo stesso modello, lo stesso livello, il 4K e lo stesso testo
+   di realismo della bozza (creaCon vale solo mentre si crea) */
+let creaCon = {};
+const opzImm = () => ({modello: creaCon.modello || imp.modello, chiavi: imp.chiavi, qualita: creaCon.qualita || imp.qualita, grande: !!creaCon.grande});
+const latoImm = () => creaCon.grande ? 3840 : 2400;
+const conInPiu = t => creaCon.inPiu ? t + '\n\n' + creaCon.inPiu : t;
 /* vista: da dove si guarda (13/11, le tre proposte: dall'alto, all'altezza degli occhi, dalla galleria del primo piano) */
 const VISTA_INTERNO = 'seen through a small window high in the wall of the room next door: the viewer looks into the room from above, slightly downward, as if peeking from an upper floor';
 /* 13/11 sera · CONTINUITÀ CON LA STANZA (Maurizio: «se hai le foto della mia stanza, utilizziamole per dare un senso di
@@ -1080,13 +1094,13 @@ ${o.luce ? 'Dark and intimate but never muddy or grey: clean deep shadows and wa
 No text, no signs with letters, no signature, no watermark, no border, no vignette.
 ${o.luce || LUCI_INTERNO.giorno}`;
 }
-const promptEstInterno = (desc, vista) => `The input image shows the inside of a room seen from a window in one of its walls. Paint the SAME room seen from another window in the next wall, 90 degrees to the right, from the same height, as one wide picture (16:9, like a large window).
+const promptEstInterno = (desc, vista, stessaLuce) => conInPiu(`The input image shows the inside of a room seen from a window in one of its walls. Paint the SAME room seen from another window in the next wall, 90 degrees to the right, from the same height, as one wide picture (16:9, like a large window).
 It is the same room: same walls, beams, floor, furniture style, same people's clothing, same light and time of day, same painting style, palette and level of detail. What is at the centre of the input image is NOT in this view (it stays far to the left, out of frame).
 The main element of this view, fully visible and centered in the width: ${desc || 'the great stone hearth with a roaring fire, with long tables and patrons in front of it'}.
 ${vista ? 'Viewpoint: ' + vista + '.' : 'The viewer looks into the room from above, slightly downward.'} A few patrons at the tables, calm, nobody looks at the viewer.
 The picture IS the view itself: no window frame, no wall edge, no curtains, nothing of the viewer's room. No text, no signs with letters, no signature, no watermark, no border, no vignette.
-${LUCI_INTERNO.giorno}`;
-const promptLuceInterno = ora => `Same exact room, view and composition as the input image: every wall, beam, table, bench, barrel, object and person stays in the same place, same framing, same style. ${LUCI_INTERNO[ora]} Do not add a window frame, text or borders.`;
+${stessaLuce ? 'Exactly the same light and time of day as the input image, with the same photographic realism, sharpness and fine detail.' : LUCI_INTERNO.giorno}`);
+const promptLuceInterno = (ora, p) => conInPiu(`Same exact room, view and composition as the input image: every wall, beam, table, bench, barrel, object and person stays in the same place, same framing, same style${p && p.tipo === 'lume' ? ', same photographic realism, sharpness and fine detail' : ''}. ${(p && p.tipo === 'lume' ? LUCI_LUME : LUCI_INTERNO)[ora]} Do not add a window frame, text or borders.`);
 const promptAnimaInterno = (sec, ora) => `[# Sources <FIRST_FRAME>@Image1 <LAST_FRAME>@Image1] A single continuous, unbroken shot of about ${sec} seconds, no scene cuts, of exactly this room. Locked-off static camera on a tripod: the camera does not move at all (no pan, no tilt, no zoom, no dolly, no shake). Gentle, natural, real-time motion only: the fire in the hearth flickers and dances with rising sparks, candle and lantern flames flicker softly, thin wisps of smoke and dust drift slowly in the light${ora === 'giorno' || ora === 'tramonto' ? ' beams' : ''}; the patrons stay seated where they are with only small natural movements (breathing, a slight turn of the head, lifting a mug, a hand gesture while talking). Walls, beams, tables, benches, barrels and every object stay perfectly still and identical in every frame, with no shimmering. Nobody walks in or out, nobody stands up, no new people, no animals, no light change, same framing, light and colors as the image for the whole clip. No text, no dialogue, no music. Use this image as the first frame and the last frame.`;
 
 /* ⚠ 30/10 · CIELO CHE SCORRE. Maurizio: «le nuvole quando reinizia il loop si spostano pesantemente».
@@ -1152,11 +1166,11 @@ async function faiLuci(p, foto, ore, misura, o = {}){
     const k = pre + ora;
     passo(k, 'ora', eti(ora) + ': stessa vista, altra luce…');
     try {
-      const r = await Ai.modifica({modello:imp.modello, chiavi:imp.chiavi, qualita:imp.qualita, prompt: eInterno(p) ? promptLuceInterno(ora) : o.est ? promptLuceEst(ora, o.conSole) : promptLuce(ora, o.conTv), foto, misura: o.est ? 'tv' : misura,
+      const r = await Ai.modifica({...opzImm(), prompt: eInterno(p) ? promptLuceInterno(ora, p) : o.est ? promptLuceEst(ora, o.conSole) : promptLuce(ora, o.conTv), foto, misura: o.est ? 'tv' : misura,
         bozza: b64 => { lavoro.anteprime[k] = {url:'data:image/png;base64,' + b64, bozza:true}; disegnaLavoro(); }});
-      const jpg = await inJpeg(b64aBlob(r.b64, r.mime));
+      const jpg = await inJpeg(b64aBlob(r.b64, r.mime), latoImm());
       p.immagini[k] = o.est ? await caricaEst(casa, p, ora, jpg) : await caricaLuce(casa, p, ora, jpg);
-      risolto(Ai.modello(imp.modello).fornitore === 'google' ? 'Google' : 'OpenAI');
+      risolto(Ai.modello(opzImm().modello).fornitore === 'google' ? 'Google' : 'OpenAI');
       lavoro.anteprime[k] = {url:p.immagini[k]}; passo(k, 'fatto', eti(ora));
     } catch(e) {
       if (e.tipo === 'rete'){
@@ -1219,15 +1233,16 @@ async function faiProfondita(p, foto, est = false){
    stesso delle finestrelle (è lo stesso cielo). Il mini PC la porta al 4K vero (pi/cuci-animazione.py) */
 /* 13/11 · dalla bozza scelta all'immagine vera: stessa composizione, piena qualità */
 const PROMPT_RIFINISCI = 'Repaint this exact picture at full quality and full detail. Keep exactly the same composition, framing, viewpoint and layout: every wall, beam, object, piece of furniture and person stays in the same place with the same pose, same style, palette and light. Only improve the painting: sharper details, richer materials and textures, clean faces and hands, correct perspective. No text, no signature, no border, no vignette.';
-async function faiVistaEst(p, fotoNord, descrizione, conSole, bozzaEst = null){
-  passo('est-giorno', 'ora', 'TV · vista verso est: ' + (bozzaEst ? 'rifinisco la bozza…' : 'la dipingo…'));
-  const r = await Ai.modifica({modello:imp.modello, chiavi:imp.chiavi, qualita:imp.qualita, prompt: bozzaEst ? PROMPT_RIFINISCI : eInterno(p) ? promptEstInterno(descrizione) : promptEst(descrizione), foto: bozzaEst || fotoNord, misura:'tv',
-    bozza: b64 => { lavoro.anteprime['est-giorno'] = {url:'data:image/png;base64,' + b64, bozza:true}; disegnaLavoro(); }});
-  const jpg = await inJpeg(b64aBlob(r.b64, r.mime));
-  p.immagini['est-giorno'] = await caricaEst(casa, p, 'giorno', jpg);
-  lavoro.anteprime['est-giorno'] = {url:p.immagini['est-giorno']}; passo('est-giorno', 'fatto', 'TV · vista verso est');
+async function faiVistaEst(p, fotoNord, descrizione, conSole, bozzaEst = null, oraBase = 'giorno', vista = null){
+  const k = 'est-' + oraBase;
+  passo(k, 'ora', 'TV · vista verso est: ' + (bozzaEst ? 'rifinisco la bozza…' : 'la dipingo…'));
+  const r = await Ai.modifica({...opzImm(), prompt: bozzaEst ? PROMPT_RIFINISCI : eInterno(p) ? promptEstInterno(descrizione, vista, oraBase !== 'giorno' || p.tipo === 'lume') : promptEst(descrizione), foto: bozzaEst || fotoNord, misura:'tv',
+    bozza: b64 => { lavoro.anteprime[k] = {url:'data:image/png;base64,' + b64, bozza:true}; disegnaLavoro(); }});
+  const jpg = await inJpeg(b64aBlob(r.b64, r.mime), latoImm());
+  p.immagini[k] = await caricaEst(casa, p, oraBase, jpg);
+  lavoro.anteprime[k] = {url:p.immagini[k]}; passo(k, 'fatto', 'TV · vista verso est');
   aggiornaInLibreria(p);
-  await faiLuci(p, jpg, ['alba','tramonto','notte'].filter(o => p.immagini[o]), null, {est:true, conSole});
+  await faiLuci(p, jpg, ['giorno','alba','tramonto','notte'].filter(o => o !== oraBase && p.immagini[o]), null, {est:true, conSole});
   aggiornaInLibreria(p);
   await faiProfondita(p, jpg, true);
   if (!eInterno(p)) await faiComignoli(p, jpg, true);
@@ -1274,9 +1289,10 @@ async function faiAnimazione(p, foto, ora, elementi, tv = false){
    TV; alba, tramonto e notte usano quel video ricolorato con la loro luce (js/vista.js). Un video per luce solo se lo si
    sceglie in Anima o se si spegne «Risparmio» nelle Impostazioni */
 const ORE_ANIMATE = ['giorno','tramonto'];
-const oreDaAnimare = () => ORE_ANIMATE;
+/* 13/11 notte · negli interni a lume di candela il fuoco e le candele contano soprattutto di notte: si anima anche la notte */
+const oreDaAnimare = p => p && eInterno(p) ? ['notte', ...ORE_ANIMATE] : ORE_ANIMATE;
 const nVideoCrea = () => 4;   /* 10/11 sera: giorno e tramonto × finestrelle e TV */
-function animMancanti(p, viste = [false, true], ore = oreDaAnimare()){
+function animMancanti(p, viste = [false, true], ore = oreDaAnimare(p)){
   const m = [];
   for (const tv of viste) for (const ora of ore){
     const pre = tv ? 'est-' : '';
@@ -1338,9 +1354,10 @@ async function richiestaInRete(){
 let creaFatti = new Set(leggi('atm-crea-fatti', []));
 function chiediCrea(d){
   if (!d || !d.chiave || !d.descrizione || creaFatti.has(d.chiave) || (lavoro && !lavoro.finito)) return;
-  const m = Ai.modello(imp.modello), mv = MODELLI_VIDEO.find(x => x.id === imp.video.modello) || MODELLI_VIDEO[0] || {euroSecondo: 0};
-  const unaVista = (m.costo[imp.qualita] || m.costo.alta) * (1 + 3 * 1.15), nVideo = MODELLI_VIDEO.length ? nVideoCrea() : 0;
-  const costo = unaVista * 2 + (d.interno ? 0 : unaVista * 1.3) + mv.euroSecondo * imp.video.secondi * nVideo;
+  const m = Ai.modello(d.modello || imp.modello), mv = MODELLI_VIDEO.find(x => x.id === imp.video.modello) || MODELLI_VIDEO[0] || {euroSecondo: 0};
+  const una = Ai.costoDi(m.id, d.qualita || imp.qualita, !!d.grande), nVideo = MODELLI_VIDEO.length ? nVideoCrea() + (d.interno ? 2 : 0) : 0;
+  /* finestrelle: 4 luci (la bozza finita ne risparmia una); TV: 4 luci; il cielo solo fuori */
+  const costo = una * ((d.bozzaNord ? 3 : 4) + 4) + (d.interno ? 0 : una * 1.3) + mv.euroSecondo * imp.video.secondi * nVideo;
   apriFoglio(`<h3 style="font:500 16px var(--display);letter-spacing:.12em;text-transform:uppercase;margin:4px 0 4px">Creo «${esc(d.nome)}»</h3>
     <p class="nota" style="margin-top:0">${esc(d.perche || 'Claude ha preparato un paesaggio nuovo da creare.')}</p>
     <ul class="membri">
@@ -1349,6 +1366,7 @@ function chiediCrea(d){
       <li><span><b>Le quattro luci</b><small>${d.interno ? 'giorno dalle finestrelle della sala, alba, tramonto, notte a lume di candela' : 'giorno, alba, tramonto, notte'}</small></span></li>
       ${nVideo ? `<li><span><b>${nVideo} animazioni</b><small>${d.interno ? 'fuoco, candele, fumo, le persone appena' : 'giorno e tramonto, finestrelle e TV'}</small></span></li>` : ''}
     </ul>
+    ${d.bozzaNord ? `<div class="bozza-nord" style="margin-top:10px"><img alt="La bozza scelta" src="${esc(d.bozzaNord)}"><span>La bozza scelta</span></div>` : ''}
     <button class="btn oro piena" style="margin-top:14px" data-fai="creaRichiestaVia" ${!imp.chiavi[m.fornitore] ? 'disabled' : ''}>${icona('scintilla', 18)}Avvia · ≈ ${euro(costo)}</button>
     ${!imp.chiavi[m.fornitore] ? `<p class="nota">Manca la chiave ${m.fornitore === 'google' ? 'Google' : 'OpenAI'} nelle Impostazioni.</p>` : ''}
     <p class="nota">Le immagini sono pronte in pochi minuti; le animazioni arrivano dopo, qualche minuto ciascuna. Tieni l'app aperta su questa pagina finché non ho finito.</p>
@@ -1472,7 +1490,14 @@ async function creaRichiestaVia(){
   const b = document.querySelector('[data-fai="creaRichiestaVia"]'); if (b) b.hidden = true;
   creaFatti.add(d.chiave); scrivi('atm-crea-fatti', [...creaFatti]);
   const t = setInterval(() => rapportoLavoro(), 20000);
-  try { await creaPaesaggio(d); }
+  try {
+    let o = d;
+    if (d.bozzaNord){
+      const r = await fetch(d.bozzaNord, {cache: 'no-store'}); if (!r.ok) throw new Error('Non trovo la bozza scelta (' + r.status + '): riprova.');
+      o = Object.assign({}, d, {bozza: {nord: await r.blob()}, bozzaFinita: true});
+    }
+    await creaPaesaggio(o);
+  } catch(e) { avviso(e.message, true); }
   finally { clearInterval(t); rapportoLavoro({messaggio: lavoro && lavoro.errore ? 'errore: ' + lavoro.errore : 'finito'}); }
 }
 async function chiediAggiornaVecchi(d){
@@ -1560,35 +1585,44 @@ async function crea(){
   return creaPaesaggio({nome, descrizione, stile: imp.stile});
 }
 /* o: {nome, descrizione, stile, interno, centro (l'elemento al centro delle finestrelle), descEst (quello del TV), parole} */
+/* 13/11 notte · o.bozzaFinita: la bozza scelta è già a piena qualità (4K) e diventa l'immagine vera, senza rifarla;
+   o.oraBase: l'ora della bozza (la taverna: «notte»), le altre si ricavano da lei; o.modello/o.qualita/o.grande valgono per
+   tutto il paesaggio; o.inPiu: il testo di realismo della bozza, aggiunto a luci e TV; o.vistaEst: da dove si guarda il TV */
 async function creaPaesaggio(o){
-  const {nome, descrizione} = o, stile = o.stile || imp.stile, interno = !!o.interno;
-  const m = Ai.modello(imp.modello);
+  const {nome, descrizione} = o, stile = o.stile || imp.stile, interno = !!o.interno, oraBase = o.oraBase || 'giorno';
+  const m = Ai.modello(o.modello || imp.modello);
   if (!imp.chiavi[m.fornitore]){ avviso('Serve la chiave ' + (m.fornitore === 'google' ? 'Google' : 'OpenAI') + ': mettila nelle Impostazioni.', true); return; }
-  await conLavoro('crea', async L => {
+  creaCon = {modello: o.modello, qualita: o.qualita, grande: !!o.grande, inPiu: o.inPiu || ''};
+  try { await conLavoro('crea', async L => {
     const parole = [...new Set([...(o.parole || []), ...paroleChiave(nome, descrizione), ...(interno ? ['interno'] : [])])].slice(0, 11);
     if (interno && !parole.includes('interno')) parole[parole.length - 1] = 'interno';
     const p = {id: Date.now().toString(36), tipo: stile, nome, parole, immagini:{}, animati:{}, file:[], fuoco:null, creato: Date.now()};
-    passo('giorno', 'ora', 'Giorno: ' + (o.bozza ? 'rifinisco la bozza scelta' : 'lo sto dipingendo') + ' con ' + m.nome + '…');
+    const Ora = NOME_ORA[oraBase][0].toUpperCase() + NOME_ORA[oraBase].slice(1);
+    passo(oraBase, 'ora', Ora + ': ' + (o.bozzaFinita ? 'prendo la bozza scelta, già a piena qualità' : o.bozza ? 'rifinisco la bozza scelta' : 'lo sto dipingendo') + (o.bozzaFinita ? '' : ' con ' + m.nome) + '…');
     const largo = interno || !!o.bozza || largoPerLeFinestrelle();
-    const anteprima = b64 => { L.anteprime.giorno = {url:'data:image/png;base64,' + b64, bozza:true}; disegnaLavoro(); };
-    const r = o.bozza
-      ? await Ai.modifica({modello:imp.modello, chiavi:imp.chiavi, qualita:imp.qualita, prompt: PROMPT_RIFINISCI, foto: o.bozza.nord, misura:'tv', bozza: anteprima})
-      : await Ai.crea({modello:imp.modello, chiavi:imp.chiavi, qualita:imp.qualita, prompt: interno ? promptInterno(descrizione, o.centro || 'the main counter', stile, o.vista, {luce: o.luce, persone: o.persone, lati: o.lati}) : largo ? promptLargo(descrizione, stile) : promptBase(descrizione, stile), misura: largo ? 'tv' : undefined, bozza: anteprima});
-    const jpg = await inJpeg(b64aBlob(r.b64, r.mime));
-    p.immagini.giorno = await caricaLuce(casa, p, 'giorno', jpg);
-    L.anteprime.giorno = {url:p.immagini.giorno}; passo('giorno', 'fatto', 'Giorno'); L.p = p;
-    aggiornaInLibreria(p);
-    const misura = largo ? 'tv' : m.fornitore === 'openai' ? r.misura : null;
+    const anteprima = b64 => { L.anteprime[oraBase] = {url:'data:image/png;base64,' + b64, bozza:true}; disegnaLavoro(); };
+    const r = o.bozzaFinita ? null : o.bozza
+      ? await Ai.modifica({...opzImm(), prompt: PROMPT_RIFINISCI, foto: o.bozza.nord, misura:'tv', bozza: anteprima})
+      : await Ai.crea({...opzImm(), prompt: interno ? promptInterno(descrizione, o.centro || 'the main counter', stile, o.vista, {luce: o.luce, persone: o.persone, lati: o.lati}) : largo ? promptLargo(descrizione, stile) : promptBase(descrizione, stile), misura: largo ? 'tv' : undefined, bozza: anteprima});
+    const jpg = r ? await inJpeg(b64aBlob(r.b64, r.mime), latoImm()) : await inJpeg(o.bozza.nord, latoImm());
+    p.immagini[oraBase] = await caricaLuce(casa, p, oraBase, jpg);
+    L.anteprime[oraBase] = {url:p.immagini[oraBase]}; passo(oraBase, 'fatto', Ora); L.p = p;
+    const misura = largo ? 'tv' : m.fornitore === 'openai' && r ? r.misura : null;
     const conTv = true, descEst = o.descEst || '';   /* 10/11: la vista del TV la sceglie l'AI (si rifà dal paesaggio, se non piace) */
-    await faiLuci(p, jpg, ['alba','tramonto','notte'].filter(x => interno || imp.luci[x]), misura, {conTv});
+    if (oraBase !== 'giorno'){
+      await faiLuci(p, jpg, ['giorno'], misura, {conTv});
+      if (!p.immagini.giorno) throw new Error('La luce del giorno non è riuscita: il paesaggio non è completo. Riprova.');
+    }
+    aggiornaInLibreria(p);
+    await faiLuci(p, jpg, ['alba','tramonto','notte'].filter(x => x !== oraBase && (interno || imp.luci[x])), misura, {conTv});
     aggiornaInLibreria(p);
     await faiProfondita(p, jpg); aggiornaInLibreria(p);
     if (!interno){ await faiComignoli(p, jpg); aggiornaInLibreria(p); }
-    if (conTv){ try { await faiVistaEst(p, jpg, descEst, true, o.bozza ? o.bozza.est : null); aggiornaInLibreria(p); } catch(e) { passo('est-giorno', 'errore', 'TV · vista verso est: ' + e.message); segnala(e); } }
+    if (conTv){ try { await faiVistaEst(p, jpg, descEst, true, o.bozza && o.bozza.est || null, oraBase, o.vistaEst || null); aggiornaInLibreria(p); } catch(e) { passo('est-' + oraBase, 'errore', 'TV · vista verso est: ' + e.message); segnala(e); } }
     if (imp.cielo !== false && !interno){ await faiCieli(p); aggiornaInLibreria(p); }
     /* le animazioni: ogni luce, finestrelle e TV (4/11) */
     if (imp.anima) await animaTutto(p, animMancanti(p));
-  });
+  }); } finally { creaCon = {}; }
 }
 
 function disegnaCrea(){
