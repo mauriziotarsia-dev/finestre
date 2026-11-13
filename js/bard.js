@@ -98,7 +98,7 @@ function bardParole(sc){
   const im = sc && sc.immagini; if (!im) return '';
   const u = im.giorno || im['est-giorno'] || Object.values(im).find(x => typeof x === 'string') || '';
   let n = ''; try { n = decodeURIComponent(String(u).split('?')[0].split('/').pop()); } catch(e) { n = String(u); }
-  return n.toLowerCase().replace(/^[a-z0-9]+_(?:painterly|inked|classic_oil|foto|video)_/, '').replace(/_[a-z-]+\.(?:jpg|png)$/, '').replace(/[^a-z]+/g, ' ');
+  return n.toLowerCase().replace(/^[a-z0-9]+_(?:painterly|inked|classic_oil|foto|video|fiammingo|film|lume|fiaba)_/, '').replace(/_[a-z-]+\.(?:jpg|png)$/, '').replace(/[^a-z]+/g, ' ');
 }
 /* quanto si sente ogni suono del paesaggio adesso (0 = niente) */
 function bardVitaAdesso(sc, ora){

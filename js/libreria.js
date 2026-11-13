@@ -54,7 +54,7 @@ function nomeFile(p, parte, est = 'jpg'){
   const kw = parole.map(x => slug(x, 20)).filter(Boolean).join('.');
   return `${p.id}_${p.tipo}_${slug(p.nome) || 'paesaggio'}${kw ? '@' + kw : ''}_${parte}.${est}`;
 }
-const MODELLO_NOME = /^([a-z0-9]+)_(painterly|inked|classic_oil|foto|video)_([a-z0-9-]+)(?:@([a-z0-9.-]+))?_((?:est-)?(?:giorno|alba|tramonto|notte|profondita|cielo-(?:giorno|alba|tramonto|notte)|fermo-(?:giorno|alba|tramonto|notte)|maschera-(?:giorno|alba|tramonto|notte)|anim-(?:giorno|alba|tramonto|notte)|mini-(?:fermo-)?(?:giorno|alba|tramonto|notte)|comignoli)|yt-[0-9a-f]{22})\.(jpg|png|mp4|json)$/;
+const MODELLO_NOME = /^([a-z0-9]+)_(painterly|inked|classic_oil|foto|video|fiammingo|film|lume|fiaba)_([a-z0-9-]+)(?:@([a-z0-9.-]+))?_((?:est-)?(?:giorno|alba|tramonto|notte|profondita|cielo-(?:giorno|alba|tramonto|notte)|fermo-(?:giorno|alba|tramonto|notte)|maschera-(?:giorno|alba|tramonto|notte)|anim-(?:giorno|alba|tramonto|notte)|mini-(?:fermo-)?(?:giorno|alba|tramonto|notte)|comignoli)|yt-[0-9a-f]{22})\.(jpg|png|mp4|json)$/;
 /* «est-…»: la vista per il TV (Maurizio, 29/10: TV verso est, orizzontale e in 4K, finestrelle verso nord; ogni paesaggio
    ha due soggetti, uno al centro di ciascuna vista; stessa ora e stesso tempo). est-giorno, est-alba…, est-profondita,
    est-anim-giorno, est-fermo-giorno… accanto a quelli della vista nord, nello stesso paesaggio */

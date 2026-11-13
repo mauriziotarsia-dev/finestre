@@ -601,11 +601,31 @@ def giro_casa(casa, larghezza=None, veloce=False, forza=1, chi='pc'):
     return fatti
 
 
+def metti_in_fila(pezzi, uscita):
+    """13/11 notte · il giro lungo: più video da 10 s, ognuno con un movimento diverso, che partono e finiscono tutti
+    sulla stessa immagine, messi uno dopo l'altro (ricodificati insieme: stessi fotogrammi al secondo e stessa misura)."""
+    n, fps, w, h = leggi_info(pezzi[0])
+    cmd = ['ffmpeg', '-v', 'error', '-y', '-threads', FF_THREADS]
+    for x in pezzi: cmd += ['-i', x]
+    filtro = ''.join(f'[{i}:v]fps={fps:.3f},scale={w}:{h}:flags=lanczos,setsar=1[v{i}];' for i in range(len(pezzi)))
+    filtro += ''.join(f'[v{i}]' for i in range(len(pezzi))) + f'concat=n={len(pezzi)}:v=1:a=0[out]'
+    cmd += ['-filter_complex', filtro, '-map', '[out]', '-an', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '12', '-pix_fmt', 'yuv420p', uscita]
+    subprocess.run(cmd, check=True, creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+
+
 def _cuci_uno(cart, nomi, nome, base, parte, originale, larghezza, veloce):
     if True:
         with tempfile.TemporaryDirectory() as d:
             e, u = os.path.join(d, 'e.mp4'), os.path.join(d, 'u.mp4')
             _scarica(cart, nome, e)
+            # i pezzi in più del giro lungo (…_anim-notte-pezzo2.mp4 …): in fila dopo il primo
+            pezzi_n = [f'{base}_{parte[:-4]}-pezzo{k}.mp4' for k in range(2, 9) if f'{base}_{parte[:-4]}-pezzo{k}.mp4' in nomi]
+            if pezzi_n:
+                pz = [e]
+                for i, pn in enumerate(pezzi_n):
+                    x = os.path.join(d, f'p{i + 2}.mp4'); _scarica(cart, pn, x); pz.append(x)
+                tutta = os.path.join(d, 'tutta.mp4'); metti_in_fila(pz, tutta); e = tutta
+                print('  in fila', len(pz), 'pezzi', flush=True)
             prof = imm = None
             pre = 'est-' if parte.startswith('est-') else ''                 # la vista del TV ha la sua profondità
             if f'{base}_{pre}profondita.png' in nomi and f'{base}_{pre}giorno.jpg' in nomi:
@@ -622,7 +642,7 @@ def _cuci_uno(cart, nomi, nome, base, parte, originale, larghezza, veloce):
             if f'{base}_{pre}{ora_f}.jpg' in nomi:
                 alta = os.path.join(d, 'a.jpg'); _scarica(cart, f'{base}_{pre}{ora_f}.jpg', alta)
             info = cuci(e, u, prof, imm, fx, larghezza, veloce, fj, mp, alta)
-            _chiedi('POST', f'/storage/v1/object/{DEPOSITO}/{cart}/' + urllib.parse.quote(originale), open(e, 'rb').read(), 'video/mp4')
+            _chiedi('POST', f'/storage/v1/object/{DEPOSITO}/{cart}/' + urllib.parse.quote(originale), open(e, 'rb').read(), 'video/mp4', {'x-upsert': 'true'})
             _chiedi('POST', f'/storage/v1/object/{DEPOSITO}/{cart}/' + urllib.parse.quote(nome), open(u, 'rb').read(), 'video/mp4',
                     {'x-upsert': 'true', 'cache-control': 'max-age=60'})
             # fermo e maschera nuovi, al posto di quelli fatti dal telefono alla creazione (js/fermo.js).
@@ -647,6 +667,7 @@ def _cuci_uno(cart, nomi, nome, base, parte, originale, larghezza, veloce):
                 _chiedi('POST', f'/storage/v1/object/{DEPOSITO}/{cart}/' + urllib.parse.quote(f'{base}_{pre}mini-fermo-{ora}.jpg'), buf.tobytes(), 'image/jpeg',
                         {'x-upsert': 'true', 'cache-control': 'max-age=60'})
             except Exception as ex: print('copia piccola del fermo non fatta:', ex, file=sys.stderr, flush=True)
+            for pn in pezzi_n: _libera(cart, pn)                          # i pezzi sono dentro l'originale lungo
             print('  fatto:', info, flush=True)
             return 1
 

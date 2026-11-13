@@ -9,7 +9,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
 const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 const euro = n => (n < .1 ? n.toFixed(3) : n.toFixed(2)).replace('.', ',') + ' $';
-const VERSIONE = '6.41';
+const VERSIONE = '6.42';
 /* 8/11 · l'app si aggiorna da sola (Maurizio: «vedo ancora il quadrato con la doppia finestra»: sul telefono restava la
    versione vecchia anche dopo averla chiusa). Quando torna in primo piano, e ogni 10 minuti, chiede al server quale
    app.js c'è adesso; se è un'altra, ricarica (mai mentre un lavoro AI è in corso) */
@@ -68,7 +68,12 @@ if (!MODELLI_VIDEO.length) imp.anima = false;
    · immagini sempre in qualità alta; video sempre 8 s, a 1080p; si muovono alberi e acqua (cielo e nebbia li fa la finestra)
    Il modello per le immagini resta una scelta (Maurizio: «lascia la scelta») */
 Object.assign(imp, {qualita:'alta', tv:true, cielo:true, anima: !!MODELLI_VIDEO.length, risparmio:false, luci:{alba:true, tramonto:true, notte:true}, elementi:['alberi','acqua']});
-imp.video.secondi = 8;
+/* 13/11 notte · Maurizio: «la durata dell'animazione video deve essere la più lunga possibile e con più animazioni possibili».
+   Un video di Gemini Omni Flash arriva al massimo a 10 s; il giro si allunga mettendo in fila più video da 10 s («pezzi»),
+   ognuno con un movimento diverso, che partono e finiscono tutti sulla stessa immagine: le giunte non si vedono.
+   I pezzi li mette in fila il cucitore (pi/cuci-animazione.py); finché non l'ha fatto gira il primo. Pezzi: 1, 2 o 4. */
+imp.video.secondi = 10;
+if (![1, 2, 4].includes(imp.video.pezzi)) imp.video.pezzi = 4;
 const salvaImp = () => scrivi('finestre-impostazioni', imp);
 
 /* ── la scena e i fori ───────────────────────────────────────────────────── */
@@ -750,7 +755,7 @@ function animiDaFare(p, manca = cosaManca(p)){
 function costoCompleta(manca, p = null){
   const m = Ai.modello(imp.modello), c = m.costo[imp.qualita] || m.costo.alta, nLuci = manca.filter(o => NOME_ORA[o]).length;
   const mv = MODELLI_VIDEO.find(x => x.id === imp.video.modello) || MODELLI_VIDEO[0];
-  return c * 1.15 * nLuci + (manca.includes('tv') ? c * 1.3 * (1 + 3 * 1.15) : 0) + (manca.includes('cielo') ? c * Math.max(1, p ? cieliMancanti(p).length : 4) : 0) + (manca.includes('fumo') ? .01 : 0) + (manca.includes('anim') && mv && p ? mv.euroSecondo * imp.video.secondi * animiDaFare(p, manca.filter(x => x !== 'anim')) : 0);
+  return c * 1.15 * nLuci + (manca.includes('tv') ? c * 1.3 * (1 + 3 * 1.15) : 0) + (manca.includes('cielo') ? c * Math.max(1, p ? cieliMancanti(p).length : 4) : 0) + (manca.includes('fumo') ? .01 : 0) + (manca.includes('anim') && mv && p ? mv.euroSecondo * secondiGiro() * animiDaFare(p, manca.filter(x => x !== 'anim')) : 0);
 }
 /* Completa: le luci, la profondità, la vista per il TV, il cielo, il fumo e le animazioni che mancano */
 async function completaPaesaggio(p, desc = ''){
@@ -778,7 +783,7 @@ function costoMigliora(p, stretta){
   const mv = MODELLI_VIDEO.find(x => x.id === imp.video.modello) || MODELLI_VIDEO[0];
   /* le finestrelle, rifatte larghe, più quelle del TV che mancano */
   const nTv = p.immagini['est-giorno'] ? ['giorno','alba','tramonto','notte'].filter(o => p.immagini['est-' + o] && !p.animati['est-' + o]).length : 0;
-  const video = MODELLI_VIDEO.length ? mv.euroSecondo * imp.video.secondi * (4 + nTv) : 0;
+  const video = MODELLI_VIDEO.length ? mv.euroSecondo * secondiGiro() * (4 + nTv) : 0;
   return costoRifaiLargo(p) + video + costoCompleta(manca.filter(x => !['anim','cielo','fumo'].includes(x)), p);
 }
 function cosaFaMigliora(p, stretta){
@@ -1062,6 +1067,8 @@ const LUCI_LUME = {
 /* 13/11 notte · un paesaggio fatto da una bozza in 4K: luci e TV con lo stesso modello, lo stesso livello, il 4K e lo stesso testo
    di realismo della bozza (creaCon vale solo mentre si crea) */
 let creaCon = {};
+const pezziVideo = () => creaCon.pezzi || imp.video.pezzi || 1;
+const secondiGiro = () => imp.video.secondi * pezziVideo();
 const opzImm = () => ({modello: creaCon.modello || imp.modello, chiavi: imp.chiavi, qualita: creaCon.qualita || imp.qualita, grande: !!creaCon.grande});
 const latoImm = () => creaCon.grande ? 3840 : 2400;
 const conInPiu = t => creaCon.inPiu ? t + '\n\n' + creaCon.inPiu : t;
@@ -1101,7 +1108,15 @@ ${vista ? 'Viewpoint: ' + vista + '.' : 'The viewer looks into the room from abo
 The picture IS the view itself: no window frame, no wall edge, no curtains, nothing of the viewer's room. No text, no signs with letters, no signature, no watermark, no border, no vignette.
 ${stessaLuce ? 'Exactly the same light and time of day as the input image, with the same photographic realism, sharpness and fine detail.' : LUCI_INTERNO.giorno}`);
 const promptLuceInterno = (ora, p) => conInPiu(`Same exact room, view and composition as the input image: every wall, beam, table, bench, barrel, object and person stays in the same place, same framing, same style${p && p.tipo === 'lume' ? ', same photographic realism, sharpness and fine detail' : ''}. ${(p && p.tipo === 'lume' ? LUCI_LUME : LUCI_INTERNO)[ora]} Do not add a window frame, text or borders.`);
-const promptAnimaInterno = (sec, ora) => `[# Sources <FIRST_FRAME>@Image1 <LAST_FRAME>@Image1] A single continuous, unbroken shot of about ${sec} seconds, no scene cuts, of exactly this room. Locked-off static camera on a tripod: the camera does not move at all (no pan, no tilt, no zoom, no dolly, no shake). Gentle, natural, real-time motion only: the fire in the hearth flickers and dances with rising sparks, candle and lantern flames flicker softly, thin wisps of smoke and dust drift slowly in the light${ora === 'giorno' || ora === 'tramonto' ? ' beams' : ''}; the patrons stay seated where they are with only small natural movements (breathing, a slight turn of the head, lifting a mug, a hand gesture while talking). Walls, beams, tables, benches, barrels and every object stay perfectly still and identical in every frame, with no shimmering. Nobody walks in or out, nobody stands up, no new people, no animals, no light change, same framing, light and colors as the image for the whole clip. No text, no dialogue, no music. Use this image as the first frame and the last frame.`;
+/* 13/11 notte · più movimento («più animazioni possibili»), e diverso in ogni pezzo del giro lungo: tutti partono e
+   finiscono sull'immagine, quindi chi si muove torna sempre nella posa di partenza */
+const MOSSE_INTERNO = [
+  'one patron lifts his pewter mug, drinks and puts it back down; another tells a story with lively hand gestures while the others listen, nod and smile',
+  'the patrons burst out laughing together at a joke, shoulders shaking, one leans back and slaps the table lightly, then they all settle down again',
+  'one patron pours from a jug into his mug, another leans in to say something, a third turns his head toward the fire for a moment and back',
+  'a quieter moment: they talk softly, one rests his chin on his hand, then two of them raise their mugs in a small toast and clink them gently'
+];
+const promptAnimaInterno = (sec, ora, k = 0) => `[# Sources <FIRST_FRAME>@Image1 <LAST_FRAME>@Image1] A single continuous, unbroken shot of about ${sec} seconds, no scene cuts, of exactly this room, like real footage filmed on location. Locked-off static camera on a tripod: the camera does not move at all (no pan, no tilt, no zoom, no dolly, no shake). Lively but natural real-time motion everywhere it can be: the fire in the hearth flickers and dances, logs glow and crackle with sparks rising into the hood; every torch flame and every candle flame flickers on its own rhythm, and their warm light flickers softly on the stones, the beams, the faces and the tables; thin wisps of smoke curl up from the fire and the torches, dust motes drift slowly in the light${ora === 'giorno' || ora === 'tramonto' || ora === 'alba' ? ' of the windows' : ''}. The patrons stay seated at their places and move naturally: ${MOSSE_INTERNO[k % MOSSE_INTERNO.length]}; they breathe, blink and shift slightly. At the end of the clip everyone is back exactly in the pose of the first frame. Walls, beams, tables, benches, barrels and every object stay perfectly still and identical in every frame, with no shimmering. Nobody walks in or out, nobody stands up, no new people, no animals, no light change, same framing, light and colors as the image for the whole clip. No text, no dialogue, no music. Use this image as the first frame and the last frame.`;
 
 /* ⚠ 30/10 · CIELO CHE SCORRE. Maurizio: «le nuvole quando reinizia il loop si spostano pesantemente».
    Nuvole che vanno sempre da una parte non possono stare in un video breve che gira (alla fine sono altrove).
@@ -1232,6 +1247,8 @@ async function faiProfondita(p, foto, est = false){
    stesso stile; poi le stesse luci del giorno che ha la vista nord e la sua profondità. Il cielo che scorre è lo
    stesso delle finestrelle (è lo stesso cielo). Il mini PC la porta al 4K vero (pi/cuci-animazione.py) */
 /* 13/11 · dalla bozza scelta all'immagine vera: stessa composizione, piena qualità */
+/* 13/11 notte · «anche quella attuale la rifai, migliorandola»: la bozza scelta rifatta come foto, al livello più alto */
+const PROMPT_RIFINISCI_FOTO = 'Recreate this exact photograph at the highest possible quality, as if it had been shot again from the same spot with a better camera and lens. Keep exactly the same composition, framing, viewpoint, room, furniture, objects and people (same faces, clothes, poses and places), the same lights and the same colours. Improve only the realism and the detail: every stone, crack, mortar joint, wood grain, plank, nail, fabric weave, hair, skin and drop of wax sharp and natural; the faces and hands of the patrons fully natural and correctly formed; the flames bright and alive with a soft glow; physically correct light from the flames, with soft shadows and contact shadows; the ochre plaster ceiling uneven and hand-made; the meeting of the stone walls and the ceiling built by hand and irregular, never a clean straight seam; deep clean blacks in the corners, without noise. No text, no signature, no border, no vignette.';
 const PROMPT_RIFINISCI = 'Repaint this exact picture at full quality and full detail. Keep exactly the same composition, framing, viewpoint and layout: every wall, beam, object, piece of furniture and person stays in the same place with the same pose, same style, palette and light. Only improve the painting: sharper details, richer materials and textures, clean faces and hands, correct perspective. No text, no signature, no border, no vignette.';
 async function faiVistaEst(p, fotoNord, descrizione, conSole, bozzaEst = null, oraBase = 'giorno', vista = null){
   const k = 'est-' + oraBase;
@@ -1264,15 +1281,21 @@ async function faiAnimazione(p, foto, ora, elementi, tv = false){
   passo(ka, 'ora', `${eti}Animazione con ${mv.nome}: in coda…`); lavoro.av = 0;
   /* la vista nord larga (il trucco della prospettiva) si anima intera, orizzontale come quella del TV */
   const largo = !tv && (await misuraDi(foto)).largo;
-  const mp4 = await Ai.anima({chiave:imp.chiavi.google, modello:mv.id, foto, fuoco:p.fuoco, tv: tv || largo, prompt: eInterno(p) ? promptAnimaInterno(imp.video.secondi, ora) : promptAnima(elementi, imp.video.secondi, ora),
-    progresso:(pc, st) => { lavoro.av = pc; passo(ka, 'ora', `${eti}Animazione con ${mv.nome}: ${st === 'invio' ? 'la mando' : st === 'scarico' ? 'la scarico' : 'la sta girando'}… ${Math.round(pc)}%`); }});
+  const n = pezziVideo(), pc = Array(n).fill(0);
+  const pezzi = await Promise.all(Array.from({length: n}, (_, k) => Ai.anima({chiave:imp.chiavi.google, modello:mv.id, foto, fuoco:p.fuoco, tv: tv || largo,
+    prompt: eInterno(p) ? promptAnimaInterno(imp.video.secondi, ora, k) : promptAnima(elementi, imp.video.secondi, ora),
+    progresso:(x, st) => { pc[k] = x; const m = pc.reduce((a, b) => a + b, 0) / n; lavoro.av = m;
+      passo(ka, 'ora', `${eti}Animazione con ${mv.nome}${n > 1 ? ' (' + n + ' pezzi da ' + imp.video.secondi + ' s)' : ''}: ${st === 'invio' ? 'la mando' : st === 'scarico' ? 'la scarico' : 'la sta girando'}… ${Math.round(m)}%`); }})));
+  const mp4 = pezzi[0];
   passo(ka, 'ora', eti + 'Animazione: la salvo…');
+  /* prima i pezzi in più (…_anim-notte-pezzo2.mp4 …), poi il primo: quando il cucitore vede il video ci sono già tutti */
+  for (let k = 1; k < n; k++) await carica(casa, p, pre + 'anim-' + ora + '-pezzo' + (k + 1), pezzi[k], 'mp4');
   p.animati[pre + ora] = tv ? await caricaEstAnimazione(casa, p, ora, mp4) : await caricaAnimazione(casa, p, ora, mp4);
   /* 11/11 · un video rifatto: via la copia «…-originale.mp4» di quello vecchio, che per il cucitore vuol dire «già cucito»
      (senza, il video nuovo restava com'era uscito dall'AI, col salto al giro) */
   { const vecchi = (p.file || []).filter(n => n.endsWith('_' + pre + 'anim-' + ora + '-originale.mp4'));
     if (vecchi.length) try { await togliFile(casa, p, vecchi); } catch(e) { passo(ka, 'errore', eti + 'Animazione: la vecchia copia non si toglie, il cucitore non la rifarà (' + e.message + ')'); } }
-  lavoro.av = null; passo(ka, 'fatto', eti + 'Animazione (' + imp.video.secondi + ' s, in loop)');
+  lavoro.av = null; passo(ka, 'fatto', eti + 'Animazione (' + (n > 1 ? n + ' pezzi da ' + imp.video.secondi + ' s, giro di ' + n * imp.video.secondi + ' s' : imp.video.secondi + ' s') + ', in loop)');
   /* subito: che cosa resta fermo e che cosa si muove (così le finestre non tremano mai); il video a piena
      qualità lo rifà poi il Raspberry, con calma */
   passo(kf, 'ora', eti + 'Animazione: separo quello che si muove da quello che sta fermo…');
@@ -1289,8 +1312,8 @@ async function faiAnimazione(p, foto, ora, elementi, tv = false){
    TV; alba, tramonto e notte usano quel video ricolorato con la loro luce (js/vista.js). Un video per luce solo se lo si
    sceglie in Anima o se si spegne «Risparmio» nelle Impostazioni */
 const ORE_ANIMATE = ['giorno','tramonto'];
-/* 13/11 notte · negli interni a lume di candela il fuoco e le candele contano soprattutto di notte: si anima anche la notte */
-const oreDaAnimare = p => p && eInterno(p) ? ['notte', ...ORE_ANIMATE] : ORE_ANIMATE;
+/* 13/11 notte · negli interni fuoco, candele e persone si muovono a ogni ora («più animazioni possibili»): tutte e quattro */
+const oreDaAnimare = p => p && eInterno(p) ? ['notte', 'giorno', 'tramonto', 'alba'] : ORE_ANIMATE;
 const nVideoCrea = () => 4;   /* 10/11 sera: giorno e tramonto × finestrelle e TV */
 function animMancanti(p, viste = [false, true], ore = oreDaAnimare(p)){
   const m = [];
@@ -1316,7 +1339,7 @@ function contaAnim(mv = MODELLI_VIDEO.find(x => x.id === imp.video.modello) || M
   const b = $('#animaVia'); if (!b || !mv || (lavoro && !lavoro.finito)) return;
   const n = document.querySelectorAll('.anim-casella[aria-pressed="true"]').length;
   b.disabled = !n;
-  b.innerHTML = icona('anima', 18) + (n ? `Anima ${n} video · ≈ ${euro(mv.euroSecondo * imp.video.secondi * n)}` : 'Tocca un video da fare');
+  b.innerHTML = icona('anima', 18) + (n ? `Anima ${n} video · ≈ ${euro(mv.euroSecondo * secondiGiro() * n)}` : 'Tocca un video da fare');
 }
 /* ═══ 10/11 · I PAESAGGI DELLE VERSIONI VECCHIE (Maurizio: «togliamo il tasto completa e ti chiedo di completarle da qui»;
    «come oggi: rifalli larghi»). Claude manda sul canale «aggiornaVecchi» {ids, chiave}; il telefono, che ha le chiavi
@@ -1334,7 +1357,7 @@ async function costoAggiorna(p, stretta){
   e += c * 4;                                                                /* i cieli (rifatti, se l'immagine cambia) */
   const tvFatti = ORE_ANIMATE.filter(o => p.animati['est-' + o]).length;
   const finFatti = stretta ? 0 : ORE_ANIMATE.filter(o => p.animati[o]).length;
-  if (mv) e += mv.euroSecondo * imp.video.secondi * (2 * ORE_ANIMATE.length - tvFatti - finFatti);
+  if (mv) e += mv.euroSecondo * secondiGiro() * (2 * ORE_ANIMATE.length - tvFatti - finFatti);
   return e;
 }
 function rapportoLavoro(extra = {}){
@@ -1355,17 +1378,20 @@ let creaFatti = new Set(leggi('atm-crea-fatti', []));
 function chiediCrea(d){
   if (!d || !d.chiave || !d.descrizione || creaFatti.has(d.chiave) || (lavoro && !lavoro.finito)) return;
   const m = Ai.modello(d.modello || imp.modello), mv = MODELLI_VIDEO.find(x => x.id === imp.video.modello) || MODELLI_VIDEO[0] || {euroSecondo: 0};
-  const una = Ai.costoDi(m.id, d.qualita || imp.qualita, !!d.grande), nVideo = MODELLI_VIDEO.length ? nVideoCrea() + (d.interno ? 2 : 0) : 0;
+  const una = Ai.costoDi(m.id, d.qualita || imp.qualita, !!d.grande), nVideo = MODELLI_VIDEO.length ? (d.interno ? 8 : nVideoCrea()) : 0;
+  const base = d.bozzaNord && d.rifinisci ? Ai.costoDi(m.id, d.qualitaBase || d.qualita || imp.qualita, !!d.grande) : 0;
   /* finestrelle: 4 luci (la bozza finita ne risparmia una); TV: 4 luci; il cielo solo fuori */
-  const costo = una * ((d.bozzaNord ? 3 : 4) + 4) + (d.interno ? 0 : una * 1.3) + mv.euroSecondo * imp.video.secondi * nVideo;
+  const costo = base + una * ((d.bozzaNord ? 3 : 4) + 4) + (d.interno ? 0 : una * 1.3) + mv.euroSecondo * secondiGiro() * nVideo;
   apriFoglio(`<h3 style="font:500 16px var(--display);letter-spacing:.12em;text-transform:uppercase;margin:4px 0 4px">Creo «${esc(d.nome)}»</h3>
     <p class="nota" style="margin-top:0">${esc(d.perche || 'Claude ha preparato un paesaggio nuovo da creare.')}</p>
     <ul class="membri">
       <li><span><b>Finestrelle</b><small>${esc(d.centroIt || d.centro || '')}</small></span></li>
       <li><span><b>TV</b><small>${esc(d.descEstIt || d.descEst || '')}</small></span></li>
       <li><span><b>Le quattro luci</b><small>${d.interno ? 'giorno dalle finestrelle della sala, alba, tramonto, notte a lume di candela' : 'giorno, alba, tramonto, notte'}</small></span></li>
-      ${nVideo ? `<li><span><b>${nVideo} animazioni</b><small>${d.interno ? 'fuoco, candele, fumo, le persone appena' : 'giorno e tramonto, finestrelle e TV'}</small></span></li>` : ''}
+      ${nVideo ? `<li><span><b>${nVideo} animazioni · giro di ${secondiGiro()} s</b><small>${d.interno ? 'tutte e quattro le luci, finestrelle e TV: fuoco, candele, torce, fumo, gli avventori che bevono, parlano, ridono' : 'giorno e tramonto, finestrelle e TV'}</small></span></li>` : ''}
     </ul>
+    ${nVideo ? `<div class="blocco" style="margin-top:10px"><span>Quanto dura il giro delle animazioni</span><div class="scelte">${[1, 2, 4].map(n => `<button class="scelta" data-fai="pezziVideo" data-v="${n}" aria-pressed="${pezziVideo() === n}">${n * imp.video.secondi} s<small>≈ ${euro(mv.euroSecondo * imp.video.secondi * n * nVideo)}</small></button>`).join('')}</div>
+      <p class="nota" style="margin-top:6px">Ogni pezzo da ${imp.video.secondi} s (il massimo di un video) ha un movimento diverso e parte e finisce sulla stessa immagine: più è lungo, meno si nota che si ripete. I pezzi li mette in fila il mini PC; finché non l'ha fatto gira il primo.</p></div>` : ''}
     ${d.bozzaNord ? `<div class="bozza-nord" style="margin-top:10px"><img alt="La bozza scelta" src="${esc(d.bozzaNord)}"><span>La bozza scelta</span></div>` : ''}
     <button class="btn oro piena" style="margin-top:14px" data-fai="creaRichiestaVia" ${!imp.chiavi[m.fornitore] ? 'disabled' : ''}>${icona('scintilla', 18)}Avvia · ≈ ${euro(costo)}</button>
     ${!imp.chiavi[m.fornitore] ? `<p class="nota">Manca la chiave ${m.fornitore === 'google' ? 'Google' : 'OpenAI'} nelle Impostazioni.</p>` : ''}
@@ -1389,7 +1415,7 @@ const costoBozze = (n, d = {}) => (d.opzioni || []).reduce((a, x) => a + (d.solo
 function costoDaBozza(interno){
   const m = Ai.modello(imp.modello), mv = MODELLI_VIDEO.find(x => x.id === imp.video.modello) || MODELLI_VIDEO[0] || {euroSecondo: 0};
   const unaVista = (m.costo[imp.qualita] || m.costo.alta) * (1 + 3 * 1.15), nVideo = MODELLI_VIDEO.length ? nVideoCrea() : 0;
-  return unaVista * 2 + (interno ? 0 : unaVista * 1.3) + mv.euroSecondo * imp.video.secondi * nVideo;
+  return unaVista * 2 + (interno ? 0 : unaVista * 1.3) + mv.euroSecondo * secondiGiro() * nVideo;
 }
 function chiediBozze(d){
   if (!d || !d.chiave || !Array.isArray(d.opzioni) || !d.opzioni.length || (lavoro && !lavoro.finito)) return;
@@ -1494,7 +1520,7 @@ async function creaRichiestaVia(){
     let o = d;
     if (d.bozzaNord){
       const r = await fetch(d.bozzaNord, {cache: 'no-store'}); if (!r.ok) throw new Error('Non trovo la bozza scelta (' + r.status + '): riprova.');
-      o = Object.assign({}, d, {bozza: {nord: await r.blob()}, bozzaFinita: true});
+      o = Object.assign({}, d, {bozza: {nord: await r.blob()}, bozzaFinita: !d.rifinisci});
     }
     await creaPaesaggio(o);
   } catch(e) { avviso(e.message, true); }
@@ -1528,7 +1554,7 @@ function chiediRifaiAnim(d){
   for (const id of d.ids){ const p = libreria.find(x => x.id === id); if (!p || p.yt) continue;
     for (const tv of [false, true]) for (const ora of d.ore) if (p.immagini[(tv ? 'est-' : '') + ora]) video.push({p, tv, ora}); }
   if (!video.length){ rapportoLavoro({messaggio: 'nessuno dei video chiesti è su questo telefono'}); return; }
-  const uno = mv.euroSecondo * imp.video.secondi, tot = uno * video.length;
+  const uno = mv.euroSecondo * secondiGiro(), tot = uno * video.length;
   const perP = [...new Set(video.map(v => v.p))];
   apriFoglio(`<h3 style="font:500 16px var(--display);letter-spacing:.12em;text-transform:uppercase;margin:4px 0 4px">Rifaccio ${video.length} video</h3>
     <p class="nota" style="margin-top:0">${esc(d.perche || 'Claude ha chiesto di rifare questi video.')}</p>
@@ -1592,17 +1618,17 @@ async function creaPaesaggio(o){
   const {nome, descrizione} = o, stile = o.stile || imp.stile, interno = !!o.interno, oraBase = o.oraBase || 'giorno';
   const m = Ai.modello(o.modello || imp.modello);
   if (!imp.chiavi[m.fornitore]){ avviso('Serve la chiave ' + (m.fornitore === 'google' ? 'Google' : 'OpenAI') + ': mettila nelle Impostazioni.', true); return; }
-  creaCon = {modello: o.modello, qualita: o.qualita, grande: !!o.grande, inPiu: o.inPiu || ''};
+  creaCon = {modello: o.modello, qualita: o.qualita, grande: !!o.grande, inPiu: o.inPiu || '', pezzi: o.pezzi || null};
   try { await conLavoro('crea', async L => {
     const parole = [...new Set([...(o.parole || []), ...paroleChiave(nome, descrizione), ...(interno ? ['interno'] : [])])].slice(0, 11);
     if (interno && !parole.includes('interno')) parole[parole.length - 1] = 'interno';
     const p = {id: Date.now().toString(36), tipo: stile, nome, parole, immagini:{}, animati:{}, file:[], fuoco:null, creato: Date.now()};
     const Ora = NOME_ORA[oraBase][0].toUpperCase() + NOME_ORA[oraBase].slice(1);
-    passo(oraBase, 'ora', Ora + ': ' + (o.bozzaFinita ? 'prendo la bozza scelta, già a piena qualità' : o.bozza ? 'rifinisco la bozza scelta' : 'lo sto dipingendo') + (o.bozzaFinita ? '' : ' con ' + m.nome) + '…');
+    passo(oraBase, 'ora', Ora + ': ' + (o.bozzaFinita ? 'prendo la bozza scelta, già a piena qualità' : o.bozza ? 'rifinisco la bozza scelta' + (o.qualitaBase === 'massima' ? ' al livello massimo' : '') : 'lo sto dipingendo') + (o.bozzaFinita ? '' : ' con ' + m.nome) + '…');
     const largo = interno || !!o.bozza || largoPerLeFinestrelle();
     const anteprima = b64 => { L.anteprime[oraBase] = {url:'data:image/png;base64,' + b64, bozza:true}; disegnaLavoro(); };
     const r = o.bozzaFinita ? null : o.bozza
-      ? await Ai.modifica({...opzImm(), prompt: PROMPT_RIFINISCI, foto: o.bozza.nord, misura:'tv', bozza: anteprima})
+      ? await Ai.modifica({...opzImm(), ...(o.qualitaBase ? {qualita: o.qualitaBase} : {}), prompt: stile === 'lume' ? conInPiu(PROMPT_RIFINISCI_FOTO) : PROMPT_RIFINISCI, foto: o.bozza.nord, misura:'tv', bozza: anteprima})
       : await Ai.crea({...opzImm(), prompt: interno ? promptInterno(descrizione, o.centro || 'the main counter', stile, o.vista, {luce: o.luce, persone: o.persone, lati: o.lati}) : largo ? promptLargo(descrizione, stile) : promptBase(descrizione, stile), misura: largo ? 'tv' : undefined, bozza: anteprima});
     const jpg = r ? await inJpeg(b64aBlob(r.b64, r.mime), latoImm()) : await inJpeg(o.bozza.nord, latoImm());
     p.immagini[oraBase] = await caricaLuce(casa, p, oraBase, jpg);
@@ -1630,7 +1656,7 @@ function disegnaCrea(){
   const s = $('#s-crea'); const m = Ai.modello(imp.modello), mv = MODELLI_VIDEO.find(x => x.id === imp.video.modello) || MODELLI_VIDEO[0] || {nome:'', euroSecondo:0};
   const unaVista = (m.costo[imp.qualita] || m.costo.alta) * (1 + 3 * 1.15);
   const nVideo = MODELLI_VIDEO.length ? nVideoCrea() : 0;
-  const costo = unaVista * 2 + unaVista * 1.3 + mv.euroSecondo * imp.video.secondi * nVideo;
+  const costo = unaVista * 2 + unaVista * 1.3 + mv.euroSecondo * secondiGiro() * nVideo;
   const desc = $('#creaDesc') ? $('#creaDesc').value : '', nome = $('#creaNome') ? $('#creaNome').value : '';
   const manca = !imp.chiavi[m.fornitore];
   s.innerHTML = testa('scintilla', 'Crea', 'Un paesaggio dipinto dall\'AI') + `<div class="problema" hidden></div>
@@ -2575,6 +2601,7 @@ const AZIONI = {
   modello: v => { imp.modello = v; salvaImp(); disegnaImpostazioni(); },
   qualita: v => { imp.qualita = v; salvaImp(); disegnaImpostazioni(); },
   secondi: v => { imp.video.secondi = +v; salvaImp(); disegnaImpostazioni(); },
+  pezziVideo: v => { imp.video.pezzi = +v; salvaImp(); if (foglioAperto === 'creaRichiesta' && chiediCrea.d) chiediCrea(chiediCrea.d); },
   vediChiave: v => { const el = document.getElementById(v); el.type = el.type === 'password' ? 'text' : 'password'; },
   nFinestre: v => { assetto = assettoOPredefinito(); assetto.n = +v; mandaFori(); disegnaImpostazioni(); if (scheda === 'finestre') aggiornaFinestre(); },
   bordi: () => { mostraBordi = !mostraBordi; canale.manda('fori', Object.assign({mostra: mostraBordi}, assettoOPredefinito())); disegnaImpostazioni(); },
