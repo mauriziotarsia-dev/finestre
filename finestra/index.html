@@ -27,11 +27,11 @@
 <script src="../js/canale.js?v=2.2.0"></script>
 <script src="../js/accesso.js?v=8"></script>
 <script src="../js/qrcode.js?v=1"></script>
-<script src="../js/vita.js?v=4"></script>
-<script src="../js/vista.js?v=5.48"></script>
+<script src="../js/vita.js?v=5"></script>
+<script src="../js/vista.js?v=5.49"></script>
 <script src="../js/inseguitore.js?v=1"></script>
 <script src="../js/uccelli.js?v=10"></script>
-<script src="../js/bard.js?v=7"></script>
+<script src="../js/bard.js?v=8"></script>
 <script>
 /* ═══════════════════════════════════════════════════════════════════════════
    La pagina che il Raspberry mostra dietro il traforo.
@@ -297,6 +297,13 @@ function vistaDi(s){
   for (const k in (s.animati || {})) if (k.startsWith('est-')) an[k.slice(4)] = s.animati[k];
   return {im, an};
 }
+/* 13/11 · un interno (la taverna): le parole del paesaggio, nel nome del file, contengono «interno» */
+function internoDi(s){
+  const im = s && s.immagini; if (!im || s.yt) return false;
+  const u = im.giorno || im['est-giorno'] || ''; let n = '';
+  try { n = decodeURIComponent(String(u).split('?')[0].split('/').pop()); } catch(e) { n = String(u); }
+  return /@[^_]*\binterno\b/.test(n);
+}
 function fonteDi(s){
   if (!s.immagini || s.yt) return null;
   const {im, an} = vistaDi(s);
@@ -326,7 +333,9 @@ function fonteDi(s){
   }
   /* dove sale il fumo (4/11): lo stesso per tutte le luci; se la scena non lo porta (DMaster) si prova il file col nome */
   const comignoli = s.immagini.comignoli || (/_(?:est-)?(giorno|alba|tramonto|notte)\.jpg$/.test(url.split('?')[0]) ? url.split('?')[0].replace(/_((?:est-)?)(giorno|alba|tramonto|notte)\.jpg$/, '_$1comignoli.json') : null);
-  return {url, profondita: s.immagini.profondita || null, video, fuoco: s.fuoco || null, cielo: s.immagini.profondita ? cielo : null, fermo, maschera, comignoli, alberi: s.immagini.giorno || null, ricolora, notte: s.immagini.notte || null};   /* 9/11: dalla notte si trovano le finestre accese (js/vita.js) */   /* 8/11: dove sono gli alberi lo dice sempre l'immagine del giorno (di notte i colori non bastano) */
+  /* 13/11: in un interno niente cielo che scorre, niente alberi al vento, niente fumo dai comignoli */
+  const dentro = internoDi(s);
+  return {url, profondita: s.immagini.profondita || null, video, fuoco: s.fuoco || null, cielo: s.immagini.profondita && !dentro ? cielo : null, fermo, maschera, comignoli: dentro ? null : comignoli, alberi: dentro ? null : s.immagini.giorno || null, ricolora, notte: s.immagini.notte || null, interno: dentro};   /* 9/11: dalla notte si trovano le finestre accese (js/vita.js) */   /* 8/11: dove sono gli alberi lo dice sempre l'immagine del giorno (di notte i colori non bastano) */
 }
 function chiaveFonte(f){ return f ? f.url + '|' + (f.video || '') : null; }
 function paesaggioDi(s){ return s.yt ? 'yt:' + s.yt + ':' + (s.t || 0) : s.immagini ? 'img:' + (s.paesaggio || s.immagini.giorno) : 'niente'; }
@@ -424,6 +433,7 @@ const METEO = {
   temporale:{coperto:1,   nebbia:.18, pioggia:1, neve:0, tempesta:1, vento:.8},
   neve:     {coperto:.75, nebbia:.3,  pioggia:0, neve:.9, tempesta:0, vento:.4}
 };
+const DENTRO = {coperto:0, nebbia:0, pioggia:0, neve:0, tempesta:0, vento:0};   /* 13/11: dentro la taverna il tempo di fuori non si vede */
 const NEBBIA_ORA = {alba:[.86,.74,.68], giorno:[.74,.77,.8], tramonto:[.77,.64,.6], notte:[.09,.11,.16]};
 const met = Object.assign({}, METEO.sereno), nebCol = [...NEBBIA_ORA.giorno];
 const stormi = new Stormi();
@@ -452,6 +462,8 @@ let fpsMisurati = 60, uccelli = 0, cieloX = Math.random(), notteFinta = 0, luce 
 /* un lampo: dal programma del temporale (js/bard.js, uguale su tutti gli schermi) o a comando (senza dati: a caso) */
 function effetto(d){
   const ora = performance.now(), r = bardRng((d.seme || Math.floor(Math.random() * 1e9)) >>> 0);
+  /* 13/11: dentro la taverna il cielo non si vede: solo il tuono lontano, da sentire */
+  if (internoDi(scena)){ if (d.tipo === 'tuono' && bard) bard.tuono(5 + r() * 4, .3 + r() * .1); return; }
   if (d.tipo === 'meteora'){ const x0 = .1 + r() * .8, y0 = .03 + r() * .15, verso = r() < .5 ? -1 : 1;
     meteora = {t0: ora, dur: 700 + r() * 500, k: 0, da: [x0, y0, x0 + verso * (.25 + r() * .25), y0 + .06 + r() * .1]}; prossimaMeteora = ora + 40000; }
   else if (d.tipo === 'stormo'){ stormoFino = ora + 45000; stormi.nuovoStormo(); if (bard) bard.colpoVita('stormo'); }
@@ -460,6 +472,8 @@ function effetto(d){
   /* 'nebbia' (nebbia che sale): dal 9/11 è nella scena (nebbiaSale), non è più un effetto che passa */
 }
 function scocca(l){
+  /* 13/11: dentro la taverna un lampo a comando non si vede: si sente il tuono */
+  if (internoDi(scena)){ if (bard) bard.tuono(l && l.tuono != null ? l.tuono : 1.5 + Math.random() * 2, l && l.volTuono != null ? l.volTuono : .7); return; }
   l = l || {forza: .75 + Math.random() * .5, x: .15 + Math.random() * .7, impulsi: 1 + Math.floor(Math.random() * 3), seme: Math.floor(Math.random() * 1e9), tuono: null, volTuono: null};
   /* la forma del lampo: da 1 a 4 impulsi a distanze diverse, poi la coda; ognuno diverso dall'altro */
   const r = bardRng(l.seme), imp = [];
@@ -908,7 +922,8 @@ function giro(ora){
   lento = lento * .97 + (dt * 1000 > passo * 1.56 ? 1 : 0) * .03;
   if (lento > .6 && qualita && !disegnoUrl && scala <= Math.max(scalaMin, .5)) qualita = 0; else if (lento < .1 && !qualita) qualita = 1;   /* con &disegno fisso nessun effetto si spegne (5/11) */
   const k = 1 - Math.exp(-dt * .45);
-  const o = oraDi(scena), tgt = METEO[scena.meteo] || METEO.sereno, base = scena.intensita == null ? .75 : scena.intensita;
+  const dentro = internoDi(scena);
+  const o = oraDi(scena), tgt = dentro ? DENTRO : METEO[scena.meteo] || METEO.sereno, base = scena.intensita == null ? .75 : scena.intensita;
   /* 9/11: con la nebbia che sale sale anche la nebbia di tutto il paesaggio (fino al 70%), come il cursore nell'app */
   const intens = scena.meteo === 'nebbia' && saleK > 0 ? base + (Math.max(base, .7) - base) * saleK * saleK * (3 - 2 * saleK) : base;
   for (const key in tgt){
@@ -939,30 +954,30 @@ function giro(ora){
     avvisatoPronta = paesaggioInVista; try { parent.postMessage({tipo:'pronta', paesaggio: paesaggioInVista}, '*'); } catch(e) {}
   }
   /* uccelli: di giorno (anche all'alba e al tramonto) e col bel tempo; spariscono piano quando cambia */
-  const uTgt = scena.uccelli === false || o === 'notte' ? 0
+  const uTgt = scena.uccelli === false || o === 'notte' || dentro ? 0
     : Math.max(0, 1 - met.pioggia * 2 - met.neve * 2 - met.tempesta - met.nebbia * 1.3) * (1 - met.coperto * .5);
-  uccelli += ((ora < stormoFino && o !== 'notte' ? Math.max(uTgt, .9) : uTgt) - uccelli) * k;   /* 8/11: lo stormo chiamato dal telefono si vede anche col tempo brutto (non di notte) */
+  uccelli += ((ora < stormoFino && o !== 'notte' && !dentro ? Math.max(uTgt, .9) : uTgt) - uccelli) * k;   /* 8/11: lo stormo chiamato dal telefono si vede anche col tempo brutto (non di notte) */
   /* lo stormo e il rapace (js/uccelli.js), la notte (stelle, fuochi), le ombre delle nuvole, le stelle cadenti */
   /* 9/11 · la vita del paesaggio a quest'ora (js/vita.js): a che punto è l'ora, pipistrelli e pulviscolo */
   if (o !== oraVista){ oraVista = o; oraDa = ora; }
   const kOra = progressoOra(o, ora - oraDa), brutto = Math.max(met.pioggia, met.neve, met.tempesta * .7);
-  const pipTgt = scena.movimento === false ? 0 : (o === 'tramonto' ? Math.max(0, Math.min(1, (kOra - .2) / .35)) : o === 'notte' ? .9 : o === 'alba' ? Math.max(0, .7 - kOra * 1.4) : 0) * Math.max(0, 1 - brutto * 6);   /* 11/11 (Maurizio: «pochi volatili anche di notte, ad alba e tramonto»): di notte .9 (era .6), all'alba rientrano i pipistrelli nella prima mezz'ora, al tramonto escono prima */
+  const pipTgt = scena.movimento === false || dentro ? 0 : (o === 'tramonto' ? Math.max(0, Math.min(1, (kOra - .2) / .35)) : o === 'notte' ? .9 : o === 'alba' ? Math.max(0, .7 - kOra * 1.4) : 0) * Math.max(0, 1 - brutto * 6);   /* 11/11 (Maurizio: «pochi volatili anche di notte, ad alba e tramonto»): di notte .9 (era .6), all'alba rientrano i pipistrelli nella prima mezz'ora, al tramonto escono prima */
   pip += (pipTgt - pip) * k;
-  const pvTgt = scena.movimento === false ? 0 : ({alba: .7, giorno: .45, tramonto: .9}[o] || 0) * Math.max(0, 1 - met.coperto * 1.3) * Math.max(0, 1 - brutto * 6) * Math.max(0, 1 - met.nebbia * .8);
+  const pvTgt = scena.movimento === false ? 0 : dentro ? ({alba: .45, giorno: .85, tramonto: .95, notte: .2}[o] || 0) : ({alba: .7, giorno: .45, tramonto: .9}[o] || 0) * Math.max(0, 1 - met.coperto * 1.3) * Math.max(0, 1 - brutto * 6) * Math.max(0, 1 - met.nebbia * .8);
   pulviscolo += (pvTgt - pulviscolo) * k;
   /* ⚠ 9/11 · NEBBIOLINA VIVA (Maurizio: «aumenta leggermente quella nebbia viva; ha senso che ci sia anche la notte? o anche
      con la neve?»). Un po' di più dappertutto, e come dal vero: la foschia delle valli si forma di notte e col fresco, è
      più forte all'alba, si alza e si assottiglia di giorno, torna verso sera. Di notte c'è (si vede appena, alla luna).
      Con la neve che cade e con la pioggia c'è meno (l'aria è piena d'altro), col vento forte si disperde */
   const nvTgt = ({alba: 1.7, giorno: 1.15, tramonto: 1.25, notte: 1.2}[o] || 1.2) * (1 - met.neve * .3 - met.pioggia * .2 - met.tempesta * .15) * (1 - Math.max(0, met.vento - .3) * .5);
-  nebViva += (nvTgt - nebViva) * k;
+  nebViva += ((dentro ? 0 : nvTgt) - nebViva) * k;
   stormi.aggiorna(dt, (geom[0] && geom[0].aspetto) || .4, uccelli, pip);
   const nTgt = o === 'notte' ? 1 : o === 'tramonto' ? .15 : 0;
   notte += (nTgt - notte) * k;
-  const omTgt = (o === 'notte' ? 0 : o === 'giorno' ? 1 : .5) * (1 - met.coperto) * (1 - met.nebbia);
+  const omTgt = dentro ? 0 : (o === 'notte' ? 0 : o === 'giorno' ? 1 : .5) * (1 - met.coperto) * (1 - met.nebbia);
   ombre += (omTgt - ombre) * k;
   if (meteora){ meteora.k = (ora - meteora.t0) / meteora.dur; if (meteora.k >= 1) meteora = null; }
-  else if (notte > .8 && met.coperto < .3 && ora > prossimaMeteora){
+  else if (notte > .8 && met.coperto < .3 && ora > prossimaMeteora && !dentro){
     if (prossimaMeteora){ const x0 = .1 + Math.random() * .8, y0 = .03 + Math.random() * .15, verso = Math.random() < .5 ? -1 : 1;
       meteora = {t0: ora, dur: 600 + Math.random() * 500, k: 0, da: [x0, y0, x0 + verso * (.25 + Math.random() * .25), y0 + .06 + Math.random() * .1]}; }
     prossimaMeteora = ora + 40000 + Math.random() * 80000;
@@ -974,14 +989,16 @@ function giro(ora){
   const rafficaT = rafficaDa ? (ora - rafficaDa) / 1000 : -1; if (rafficaT > 7) rafficaDa = 0;
   /* nebbia che sale (js/vista.js, «NEBBIA CHE SALE»), dalla scena: sale in 25 s e resta finché il telefono non la
      fa scendere (30 s, poi si dirada) */
-  saleK = (scena.nebbiaSale && scena.acceso !== false) ? Math.min(1, saleK + dt / 25) : Math.max(0, saleK - dt / 30);
+  saleK = (scena.nebbiaSale && scena.acceso !== false && !dentro) ? Math.min(1, saleK + dt / 25) : Math.max(0, saleK - dt / 30);
   let sale = [0, 0];
   if (saleK > 0){ const l = saleK * saleK * (3 - 2 * saleK), cima = .52; sale = [cima * l - .02 + .012 * Math.sin(ora / 4000) * l, Math.min(1, saleK * 6)]; }
   cieloX = (cieloX + dt * (.0023 + .0092 * met.vento)) % 1000;   /* 30/10: +10%, poi -5%; 11/11: +10% (Maurizio) */
   /* i lampi del temporale: dal programma comune (js/bard.js), così TV e finestrelle lampeggiano insieme */
   if (scena.meteo === 'temporale' && scena.acceso !== false){
     const adesso = Date.now();
-    if (prossimoLampo && adesso - prossimoLampo < 5000){ const nuovi = bardLampiFra(prossimoLampo, adesso, scena.intensita == null ? .75 : scena.intensita); if (nuovi.length) scocca(nuovi[nuovi.length - 1]); }
+    if (prossimoLampo && adesso - prossimoLampo < 5000){ const nuovi = bardLampiFra(prossimoLampo, adesso, scena.intensita == null ? .75 : scena.intensita);
+      /* dentro la taverna il lampo non si vede, il tuono si sente (attutito, js/bard.js) */
+      if (nuovi.length){ if (dentro){ const l = nuovi[nuovi.length - 1]; if (bard) bard.tuono(l.tuono, l.volTuono); } else scocca(nuovi[nuovi.length - 1]); } }
     prossimoLampo = adesso;
   } else prossimoLampo = 0;
   /* con «Come fuori» l'ora cambia da sola: la luce del paesaggio sfuma piano, in un minuto e mezzo */
@@ -1004,7 +1021,7 @@ function giro(ora){
     t: (ora / 1000) % 3588, trasparente: !!scena.yt, movimento: scena.movimento !== false, prospettiva: scena.prospettiva !== false,
     coperto: met.coperto, nebbia: met.nebbia, pioggia: met.pioggia, neve: met.neve, tempesta: met.tempesta, vento: met.vento, raffica: [rafficaT, rafficaSeme, 1], sale,
     lampo: intensitaLampo(ora), lampoX, lampoS: lampo ? lampo.seme || 0 : 0, lampoB: lampo && lampo.fulmine ? 1 : 0, uccelli: Math.max(uccelli, pip > .05 ? 1 : 0), stormi: stormi.dati(), notte,
-    vita: {o, k: kOra}, pulviscolo, nebViva, ombre, meteora, cieloX, notteFinta, luce, buio: scuro, qualita, colNebbia: nebCol, occhio, margine
+    vita: {o, k: kOra, interno: dentro}, pulviscolo, nebViva, ombre, meteora, cieloX, notteFinta, luce, buio: scuro, qualita, colNebbia: nebCol, occhio, margine
   };
   ultimoParam = param;
   /* sotto un'immagine della Serata il paesaggio non si vede: non si disegna (il G10 respira); durante il banco di prova neanche */

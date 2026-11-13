@@ -9,7 +9,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
 const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 const euro = n => (n < .1 ? n.toFixed(3) : n.toFixed(2)).replace('.', ',') + ' $';
-const VERSIONE = '6.31';
+const VERSIONE = '6.32';
 /* 8/11 · l'app si aggiorna da sola (Maurizio: «vedo ancora il quadrato con la doppia finestra»: sul telefono restava la
    versione vecchia anche dopo averla chiusa). Quando torna in primo piano, e ogni 10 minuti, chiede al server quale
    app.js c'è adesso; se è un'altra, ricarica (mai mentre un lavoro AI è in corso) */
@@ -117,6 +117,7 @@ const gestoreCanale = {
     if (evento === 'bard'){ prendiBard(d); return; }
     if (evento === 'aggiornaVecchi'){ chiediAggiornaVecchi(d); return; }
     if (evento === 'rifaiAnim'){ chiediRifaiAnim(d); return; }
+    if (evento === 'crea'){ chiediCrea(d); return; }
     if (evento === 'console'){ suConsole(d); return; }
     if (evento === 'consoleScheda'){ suScheda(d); return; }
     if (evento === 'bardOra'){ if (!suonoQui()){ bardOra = d.musica || null; if (scheda === 'bard') aggiornaBard(); } return; }
@@ -1016,6 +1017,38 @@ The main subject of this view, fully visible and centered in the width: ${desc |
 A generous sky in the upper part, the land descending toward the viewer in the lower part, natural eye-level perspective, deep atmospheric distance with several layers (near, middle, far).
 The picture IS the view itself: no window frame, no walls, no curtains, nothing of the room. No people in the foreground, no text, no signature, no watermark, no border, no vignette.
 ${LUCI_EST.giorno}`;
+/* ═══ 13/11 · GLI INTERNI (Maurizio: «una finestra e due finestrelle dentro una taverna, per dare impressione che sia un
+   affaccio dentro la taverna medievale»). Le finestre della stanza medievale non danno fuori ma su una sala: si guarda
+   giù da una finestrella alta nel muro della stanza accanto. Un paesaggio interno ha la parola «interno»: niente cielo
+   che scorre, niente comignoli; luci della sala al posto della luce del sole (dalle finestrelle della taverna di giorno,
+   candele e camino di notte); nel video si muovono fuoco, candele, fumo e appena le persone. La finestra spegne
+   pioggia, neve, nebbia, uccelli, pipistrelli e lucciole (js/vista.js, finestra/index.html); Bard fa sentire la sala. */
+const eInterno = p => !!p && Array.isArray(p.parole) && p.parole.includes('interno');
+const LUCI_INTERNO = {
+  giorno:'Time of day: daytime. Soft daylight enters through the small leaded windows of the room in slanting beams with floating dust; the hearth fire burns and a few candles are lit; a warm, readable interior.',
+  alba:'Change only the light to early morning: pale blue and pink dawn light through the small windows, the hearth fire low with glowing embers, most candles out, cool quiet light; everything else identical.',
+  tramonto:'Change only the light to sunset: warm orange sunbeams slant low through the small windows across the room, the hearth fire and the candles glowing; everything else identical.',
+  notte:'Change only the light to night: the windows are dark blue, the room is lit only by the hearth fire, candles and iron lanterns, warm golden pools of light and deep soft shadows; everything else identical.'
+};
+function promptInterno(descrizione, centro, stile){
+  const s = STILI.find(x => x.id === stile) || STILI[0];
+  return `${s.prefisso}.
+One wide picture (16:9) of the inside of ${descrizione}, seen through a small window high in the wall of the room next door: the viewer looks into the room from above, slightly downward, as if peeking from an upper floor.
+The picture IS the view itself: no window frame, no wall edge, no curtains, no sill, nothing of the viewer's room in the foreground.
+Composition: ${centro} stands EXACTLY at the horizontal centre of the picture, compact, about one tenth of the picture width, fully visible. On both sides the room continues and is rich and interesting on its own: tables and benches, barrels, shelves with jugs and plates, hanging herbs and hams, iron candle chandeliers, rough stone walls and heavy dark wooden beams. Believable scale, natural perspective, depth with several layers (near, middle, far).
+A few patrons sit at the tables in the middle distance, seen small, calm, dressed in medieval clothes; nobody looks at the viewer, nobody stands close.
+No text, no signs with letters, no signature, no watermark, no border, no vignette.
+${LUCI_INTERNO.giorno}`;
+}
+const promptEstInterno = desc => `The input image shows the inside of a room seen from a small high window in one of its walls. Paint the SAME room seen from another small high window in the next wall, 90 degrees to the right, as one wide picture (16:9, like a large window).
+It is the same room: same walls, beams, floor, furniture style, same people's clothing, same light and time of day, same painting style, palette and level of detail. What is at the centre of the input image is NOT in this view (it stays far to the left, out of frame).
+The main element of this view, fully visible and centered in the width: ${desc || 'the great stone hearth with a roaring fire, with long tables and patrons in front of it'}.
+The viewer looks into the room from above, slightly downward. A few patrons at the tables, seen from a distance, calm, nobody looks at the viewer, nobody stands close.
+The picture IS the view itself: no window frame, no wall edge, no curtains, nothing of the viewer's room. No text, no signs with letters, no signature, no watermark, no border, no vignette.
+${LUCI_INTERNO.giorno}`;
+const promptLuceInterno = ora => `Same exact room, view and composition as the input image: every wall, beam, table, bench, barrel, object and person stays in the same place, same framing, same style. ${LUCI_INTERNO[ora]} Do not add a window frame, text or borders.`;
+const promptAnimaInterno = (sec, ora) => `[# Sources <FIRST_FRAME>@Image1 <LAST_FRAME>@Image1] A single continuous, unbroken shot of about ${sec} seconds, no scene cuts, of exactly this room. Locked-off static camera on a tripod: the camera does not move at all (no pan, no tilt, no zoom, no dolly, no shake). Gentle, natural, real-time motion only: the fire in the hearth flickers and dances with rising sparks, candle and lantern flames flicker softly, thin wisps of smoke and dust drift slowly in the light${ora === 'giorno' || ora === 'tramonto' ? ' beams' : ''}; the patrons stay seated where they are with only small natural movements (breathing, a slight turn of the head, lifting a mug, a hand gesture while talking). Walls, beams, tables, benches, barrels and every object stay perfectly still and identical in every frame, with no shimmering. Nobody walks in or out, nobody stands up, no new people, no animals, no light change, same framing, light and colors as the image for the whole clip. No text, no dialogue, no music. Use this image as the first frame and the last frame.`;
+
 /* ⚠ 30/10 · CIELO CHE SCORRE. Maurizio: «le nuvole quando reinizia il loop si spostano pesantemente».
    Nuvole che vanno sempre da una parte non possono stare in un video breve che gira (alla fine sono altrove).
    Per questo il cielo è un'immagine panoramica a parte, che si ripete senza cuciture e la finestra fa scorrere
@@ -1079,7 +1112,7 @@ async function faiLuci(p, foto, ore, misura, o = {}){
     const k = pre + ora;
     passo(k, 'ora', eti(ora) + ': stessa vista, altra luce…');
     try {
-      const r = await Ai.modifica({modello:imp.modello, chiavi:imp.chiavi, qualita:imp.qualita, prompt: o.est ? promptLuceEst(ora, o.conSole) : promptLuce(ora, o.conTv), foto, misura: o.est ? 'tv' : misura,
+      const r = await Ai.modifica({modello:imp.modello, chiavi:imp.chiavi, qualita:imp.qualita, prompt: eInterno(p) ? promptLuceInterno(ora) : o.est ? promptLuceEst(ora, o.conSole) : promptLuce(ora, o.conTv), foto, misura: o.est ? 'tv' : misura,
         bozza: b64 => { lavoro.anteprime[k] = {url:'data:image/png;base64,' + b64, bozza:true}; disegnaLavoro(); }});
       const jpg = await inJpeg(b64aBlob(r.b64, r.mime));
       p.immagini[k] = o.est ? await caricaEst(casa, p, ora, jpg) : await caricaLuce(casa, p, ora, jpg);
@@ -1146,7 +1179,7 @@ async function faiProfondita(p, foto, est = false){
    stesso delle finestrelle (è lo stesso cielo). Il mini PC la porta al 4K vero (pi/cuci-animazione.py) */
 async function faiVistaEst(p, fotoNord, descrizione, conSole){
   passo('est-giorno', 'ora', 'TV · vista verso est: la dipingo…');
-  const r = await Ai.modifica({modello:imp.modello, chiavi:imp.chiavi, qualita:imp.qualita, prompt:promptEst(descrizione), foto:fotoNord, misura:'tv',
+  const r = await Ai.modifica({modello:imp.modello, chiavi:imp.chiavi, qualita:imp.qualita, prompt: eInterno(p) ? promptEstInterno(descrizione) : promptEst(descrizione), foto:fotoNord, misura:'tv',
     bozza: b64 => { lavoro.anteprime['est-giorno'] = {url:'data:image/png;base64,' + b64, bozza:true}; disegnaLavoro(); }});
   const jpg = await inJpeg(b64aBlob(r.b64, r.mime));
   p.immagini['est-giorno'] = await caricaEst(casa, p, 'giorno', jpg);
@@ -1155,7 +1188,7 @@ async function faiVistaEst(p, fotoNord, descrizione, conSole){
   await faiLuci(p, jpg, ['alba','tramonto','notte'].filter(o => p.immagini[o]), null, {est:true, conSole});
   aggiornaInLibreria(p);
   await faiProfondita(p, jpg, true);
-  await faiComignoli(p, jpg, true);
+  if (!eInterno(p)) await faiComignoli(p, jpg, true);
 }
 /* 4/11 · il fumo dei comignoli: l'AI guarda la luce del giorno e dice dove sale (js/ai.js trovaComignoli); il fumo
    lo disegna poi la finestra, dal vivo. Pochi centesimi; se non riesce il paesaggio va bene lo stesso */
@@ -1174,7 +1207,7 @@ async function faiAnimazione(p, foto, ora, elementi, tv = false){
   passo(ka, 'ora', `${eti}Animazione con ${mv.nome}: in coda…`); lavoro.av = 0;
   /* la vista nord larga (il trucco della prospettiva) si anima intera, orizzontale come quella del TV */
   const largo = !tv && (await misuraDi(foto)).largo;
-  const mp4 = await Ai.anima({chiave:imp.chiavi.google, modello:mv.id, foto, fuoco:p.fuoco, tv: tv || largo, prompt:promptAnima(elementi, imp.video.secondi, ora),
+  const mp4 = await Ai.anima({chiave:imp.chiavi.google, modello:mv.id, foto, fuoco:p.fuoco, tv: tv || largo, prompt: eInterno(p) ? promptAnimaInterno(imp.video.secondi, ora) : promptAnima(elementi, imp.video.secondi, ora),
     progresso:(pc, st) => { lavoro.av = pc; passo(ka, 'ora', `${eti}Animazione con ${mv.nome}: ${st === 'invio' ? 'la mando' : st === 'scarico' ? 'la scarico' : 'la sta girando'}… ${Math.round(pc)}%`); }});
   passo(ka, 'ora', eti + 'Animazione: la salvo…');
   p.animati[pre + ora] = tv ? await caricaEstAnimazione(casa, p, ora, mp4) : await caricaAnimazione(casa, p, ora, mp4);
@@ -1256,8 +1289,38 @@ function rapportoLavoro(extra = {}){
 /* la stessa richiesta si legge anche dalla rete all'apertura dell'app (se il telefono era chiuso quando Claude l'ha mandata) */
 async function richiestaInRete(){
   try { const r = await fetch(SUPABASE_URL + '/storage/v1/object/public/dmaster-media/finestre/banco/richiesta-telefono.json?t=' + Date.now(), {cache: 'no-store'});
-    if (!r.ok) return; const j = await r.json(); if (!j || foglioAperto === 'aggiorna' || foglioAperto === 'rifaiAnim' || (lavoro && !lavoro.finito)) return;
-    if (j.rifaiAnim) chiediRifaiAnim(j.rifaiAnim); else if (j.aggiornaVecchi) chiediAggiornaVecchi(j.aggiornaVecchi); } catch(e) {}
+    if (!r.ok) return; const j = await r.json(); if (!j || foglioAperto === 'aggiorna' || foglioAperto === 'rifaiAnim' || foglioAperto === 'creaRichiesta' || (lavoro && !lavoro.finito)) return;
+    if (j.crea) chiediCrea(j.crea); else if (j.rifaiAnim) chiediRifaiAnim(j.rifaiAnim); else if (j.aggiornaVecchi) chiediAggiornaVecchi(j.aggiornaVecchi); } catch(e) {}
+}
+/* 13/11 · un paesaggio nuovo chiesto da Claude (la taverna): il foglio col costo, e Avvia sul telefono */
+let creaFatti = new Set(leggi('atm-crea-fatti', []));
+function chiediCrea(d){
+  if (!d || !d.chiave || !d.descrizione || creaFatti.has(d.chiave) || (lavoro && !lavoro.finito)) return;
+  const m = Ai.modello(imp.modello), mv = MODELLI_VIDEO.find(x => x.id === imp.video.modello) || MODELLI_VIDEO[0] || {euroSecondo: 0};
+  const unaVista = (m.costo[imp.qualita] || m.costo.alta) * (1 + 3 * 1.15), nVideo = MODELLI_VIDEO.length ? nVideoCrea() : 0;
+  const costo = unaVista * 2 + (d.interno ? 0 : unaVista * 1.3) + mv.euroSecondo * imp.video.secondi * nVideo;
+  apriFoglio(`<h3 style="font:500 16px var(--display);letter-spacing:.12em;text-transform:uppercase;margin:4px 0 4px">Creo «${esc(d.nome)}»</h3>
+    <p class="nota" style="margin-top:0">${esc(d.perche || 'Claude ha preparato un paesaggio nuovo da creare.')}</p>
+    <ul class="membri">
+      <li><span><b>Finestrelle</b><small>${esc(d.centroIt || d.centro || '')}</small></span></li>
+      <li><span><b>TV</b><small>${esc(d.descEstIt || d.descEst || '')}</small></span></li>
+      <li><span><b>Le quattro luci</b><small>${d.interno ? 'giorno dalle finestrelle della sala, alba, tramonto, notte a lume di candela' : 'giorno, alba, tramonto, notte'}</small></span></li>
+      ${nVideo ? `<li><span><b>${nVideo} animazioni</b><small>${d.interno ? 'fuoco, candele, fumo, le persone appena' : 'giorno e tramonto, finestrelle e TV'}</small></span></li>` : ''}
+    </ul>
+    <button class="btn oro piena" style="margin-top:14px" data-fai="creaRichiestaVia" ${!imp.chiavi[m.fornitore] ? 'disabled' : ''}>${icona('scintilla', 18)}Avvia · ≈ ${euro(costo)}</button>
+    ${!imp.chiavi[m.fornitore] ? `<p class="nota">Manca la chiave ${m.fornitore === 'google' ? 'Google' : 'OpenAI'} nelle Impostazioni.</p>` : ''}
+    <p class="nota">Le immagini sono pronte in pochi minuti; le animazioni arrivano dopo, qualche minuto ciascuna. Tieni l'app aperta su questa pagina finché non ho finito.</p>
+    <div id="lavoroFoglio"></div>`);
+  foglioAperto = 'creaRichiesta'; chiediCrea.d = d;
+  rapportoLavoro({messaggio: 'in attesa di «Avvia»', costo: Math.round(costo * 100) / 100, crea: d.nome});
+}
+async function creaRichiestaVia(){
+  const d = chiediCrea.d; if (!d) return;
+  const b = document.querySelector('[data-fai="creaRichiestaVia"]'); if (b) b.hidden = true;
+  creaFatti.add(d.chiave); scrivi('atm-crea-fatti', [...creaFatti]);
+  const t = setInterval(() => rapportoLavoro(), 20000);
+  try { await creaPaesaggio(d); }
+  finally { clearInterval(t); rapportoLavoro({messaggio: lavoro && lavoro.errore ? 'errore: ' + lavoro.errore : 'finito'}); }
 }
 async function chiediAggiornaVecchi(d){
   if (!d || !Array.isArray(d.ids) || !d.chiave || aggiornaFatti.has(d.chiave)) return;
@@ -1341,26 +1404,33 @@ async function crea(){
   const nome = ($('#creaNome').value.trim() || $('#creaDesc').value.trim().split(/[,.]/)[0].slice(0, 40) || 'Paesaggio');
   const descrizione = $('#creaDesc').value.trim();
   if (!descrizione){ avviso('Scrivi che cosa si vede, o tocca un\'idea.', true); return; }
+  return creaPaesaggio({nome, descrizione, stile: imp.stile});
+}
+/* o: {nome, descrizione, stile, interno, centro (l'elemento al centro delle finestrelle), descEst (quello del TV), parole} */
+async function creaPaesaggio(o){
+  const {nome, descrizione} = o, stile = o.stile || imp.stile, interno = !!o.interno;
   const m = Ai.modello(imp.modello);
   if (!imp.chiavi[m.fornitore]){ avviso('Serve la chiave ' + (m.fornitore === 'google' ? 'Google' : 'OpenAI') + ': mettila nelle Impostazioni.', true); return; }
   await conLavoro('crea', async L => {
-    const p = {id: Date.now().toString(36), tipo: imp.stile, nome, parole: paroleChiave(nome, descrizione), immagini:{}, animati:{}, file:[], fuoco:null, creato: Date.now()};
+    const parole = [...new Set([...(o.parole || []), ...paroleChiave(nome, descrizione), ...(interno ? ['interno'] : [])])].slice(0, 11);
+    if (interno && !parole.includes('interno')) parole[parole.length - 1] = 'interno';
+    const p = {id: Date.now().toString(36), tipo: stile, nome, parole, immagini:{}, animati:{}, file:[], fuoco:null, creato: Date.now()};
     passo('giorno', 'ora', 'Giorno: lo sto dipingendo con ' + m.nome + '…');
-    const largo = largoPerLeFinestrelle();
-    const r = await Ai.crea({modello:imp.modello, chiavi:imp.chiavi, qualita:imp.qualita, prompt: largo ? promptLargo(descrizione, imp.stile) : promptBase(descrizione, imp.stile), misura: largo ? 'tv' : undefined,
+    const largo = interno || largoPerLeFinestrelle();
+    const r = await Ai.crea({modello:imp.modello, chiavi:imp.chiavi, qualita:imp.qualita, prompt: interno ? promptInterno(descrizione, o.centro || 'the main counter', stile) : largo ? promptLargo(descrizione, stile) : promptBase(descrizione, stile), misura: largo ? 'tv' : undefined,
       bozza: b64 => { L.anteprime.giorno = {url:'data:image/png;base64,' + b64, bozza:true}; disegnaLavoro(); }});
     const jpg = await inJpeg(b64aBlob(r.b64, r.mime));
     p.immagini.giorno = await caricaLuce(casa, p, 'giorno', jpg);
     L.anteprime.giorno = {url:p.immagini.giorno}; passo('giorno', 'fatto', 'Giorno'); L.p = p;
     aggiornaInLibreria(p);
     const misura = largo ? 'tv' : m.fornitore === 'openai' ? r.misura : null;
-    const conTv = true, descEst = '';   /* 10/11: la vista del TV la sceglie l'AI (si rifà dal paesaggio, se non piace) */
-    await faiLuci(p, jpg, ['alba','tramonto','notte'].filter(o => imp.luci[o]), misura, {conTv});
+    const conTv = true, descEst = o.descEst || '';   /* 10/11: la vista del TV la sceglie l'AI (si rifà dal paesaggio, se non piace) */
+    await faiLuci(p, jpg, ['alba','tramonto','notte'].filter(x => interno || imp.luci[x]), misura, {conTv});
     aggiornaInLibreria(p);
     await faiProfondita(p, jpg); aggiornaInLibreria(p);
-    await faiComignoli(p, jpg); aggiornaInLibreria(p);
+    if (!interno){ await faiComignoli(p, jpg); aggiornaInLibreria(p); }
     if (conTv){ try { await faiVistaEst(p, jpg, descEst, true); aggiornaInLibreria(p); } catch(e) { passo('est-giorno', 'errore', 'TV · vista verso est: ' + e.message); segnala(e); } }
-    if (imp.cielo !== false){ await faiCieli(p); aggiornaInLibreria(p); }
+    if (imp.cielo !== false && !interno){ await faiCieli(p); aggiornaInLibreria(p); }
     /* le animazioni: ogni luce, finestrelle e TV (4/11) */
     if (imp.anima) await animaTutto(p, animMancanti(p));
   });
@@ -1406,8 +1476,12 @@ setInterval(() => { lettore.imposta({muto: inSerata()}); if (scheda === 'bard') 
 /* 13/11: la libreria di Bard si legge subito (non solo aprendo Bard), così il TV riceve i suoni del paesaggio */
 setTimeout(() => { if (bardLibStato === 'da caricare' && (casa || CASA_PRIVATA)) caricaBard(); }, 2500);
 
-const bardDi = tipo => bardLib.filter(x => x.tipo === tipo);
-const voceBard = x => x ? {id: x.id, url: x.url, titolo: x.titolo} : null;
+/* 13/11: le registrazioni dello stesso suono («…-v1», «…-v2») stanno insieme: un suono, più varianti */
+const bardDi = tipo => { const per = new Map();
+  for (const x of bardLib){ if (x.tipo !== tipo) continue; const g = per.get(x.base);
+    if (g){ g.varianti.push(x.url); g.files.push(x.file); } else per.set(x.base, Object.assign({}, x, {id: x.base, varianti: [x.url], files: [x.file]})); }
+  return [...per.values()]; };
+const voceBard = x => x ? {id: x.id, url: x.url, titolo: x.titolo, varianti: x.varianti || [x.url]} : null;
 /* 13/11 · la libreria di Bard anche col link della stanza (prima solo con l'account: Maurizio vedeva «Collega il
    telefono…» e Bard restava vuoto). Col link i file stanno accanto ai paesaggi, nel deposito pubblico. */
 async function bardElencoFile(){
@@ -1439,12 +1513,11 @@ async function caricaBard(){
     bardLib = (await bardElencoFile()).map(f => Object.assign(bardDaNome(f.nome), {url: f.url})).filter(x => x.url).sort((a, b) => a.titolo.localeCompare(b.titolo, 'it'));
     bardLibStato = 'ok';
     /* gli indirizzi firmati cambiano: lo stato si rifà con quelli nuovi */
-    const per = new Map(bardLib.map(x => [x.tipo + ':' + x.id, x]));
-    if (bardStato.sottofondo) bardStato.sottofondo = voceBard(per.get('sottofondo:' + bardStato.sottofondo.id));
+    if (bardStato.sottofondo) bardStato.sottofondo = voceBard(bardDi('sottofondo').find(x => x.id === bardStato.sottofondo.id));
     if (bardStato.musica) bardStato.musica.brani = bardDi('musica').map(voceBard);
     bardStato.registrazioni = Object.fromEntries(bardDi('tempo').map(x => [x.id, x.url]));
     const vitaPrima = JSON.stringify(bardStato.suoniVita || {});
-    bardStato.suoniVita = Object.fromEntries(bardDi('vita').map(x => [x.id, x.url]));
+    bardStato.suoniVita = Object.fromEntries(bardDi('vita').map(x => [x.id, x.varianti]));
     lettore.applica(bardStato);
     /* suoni del paesaggio nuovi (appena preparati): anche il TV li deve avere */
     if (JSON.stringify(bardStato.suoniVita) !== vitaPrima && !inSerata()) mandaBard({}, true);
@@ -1456,7 +1529,7 @@ function mandaBard(parte, piano = false){
   if (inSerata()){ avviso('Serata in corso: i suoni li comanda DMaster', true); return false; }
   Object.assign(bardStato, parte || {});
   bardStato.registrazioni = Object.fromEntries(bardDi('tempo').map(x => [x.id, x.url]));
-  if (bardLibStato === 'ok') bardStato.suoniVita = Object.fromEntries(bardDi('vita').map(x => [x.id, x.url]));
+  if (bardLibStato === 'ok') bardStato.suoniVita = Object.fromEntries(bardDi('vita').map(x => [x.id, x.varianti]));
   bardStato.rev = Date.now();
   scrivi('bard-stato', bardStato);
   lettore.applica(bardStato); lettore.imposta({qui: suonoQui()});
@@ -1488,15 +1561,20 @@ function atmosferaDiAdesso(nome, conFinestre){
     finestre: conFinestre ? {meteo: scena.meteo || 'sereno', ora: scena.ora || 'vera'} : null};
 }
 function applicaAtmosfera(a){
-  const brani = bardDi('musica').map(voceBard), sott = a.sottofondo && bardDi('sottofondo').find(x => x.id === a.sottofondo);
+  /* con la taverna nelle finestre la sala si sente dai suoni del paesaggio: il sottofondo della taverna non serve */
+  const conSala = !!(a.paesaggio && libreria.some(x => eInterno(x) && x.parole.includes(a.paesaggio)) && bardDi('vita').some(x => x.id === 'taverna-sala'));
+  const brani = bardDi('musica').map(voceBard), sott = !conSala && a.sottofondo && bardDi('sottofondo').find(x => x.id === a.sottofondo);
   const i = a.musica ? Math.max(0, brani.findIndex(b => b.id === a.musica.id)) : 0;
   /* 13/11: al chiuso (taverna, grotta, cripta…) i suoni del paesaggio tacciono; all'aperto si accendono */
   const ok = mandaBard({sottofondo: voceBard(sott) || null, tempo: Object.assign({volume: .6}, bardStato.tempo, {acceso: !!a.tempo}),
-    ...(a.vita == null ? {} : {vita: Object.assign({volume: .55}, bardStato.vita, {acceso: !!a.vita})}),
+    ...(a.vita == null ? {} : {vita: Object.assign({volume: .55}, bardStato.vita, {acceso: !!a.vita || !!(a.paesaggio && libreria.some(x => eInterno(x) && x.parole.includes(a.paesaggio)))})}),
     musica: a.musica && brani.length ? {acceso: true, casuale: !!a.musica.casuale, i, brani} : Object.assign({}, bardStato.musica || {}, {acceso: false, brani})});
   if (!ok) return;
-  if (a.finestre){ if (comandaDM()) avviso('Le finestre sono in mano a DMaster: cambio solo i suoni', true); else cambia({meteo: a.finestre.meteo, ora: a.finestre.ora, acceso: true}); }
-  if (a.sottofondo && !sott) avviso('Il sottofondo di «' + a.nome + '» non è più nella stanza', true); else avviso('Atmosfera: ' + a.nome);
+  /* 13/11: «Taverna di sera» mostra anche la taverna nelle finestre, se c'è (un interno con la parola «taverna») */
+  const dentro = a.paesaggio && libreria.find(x => eInterno(x) && x.parole.includes(a.paesaggio));
+  if (dentro && !comandaDM()){ mostraPaesaggio(dentro); if (a.finestre) cambia({ora: a.finestre.ora, acceso: true}); }
+  else if (a.finestre){ if (comandaDM()) avviso('Le finestre sono in mano a DMaster: cambio solo i suoni', true); else cambia({meteo: a.finestre.meteo, ora: a.finestre.ora, acceso: true}); }
+  if (a.sottofondo && !sott && !conSala) avviso('Il sottofondo di «' + a.nome + '» non è più nella stanza', true); else avviso('Atmosfera: ' + a.nome);
   disegnaBard();
 }
 function apriSalvaAtmosfera(){
@@ -1656,16 +1734,22 @@ const BARD_DOTAZIONE = {
   ],
 };
 /* prezzi dell'API di ElevenLabs (novembre 2026): un suono ≈ 0,12 $, la musica ≈ 0,30 $ al minuto */
-const BARD_PREZZO = {suono: .12, minutoMusica: .30}, BARD_MIN_DOTAZIONE = 2;
+const BARD_PREZZO = {suono: .12, minutoMusica: .30}, BARD_MIN_DOTAZIONE = 3;
 const BARD_GRUPPI = [['vita', 'albero', 'Suoni del paesaggio', 'uccelli, grilli, fiume, campane… seguono quello che si vede'],
-  ['sottofondo', 'onda', 'Sottofondi', 'taverna, bosco, castello, mercato, grotta…'], ['musica', 'liuto', 'Musiche', 'otto brani medievali strumentali, 2 minuti l\'uno'],
+  ['sottofondo', 'onda', 'Sottofondi', 'taverna, bosco, castello, mercato, grotta…'], ['musica', 'liuto', 'Musiche', 'otto brani medievali strumentali, 3 minuti l\'uno'],
   ['effetto', 'fulmine', 'Effetti', 'porta, passi, spade, magia, scrigno…']];
 const dotazioneDi = g => g === 'vita' ? BARD_VITA : BARD_DOTAZIONE[g];
-const mancaDi = g => dotazioneDi(g).filter(x => !bardLib.some(y => y.tipo === g && y.id === x.id));
+/* quante registrazioni per suono: quelle del paesaggio le dice il catalogo, i sottofondi 2, gli effetti 3, la musica 1 */
+const BARD_N = {sottofondo: 2, effetto: 3, musica: 1};
+const quanteDi = (g, x) => g === 'vita' ? (x.n || 1) : BARD_N[g];
+/* le registrazioni che mancano: [{x, k}] */
+const mancaDi = g => dotazioneDi(g).flatMap(x => Array.from({length: quanteDi(g, x)}, (_, i) => ({x, k: i + 1})))
+  .filter(({x, k}) => !bardLib.some(y => y.tipo === g && y.base === x.id && y.k === k));
+const tutteDi = g => dotazioneDi(g).flatMap(x => Array.from({length: quanteDi(g, x)}, (_, i) => ({x, k: i + 1})));
 const prezzoDi = (g, n) => n * (g === 'musica' ? BARD_PREZZO.minutoMusica * BARD_MIN_DOTAZIONE : BARD_PREZZO.suono);
 /* le atmosfere pronte: si accendono con un tocco quando i loro suoni ci sono */
 const ATMOSFERE_PRONTE = [
-  {id:'p-taverna', nome:'Taverna di sera', med:'boccale', sottofondo:'d-taverna', musica:{id:'d-allegra'}, vita:false, tempo:true, finestre:{ora:'notte', meteo:'sereno'}},
+  {id:'p-taverna', nome:'Taverna di sera', med:'boccale', sottofondo:'d-taverna', musica:{id:'d-allegra'}, vita:false, tempo:true, finestre:{ora:'notte', meteo:'sereno'}, paesaggio:'taverna'},
   {id:'p-viaggio', nome:'In viaggio', med:'paesaggio', sottofondo:null, musica:{id:'d-viaggio'}, vita:true, tempo:true, finestre:{ora:'giorno', meteo:'sereno'}},
   {id:'p-bosco', nome:'Bosco di notte', med:'albero', sottofondo:'d-bosco-notte', musica:{id:'d-notte'}, vita:true, tempo:true, finestre:{ora:'notte', meteo:'nebbia'}},
   {id:'p-mercato', nome:'Mercato in città', med:'mercato', sottofondo:'d-mercato', musica:{id:'d-festa'}, vita:false, tempo:true, finestre:{ora:'giorno', meteo:'sereno'}},
@@ -1676,7 +1760,9 @@ const ATMOSFERE_PRONTE = [
   {id:'p-battaglia', nome:'Battaglia', med:'spade', sottofondo:null, musica:{id:'d-battaglia'}, vita:true, tempo:true, finestre:null},
   {id:'p-cripta', nome:'Cripta', med:'candela', sottofondo:'d-cripta', musica:{id:'d-mistero'}, vita:false, tempo:false, finestre:null},
 ];
-const prontaOk = a => (!a.sottofondo || bardLib.some(x => x.tipo === 'sottofondo' && x.id === a.sottofondo)) && (!a.musica || bardLib.some(x => x.tipo === 'musica' && x.id === a.musica.id));
+/* le altre registrazioni dello stesso sottofondo o effetto: stessa richiesta, con un'indicazione per cambiare un po' */
+const VARIA_GEN = ['', '. A different take: other details, different timing and character.', '. Another distinct take: change the rhythm and the small details.'];
+const prontaOk = a => (!a.sottofondo || bardLib.some(x => x.tipo === 'sottofondo' && x.base === a.sottofondo)) && (!a.musica || bardLib.some(x => x.tipo === 'musica' && x.base === a.musica.id));
 const medDi = x => { const d = [...BARD_DOTAZIONE.sottofondo, ...BARD_DOTAZIONE.effetto].find(y => y.id === x.id); return (d && d.med) || medaglioneDaNome(x.titolo, x.tipo === 'sottofondo' ? 'sottofondo' : x.tipo === 'musica' ? 'liuto' : 'effetto'); };
 const vitaOn = () => !!(bardStato.vita ? bardStato.vita.acceso : true);
 /* che cosa si sente adesso del paesaggio: quelli che ci sono in libreria */
@@ -1731,11 +1817,11 @@ function disegnaBard(){
       ${cursore('volMusica', 'nota', 'Musica', 0, 100, Math.round(bardStato.volMusica * 100), Math.round(bardStato.volMusica * 100) + '%')}
       ${cursore('volEff', 'fulmine', 'Effetti', 0, 100, Math.round(bardStato.volEffetti * 100), Math.round(bardStato.volEffetti * 100) + '%')}
       ${nTempo ? '' : '<p class="nota">Il tempo per ora è un suono semplice fatto dal telefono: le registrazioni vere si copiano da DMaster.</p>'}`)}
-    ${pronto ? gruppo('bard-gestisci', 'piu', 'Aggiungi o togli', bardLib.length + ' suoni nella stanza', `
+    ${pronto ? gruppo('bard-gestisci', 'piu', 'Aggiungi o togli', BARD_TIPI.reduce((n, t) => n + bardDi(t).length, 0) + ' suoni nella stanza (' + bardLib.length + ' registrazioni)', `
       <button class="btn oro piena" data-fai="bardAggiungi">${icona('piu', 18)}Aggiungi un suono</button>
       ${mancano ? '' : `<button class="btn piena" style="margin-top:8px" data-fai="bardPrepara">${icona('scintilla', 18)}Rifai i suoni pronti</button>`}
       ${mie.length ? `<ul class="membri">${mie.map(a => `<li><span><b>${esc(a.nome)}</b><small>atmosfera${a.finestre ? ' · con le finestre' : ''}</small></span><button class="btn piccolo pericolo" data-fai="atmTogli" data-v="${esc(a.id)}">Togli</button></li>`).join('')}</ul>` : ''}
-      <ul class="membri">${bardLib.map(x => `<li><span><b>${esc(x.titolo)}</b><small>${{tempo: 'tempo', sottofondo: 'sottofondo', musica: 'musica', effetto: 'effetto', vita: 'paesaggio'}[x.tipo]}</small></span><button class="btn piccolo pericolo" data-fai="bardTogli" data-v="${esc(x.file)}">Togli</button></li>`).join('') || '<li><span class="nota">Nessun suono.</span></li>'}</ul>
+      <ul class="membri">${BARD_TIPI.flatMap(t => bardDi(t)).map(x => `<li><span><b>${esc(x.titolo)}</b><small>${{tempo: 'tempo', sottofondo: 'sottofondo', musica: 'musica', effetto: 'effetto', vita: 'paesaggio'}[x.tipo]}${x.files.length > 1 ? ' · ' + x.files.length + ' varianti' : ''}</small></span><button class="btn piccolo pericolo" data-fai="bardTogli" data-v="${esc(x.files.join('|'))}">Togli</button></li>`).join('') || '<li><span class="nota">Nessun suono.</span></li>'}</ul>
       <button class="btn piena" data-fai="bardRicarica">${icona('ricarica', 18)}Rileggi la libreria</button>`) : ''}</div>`;
   const lega = (id, fn) => legaCursore(id, (v, o) => { o.textContent = v + '%'; fn(v / 100); });
   lega('volVita', v => mandaBard({vita: Object.assign({acceso: true}, bardStato.vita, {volume: v})}, true));
@@ -1776,12 +1862,12 @@ function aggiornaBard(){
 let bardScelti = null;
 function apriPrepara(){
   if (!bardScelti) bardScelti = new Set(BARD_GRUPPI.map(g => g[0]).filter(g => mancaDi(g).length));
-  const righe = BARD_GRUPPI.map(([g, med, nome, sotto]) => { const n = mancaDi(g).length, tutti = dotazioneDi(g).length;
+  const righe = BARD_GRUPPI.map(([g, med, nome, sotto]) => { const n = mancaDi(g).length, tutti = tutteDi(g).length;
     return {g, med, nome, sotto, n: n || tutti, rifai: !n}; });
   const tot = righe.filter(x => bardScelti.has(x.g)).reduce((a, x) => a + prezzoDi(x.g, x.n), 0);
   apriFoglio(`<h3 class="foglio-titolo">Prepara i suoni</h3>
     <p class="nota" style="margin-top:0">Li genera l'AI una volta sola con la tua chiave ElevenLabs e restano nella stanza: li sentono il TV, i telefoni e DMaster.</p>
-    <div class="pannello" style="padding:2px 14px">${righe.map(x => `<div class="interruttore" role="switch" tabindex="0" data-fai="bardSceglie" data-v="${x.g}" aria-checked="${bardScelti.has(x.g)}"><span class="tondo" style="display:block;border-radius:999px;line-height:0">${medaglione(x.med, 40)}</span><span><b>${esc(x.nome)} · ${x.n}${x.rifai ? ' (li rifaccio)' : ''}</b><small>${esc(x.sotto)} · ≈ ${euro(prezzoDi(x.g, x.n))}</small></span><i class="levetta"></i></div>`).join('')}</div>
+    <div class="pannello" style="padding:2px 14px">${righe.map(x => `<div class="interruttore" role="switch" tabindex="0" data-fai="bardSceglie" data-v="${x.g}" aria-checked="${bardScelti.has(x.g)}"><span class="tondo" style="display:block;border-radius:999px;line-height:0">${medaglione(x.med, 40)}</span><span><b>${esc(x.nome)} · ${x.n} registrazioni${x.rifai ? ' (le rifaccio)' : ''}</b><small>${esc(x.sotto)} · ≈ ${euro(prezzoDi(x.g, x.n))}</small></span><i class="levetta"></i></div>`).join('')}</div>
     ${imp.chiavi.elevenlabs ? `<button class="btn oro piena" style="margin-top:14px" data-fai="bardPreparaVia"${tot ? '' : ' disabled'}>${icona('scintilla', 18)}Avvia · ≈ ${euro(tot)}</button>`
       : `<div class="problema fisso" style="margin-top:14px">${icona('chiave', 20)}<div><b>Manca la chiave ElevenLabs</b><span>Mettila in Impostazioni → AI e chiavi, poi torna qui.</span></div></div>`}
     <p class="nota">Prezzi dell'API di ElevenLabs: con un abbonamento si scalano i crediti del piano. Una musica richiede circa un minuto, un suono pochi secondi: tieni l'app aperta finché non ho finito.</p>
@@ -1790,21 +1876,22 @@ function apriPrepara(){
 }
 async function preparaVia(){
   const gruppi = BARD_GRUPPI.map(g => g[0]).filter(g => bardScelti && bardScelti.has(g));
-  const lista = gruppi.flatMap(g => { const m = mancaDi(g); return (m.length ? m : dotazioneDi(g)).map(x => ({g, x})); });
+  const lista = gruppi.flatMap(g => { const m = mancaDi(g); return (m.length ? m : tutteDi(g)).map(({x, k}) => ({g, x, k})); });
   if (!lista.length) return;
   const b = document.querySelector('[data-fai="bardPreparaVia"]'); if (b) b.hidden = true;
   const t = setInterval(() => rapportoLavoro(), 20000);
   try {
     await conLavoro('bardPrepara', async L => {
       let fatti = 0, fermo = null;
-      const uno = async ({g, x}) => {
+      const uno = async ({g, x, k: nv}) => {
         if (fermo) return;
-        const k = g + ':' + x.id, nome = x.nome;
+        const tot = quanteDi(g, x), k = g + ':' + x.id + ':' + nv, nome = x.nome + (tot > 1 ? ' · ' + nv + ' di ' + tot : '');
         passo(k, 'ora', nome + '…');
         try {
-          const v = g === 'vita' ? x : null;
-          const blob = await generaSuono(g === 'vita' ? (v.modo === 'letto' ? 'sottofondo' : 'effetto') : g, x.prompt, g === 'musica' ? {minuti: BARD_MIN_DOTAZIONE} : {});
-          await bardSalvaFile(bardNomeFile(g, x.id, nome, 'mp3'), blob, 'audio/mpeg');
+          const tipo = g === 'vita' ? (x.modo === 'letto' ? 'sottofondo' : 'effetto') : g;
+          const prompt = g === 'vita' ? bardPromptVita(x, nv) : x.prompt + (VARIA_GEN[nv - 1] || '');
+          const blob = await generaBuono(tipo, prompt, g === 'musica' ? {minuti: BARD_MIN_DOTAZIONE} : {});
+          await bardSalvaFile(bardNomeFile(g, x.id + '-v' + nv, x.nome, 'mp3'), blob, 'audio/mpeg');
           risolto('ElevenLabs'); fatti++; L.av = fatti / lista.length * 100;
           passo(k, 'fatto', nome);
         } catch(e) {
@@ -1844,14 +1931,49 @@ async function inInglese(testo, tipo){
     const j = await r.json(); return (j.choices && j.choices[0] && j.choices[0].message.content || testo).trim();
   } catch(e) { return testo; }
 }
+/* ⚠ 13/11 · QUALITÀ (Maurizio: «assicuriamoci che la qualità dei suoni sia alta»): mp3 a 192 kbit (se il piano non lo
+   permette si ripiega su 128), richiesta seguita più fedelmente (prompt_influence .65), tappeti di 30 secondi (il massimo,
+   così il giro si sente meno) che si ripetono senza giunte */
+let elevenFormato = leggi('bard-formato', 'mp3_44100_192'), elevenModello = leggi('bard-modello-sfx', 'eleven_text_to_sound_v3');
 async function generaSuono(tipo, prompt, o = {}){
   const chiave = imp.chiavi.elevenlabs, h = {'xi-api-key': chiave, 'Content-Type': 'application/json', 'Accept': 'audio/mpeg'};
-  const r = tipo === 'musica'
-    ? await fetch('https://api.elevenlabs.io/v1/music/stream', {method: 'POST', headers: h, body: JSON.stringify({prompt, duration_ms: (o.minuti || bardMinuti) * 60000, force_instrumental: true})})
-    : await fetch('https://api.elevenlabs.io/v1/sound-generation?output_format=mp3_44100_128', {method: 'POST', headers: h,
-        body: JSON.stringify(Object.assign({text: prompt, prompt_influence: .5, model_id: 'eleven_text_to_sound_v2'}, tipo === 'sottofondo' ? {loop: true, duration_seconds: 22} : {}))});
+  const chiedi = fmt => tipo === 'musica'
+    /* la musica col modello più recente (music_v2_5, mp3 a 48 kHz / 192 kbit da solo) */
+    ? fetch('https://api.elevenlabs.io/v1/music/stream', {method: 'POST', headers: h, body: JSON.stringify({prompt, music_length_ms: (o.minuti || bardMinuti) * 60000, model_id: 'music_v2_5', force_instrumental: true})})
+    : fetch('https://api.elevenlabs.io/v1/sound-generation?output_format=' + fmt, {method: 'POST', headers: h,
+        body: JSON.stringify(Object.assign({text: prompt, prompt_influence: .55, model_id: elevenModello}, tipo === 'sottofondo' ? {loop: true, duration_seconds: 30} : {}))});
+  let r = await chiedi(elevenFormato);
+  /* il modello v3 degli effetti non c'è (o non fa i loop) sul tuo account: si torna al v2 */
+  if (!r.ok && tipo !== 'musica' && elevenModello !== 'eleven_text_to_sound_v2' && [400, 403, 422].includes(r.status)){
+    const t = await r.clone().text().catch(() => '');
+    if (/model|loop|v3/i.test(t)){ elevenModello = 'eleven_text_to_sound_v2'; scrivi('bard-modello-sfx', elevenModello); r = await chiedi(elevenFormato); }
+  }
+  if (!r.ok && elevenFormato !== 'mp3_44100_128' && [400, 403, 422].includes(r.status)){
+    const t = await r.text().catch(() => '');
+    if (/format|tier|subscription|plan|192/i.test(t)){ elevenFormato = 'mp3_44100_128'; scrivi('bard-formato', elevenFormato); r = await chiedi(elevenFormato); }
+    else throw erroreAI('ElevenLabs', r.status, t);
+  }
   if (!r.ok) throw erroreAI('ElevenLabs', r.status, await r.text().catch(() => ''));
   const b = await r.blob(); if (b.size < 800) throw new Error('ElevenLabs: risposta vuota, riprova.');
+  return b;
+}
+/* il controllo prima di tenerla: niente registrazioni mute, troppo corte o saturate (si rifà una volta) */
+async function controllaSuono(blob, tipo){
+  try {
+    const C = window.OfflineAudioContext || window.webkitOfflineAudioContext; if (!C) return '';
+    const x = new C(1, 44100, 44100), b = await x.decodeAudioData(await blob.arrayBuffer());
+    const d = b.getChannelData(0); let picco = 0, sat = 0, somma = 0;
+    for (let i = 0; i < d.length; i += 4){ const v = Math.abs(d[i]); if (v > picco) picco = v; if (v > .985) sat++; somma += v * v; }
+    const rms = Math.sqrt(somma / (d.length / 4));
+    if (b.duration < (tipo === 'musica' ? 30 : tipo === 'sottofondo' ? 10 : .6)) return 'troppo corta';
+    if (picco < .03 || rms < .003) return 'quasi muta';
+    if (sat / (d.length / 4) > .002) return 'saturata';
+    return '';
+  } catch(e) { return ''; }
+}
+async function generaBuono(tipo, prompt, o = {}){
+  let b = await generaSuono(tipo, prompt, o), difetto = await controllaSuono(b, tipo);
+  if (difetto){ const b2 = await generaSuono(tipo, prompt, o); if (!(await controllaSuono(b2, tipo))) b = b2; }
   return b;
 }
 function apriBardAggiungi(){
@@ -1866,7 +1988,7 @@ function apriBardAggiungi(){
       : `<div class="problema fisso">${icona('chiave', 20)}<div><b>Manca la chiave ElevenLabs</b><span>Mettila in Impostazioni → AI e chiavi.</span></div></div>`}
     <button class="btn piena" style="margin-top:8px" data-fai="bardFileScegli">${icona('importa', 18)}Carica un file audio</button>
     <input type="file" id="bardFile" accept="audio/*" hidden>
-    <p class="nota">${bardNuovoTipo === 'sottofondo' ? '22 secondi che si ripetono senza giunte.' : bardNuovoTipo === 'musica' ? 'Solo strumentale.' : 'La durata la sceglie l\'AI.'} Usa i crediti del tuo ElevenLabs. Il suono va nella stanza: lo sentono tutti i telefoni e DMaster.</p>
+    <p class="nota">${bardNuovoTipo === 'sottofondo' ? '30 secondi che si ripetono senza giunte.' : bardNuovoTipo === 'musica' ? 'Solo strumentale.' : 'La durata la sceglie l\'AI.'} Usa i crediti del tuo ElevenLabs. Il suono va nella stanza: lo sentono tutti i telefoni e DMaster.</p>
     <div id="lavoroFoglio"></div>`, el => {
       const inp = el.querySelector('#bardFile');
       inp.onchange = () => { const f = inp.files && inp.files[0]; inp.value = ''; if (f) caricaFileBard(f); };
@@ -1899,7 +2021,7 @@ async function generaBard(){
     const prompt = await inInglese(desc, tipo);
     passo('prompt', 'fatto', 'Richiesta: «' + prompt.slice(0, 90) + (prompt.length > 90 ? '…' : '') + '»');
     passo('genera', 'ora', tipo === 'musica' ? `La musica (${bardMinuti} min): ci vuole un po'…` : 'Lo genero…');
-    const blob = await generaSuono(tipo, prompt);
+    const blob = await generaBuono(tipo, prompt);
     risolto('ElevenLabs');
     passo('genera', 'fatto', 'Generato');
     passo('carico', 'ora', 'Lo metto nella stanza…');
@@ -2009,7 +2131,7 @@ const AZIONI = {
     if (mandaBard({musica: Object.assign(m, {acceso: true, i, brani})})){ bardOra = {i, id: brani[i].id}; disegnaBard(); } },
   bardCaso: () => { const m = Object.assign({acceso: false, i: 0}, bardStato.musica || {}); m.casuale = !m.casuale; m.brani = bardDi('musica').map(voceBard); if (mandaBard({musica: m})) disegnaBard(); },
   bardEffetto: (v, b) => { if (inSerata()){ avviso('Serata in corso: i suoni li comanda DMaster', true); return; } const x = bardDi('effetto').find(y => y.id === v); if (!x) return;
-    if (suonoQui()) lettore.effetto(x); else if (!canale.manda('bardEffetto', {id: x.id, url: x.url})) avviso('Il TV non è collegato', true);
+    if (suonoQui()) lettore.effetto(x); else if (!canale.manda('bardEffetto', {id: x.id, url: x.url, varianti: x.varianti})) avviso('Il TV non è collegato', true);
     b.classList.add('suona'); setTimeout(() => b.classList.remove('suona'), 500); },
   conFerma: () => comando({azione: 'fermaTutto'}),
   conTempo: v => comando({azione: 'tempo', id: v}),
@@ -2046,7 +2168,7 @@ const AZIONI = {
   bardGenera: () => generaBard(),
   bardFileScegli: () => { const i = $('#bardFile'); i && i.click(); },
   bardTogli: async (v, b) => { if (b.dataset.conferma !== '1'){ b.dataset.conferma = '1'; b.textContent = 'Sicuro?'; return; }
-    try { await bardTogliFile([v]); await caricaBard(); avviso('Tolto dalla stanza'); } catch(e) { avviso(e.message, true); } },
+    try { await bardTogliFile(String(v).split('|')); await caricaBard(); avviso('Tolto dalla stanza'); } catch(e) { avviso(e.message, true); } },
   bardRicarica: () => caricaBard(),
   bardDove: v => { mandaBard({dove: v}); if (v === ID_TELEFONO) lettore.sblocca(); disegnaImpostazioni(); },
   ingresso: () => vai(scheda === 'crea' ? 'paesaggi' : scheda === 'paesaggi' ? 'finestre' : ultimaPrincipale), apriScheda: v => vai(v),
@@ -2059,6 +2181,8 @@ const AZIONI = {
   effetto: v => {
     /* ⚠ 9/11 (Maurizio: «la nebbia che sale non deve poi scendere da sola, non si capisce; al massimo un tasto per farla
        scendere»): non è più un effetto che passa ma uno stato della scena. Un tocco: sale e resta; un altro: scende */
+    { const pq = libreria.find(x => x.id === scena.paesaggio);
+      if (eInterno(pq) && v !== 'tuono') return avviso('Siamo dentro ' + (pq.nome || 'la sala') + ': il cielo non si vede. Il tuono lontano invece si sente.'); }
     if (v === 'nebbia'){ const su = !scena.nebbiaSale; cambia({nebbiaSale: su, nebbiaSaleDa: Date.now(), nebbiaSaleK0: salita()});
       avviso(su ? 'La nebbia sale dalle valli e resta. Tocca di nuovo per farla scendere' : 'La nebbia scende nelle valli'); return; }
     if (v === 'meteora' && !eNotte()) return avviso('Le stelle cadenti si vedono solo di notte');
@@ -2251,6 +2375,7 @@ const AZIONI = {
   risparmioToggle: () => { imp.risparmio = imp.risparmio === false; salvaImp(); disegnaImpostazioni(); },
   cieloToggle: () => { imp.cielo = imp.cielo === false; salvaImp(); disegnaCrea(); },
   crea: () => crea(),
+  creaRichiestaVia: () => creaRichiestaVia(),
   modello: v => { imp.modello = v; salvaImp(); disegnaImpostazioni(); },
   qualita: v => { imp.qualita = v; salvaImp(); disegnaImpostazioni(); },
   secondi: v => { imp.video.secondi = +v; salvaImp(); disegnaImpostazioni(); },

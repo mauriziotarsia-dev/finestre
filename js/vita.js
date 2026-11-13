@@ -132,6 +132,7 @@
     aggiorna(dt, f, o, k, met){
       this.t += dt;
       const ora = Date.now() / 1000, brutto = Math.max(met.pioggia || 0, met.neve || 0, (met.tempesta || 0) * .7);
+      const dentro = !!(met.vita && met.vita.interno);   /* 13/11: dentro la taverna niente lucciole né fuochi lontani */
       const segui = (chiave, verso, tau) => { const v = this.stato.get(chiave) ?? verso; const n = v + (verso - v) * Math.min(1, dt / tau); this.stato.set(chiave, n); return n; };
       /* luci delle case */
       /* ⚠ 11/11 (Maurizio: «le luci delle case sono un po' fake ed a volte compaiono a caso dove non ci sono finestre»).
@@ -152,11 +153,11 @@
       /* ⚠ 9/11 (Maurizio: «eliminerei i fuochi, lascerei il resto»): spenti. Il codice resta, basta FUOCHI = true */
       this.fuochi = (FUOCHI && f && f.fuochi || []).map((F, j) => {
         const sj = h1(F.x * 91, F.y * 37 + j), slot = Math.floor((ora + sj * 700) / 900);
-        const acceso = brutto < .06 && (this.prova === 'fuochi' || h1(j + 40, slot) < prob) ? 1 : 0;   /* prova: vista.vita.prova = 'fuochi' li accende tutti */
+        const acceso = brutto < .06 && !dentro && (this.prova === 'fuochi' || h1(j + 40, slot) < prob) ? 1 : 0;   /* prova: vista.vita.prova = 'fuochi' li accende tutti */
         return {F, k: segui('f' + j + (f.url || ''), acceso, 25), seme: sj};
       });
       /* lucciole */
-      const quante = (o === 'notte' ? 1 : o === 'tramonto' ? liscio((k - .45) / .4) * .7 : 0) * cl(1 - brutto * 8) * cl(1 - (met.nebbia || 0) * .7);
+      const quante = dentro ? 0 : (o === 'notte' ? 1 : o === 'tramonto' ? liscio((k - .45) / .4) * .7 : 0) * cl(1 - brutto * 8) * cl(1 - (met.nebbia || 0) * .7);
       const pr = f && f.prati || [];
       if (pr.length && f.url !== this.urlLucciole){ this.urlLucciole = f.url; this.lucciole = []; }
       const voglio = pr.length ? Math.round(7 * quante) : 0;   /* 9/11 (Maurizio: «troppe lucciole»): erano 24 */

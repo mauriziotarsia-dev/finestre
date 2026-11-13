@@ -61,7 +61,8 @@ import cv2
 SECONDI_GIRO = 3.0          # quanto dura la sfumatura fra la fine e l'inizio (nebbia e fumo la nascondono bene)
 SECONDI_RIFERIMENTO = 2.0   # da quanti secondi iniziali nasce l'immagine ferma
 FPS_USCITA = 30
-FF_THREADS = '0'            # 0 = tutti i processori; sul Raspberry (--casa) 2
+FF_THREADS = '0'
+SENZA_CIELO = False         # 13/11: True mentre si cuce un interno            # 0 = tutti i processori; sul Raspberry (--casa) 2
 
 
 def leggi_info(percorso):
@@ -90,7 +91,9 @@ def piccolo(f, lato=270):
 
 def maschera_cielo(w, h, profondita=None, immagine=None, fuoco_x=0.5, primo=None):
     """1 dove c'è cielo. Con la mappa di profondità del paesaggio (il cielo è quasi nero) riportata
-    sull'inquadratura del video; senza, dal colore del primo fotogramma (in alto, chiaro o azzurro)."""
+    sull'inquadratura del video; senza, dal colore del primo fotogramma (in alto, chiaro o azzurro).
+    13/11: in un interno (la taverna, parola «interno») il cielo non c'è: le travi in alto non vanno prese per cielo."""
+    if SENZA_CIELO: return np.zeros((h, w), np.float32)
     if profondita is not None and immagine is not None:
         d = cv2.imread(profondita, cv2.IMREAD_GRAYSCALE); im = cv2.imread(immagine)
         ih, iw = im.shape[:2]
@@ -570,6 +573,8 @@ def _cuci_uno(cart, nomi, nome, base, parte, originale, larghezza, veloce):
                 prof, imm = os.path.join(d, 'p.png'), os.path.join(d, 'g.jpg')
                 _scarica(cart, f'{base}_{pre}profondita.png', prof); _scarica(cart, f'{base}_{pre}giorno.jpg', imm)
             fx = 0.5
+            global SENZA_CIELO
+            SENZA_CIELO = 'interno' in (base.split('@', 1)[1].split('.') if '@' in base else [])
             for kw in (base.split('@', 1)[1].split('.') if '@' in base else []):
                 if kw.startswith('fx') and kw[2:].isdigit(): fx = min(100, int(kw[2:])) / 100
             fj, mp = os.path.join(d, 'f.jpg'), os.path.join(d, 'm.png')

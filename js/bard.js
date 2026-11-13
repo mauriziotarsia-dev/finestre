@@ -24,43 +24,74 @@ const BARD_PRED = {rev:0, dove:'stanza', tempo:{acceso:true, volume:.6}, registr
      intervalli casuali, ogni volta un po' a destra o a sinistra e un po' più acuto o più grave (così non si ripete uguale).
    Le registrazioni le fa l'AI una volta sola (ElevenLabs, «Prepara i suoni» nell'app): file «bard-vita__<id>__…» nella stanza.
    ogni: [minimo, massimo] secondi fra un colpo e l'altro. */
+/* ⚠ 13/11 · VARIETÀ (Maurizio: «che non siano sempre uguali: cinguettii, ululati, campane»): ogni suono ha più
+   registrazioni (n), fatte con richieste un po' diverse (varia); i versi pescano ogni volta una registrazione diversa
+   dalla precedente, i tappeti cambiano registrazione ogni pochi minuti con una dissolvenza lunga. I file sono
+   «bard-vita__<id>-v<k>__…». Al chiuso (paesaggi con la parola «interno», come la taverna) si sentono solo i suoni
+   con interno:true; all'aperto solo gli altri. */
 const BARD_VITA = [
-  {id:'uccelli-alba', nome:'Uccelli all\'alba', med:'uccello', modo:'letto', ore:['alba'], vol:.55,
-   prompt:'Dawn chorus in a quiet European countryside: many songbirds singing together, blackbirds and robins, no wind, no people, no music'},
-  {id:'uccelli-giorno', nome:'Uccelli di giorno', med:'uccello', modo:'letto', ore:['giorno'], vol:.32,
-   prompt:'Sparse songbirds in a calm sunny meadow, occasional chirps and short songs far apart, gentle, no wind, no people, no music'},
-  {id:'cuculo', nome:'Cuculo', med:'uccello', modo:'colpo', ore:['alba', 'giorno'], vol:.35, ogni:[90, 260], parole:/bosc|forest|collin|vall|selv|querc/,
-   prompt:'A single distant cuckoo calling four times in the woods, nothing else'},
-  {id:'rapace', nome:'Rapace', med:'uccello', modo:'colpo', ore:['giorno'], vol:.32, ogni:[80, 240], parole:/vall|mont|castell|collin|rup|picch|torr/,
-   prompt:'A single distant hawk cry echoing over a wide valley, nothing else'},
-  {id:'grilli', nome:'Grilli', med:'grillo', modo:'letto', ore:['tramonto', 'notte'], vol:.42,
-   prompt:'Crickets chirping steadily on a calm warm night in the countryside, no other animals, no wind, no music'},
-  {id:'civetta', nome:'Civetta', med:'civetta', modo:'colpo', ore:['notte'], vol:.4, ogni:[45, 140],
-   prompt:'A tawny owl hooting twice in a distant forest at night, nothing else'},
-  {id:'lupo', nome:'Lupo', med:'ringhio', modo:'colpo', ore:['notte'], vol:.28, ogni:[300, 900], parole:/bosc|forest|mont|selv|nev|pin/,
-   prompt:'A lone wolf howling very far away in the mountains at night, long echo, nothing else'},
-  {id:'rane', nome:'Rane', med:'onda', modo:'letto', ore:['tramonto', 'notte'], vol:.28, parole:/fium|lag|palud|stagn|torrent|canal|ruscell/,
-   prompt:'Frogs croaking softly near a quiet river bank at night, steady, no music'},
-  {id:'fiume', nome:'Fiume', med:'onda', modo:'letto', vol:.34, parole:/fium|torrent|ruscell|cascat/, ancheNeve:true,
-   prompt:'A gentle river flowing over stones, steady water heard from a short distance, no birds, no wind, no music'},
-  {id:'mare', nome:'Mare', med:'onda', modo:'letto', vol:.4, parole:/mare|cost|port|spiagg|scogl|golf|baia|isol/, ancheNeve:true,
-   prompt:'Calm sea waves washing on a pebble shore heard from a distance, steady, no gulls, no music'},
-  {id:'gabbiani', nome:'Gabbiani', med:'uccello', modo:'colpo', ore:['alba', 'giorno', 'tramonto'], vol:.3, ogni:[35, 110], parole:/mare|port|cost|spiagg|scogl|baia/,
-   prompt:'A few seagulls calling in the distance over the sea, nothing else'},
-  {id:'fronde', nome:'Fronde al vento', med:'albero', modo:'letto', vol:.3, parole:/bosc|forest|alber|selv|querc|pin|cipress|oliv|faggi|castagn/, colVento:true,
-   prompt:'Wind gently rustling the leaves of a large forest, soft and continuous, no birds, no music'},
-  {id:'citta', nome:'Città lontana', med:'mercato', modo:'letto', ore:['giorno'], vol:.22, parole:/citt|borg|villagg|mercat|torri|paese|porto/,
-   prompt:'Distant medieval town heard from far away outside the walls: faint voices, a blacksmith hammering, cart wheels, very soft and distant, no music'},
-  {id:'campane', nome:'Campane', med:'campana', modo:'colpo', ore:['alba', 'giorno', 'tramonto'], vol:.42, ogni:[240, 720], parole:/abbazi|monaster|chies|campanil|citt|borg|villagg|cattedral|convent|pieve/, ancheNeve:true,
-   prompt:'A distant medieval church bell tolling slowly five times across a valley, natural reverb, nothing else'},
-  {id:'cani', nome:'Cani lontani', med:'ringhio', modo:'colpo', ore:['tramonto', 'notte'], vol:.25, ogni:[100, 320], parole:/citt|borg|villagg|fattori|campagn|cascin|paese/,
-   prompt:'A dog barking a few times far away in a village at night, nothing else'},
-  {id:'pecore', nome:'Pecore', med:'campana', modo:'colpo', ore:['giorno'], vol:.28, ogni:[70, 220], parole:/campagn|pascol|collin|prat|fattori|cascin|coltiv/,
-   prompt:'Sheep bleating and a cowbell far away in hilly pastures, nothing else'},
+  {id:'uccelli-alba', nome:'Uccelli all\'alba', med:'uccello', modo:'letto', ore:['alba'], vol:.55, n:3,
+   prompt:'Dawn chorus in a quiet European countryside: many songbirds singing together, blackbirds and robins, no wind, no people, no music',
+   varia:['', 'with a song thrush and wrens close by', 'with chaffinches and a distant cuckoo']},
+  {id:'uccelli-giorno', nome:'Uccelli di giorno', med:'uccello', modo:'letto', ore:['giorno'], vol:.3, n:3,
+   prompt:'Sparse songbirds in a calm sunny meadow, occasional chirps and short songs far apart, gentle, no wind, no people, no music',
+   varia:['', 'skylarks high above and sparrows far away', 'a few finches and a distant blackbird']},
+  {id:'canto', nome:'Canto d\'uccello', med:'uccello', modo:'colpo', ore:['alba', 'giorno'], vol:.32, ogni:[14, 45], n:6,
+   prompt:'One single songbird phrase heard from a nearby tree, clean, nothing else',
+   varia:['a blackbird', 'a European robin', 'a chaffinch', 'a wren', 'a great tit', 'a song thrush']},
+  {id:'picchio', nome:'Picchio', med:'uccello', modo:'colpo', ore:['alba', 'giorno'], vol:.28, ogni:[90, 260], n:3, parole:/bosc|forest|selv|querc|faggi|castagn|alber/,
+   prompt:'A woodpecker drumming on a tree trunk in a quiet forest, a short burst, nothing else', varia:['', 'far away', 'two short bursts']},
+  {id:'cuculo', nome:'Cuculo', med:'uccello', modo:'colpo', ore:['alba', 'giorno'], vol:.32, ogni:[100, 280], n:3, parole:/bosc|forest|collin|vall|selv|querc/,
+   prompt:'A single distant cuckoo calling a few times in the woods, nothing else', varia:['', 'closer, from the edge of the forest', 'very far away, across the valley']},
+  {id:'rapace', nome:'Rapace', med:'uccello', modo:'colpo', ore:['giorno'], vol:.3, ogni:[90, 260], n:3, parole:/vall|mont|castell|collin|rup|picch|torr/,
+   prompt:'A single hawk cry echoing over a wide valley, nothing else', varia:['a buzzard', 'a kestrel, two short cries', 'an eagle, far away']},
+  {id:'corvo', nome:'Corvi', med:'uccello', modo:'colpo', ore:['alba', 'giorno', 'tramonto'], vol:.26, ogni:[80, 240], n:3, parole:/castell|torr|campagn|coltiv|abbazi|citt/,
+   prompt:'Crows cawing in the distance over fields, a few calls, nothing else', varia:['', 'a single raven croaking', 'jackdaws around an old tower']},
+  {id:'grilli', nome:'Grilli', med:'grillo', modo:'letto', ore:['tramonto', 'notte'], vol:.4, n:3,
+   prompt:'Crickets chirping steadily on a calm warm night in the countryside, no other animals, no wind, no music',
+   varia:['', 'a few crickets close by and many far away', 'field crickets and a bush cricket']},
+  {id:'civetta', nome:'Civetta', med:'civetta', modo:'colpo', ore:['notte'], vol:.38, ogni:[45, 140], n:4,
+   prompt:'An owl hooting in a distant forest at night, nothing else', varia:['a tawny owl, two hoots', 'a tawny owl answering from far away', 'a little owl calling', 'a long-eared owl, soft hoots']},
+  {id:'lupo', nome:'Lupo', med:'ringhio', modo:'colpo', ore:['notte'], vol:.26, ogni:[300, 900], n:4, parole:/bosc|forest|mont|selv|nev|pin/,
+   prompt:'A wolf howling very far away in the mountains at night, long echo, nothing else', varia:['a lone wolf', 'two wolves answering each other', 'a short howl, very distant', 'a pack howling far away']},
+  {id:'rane', nome:'Rane', med:'onda', modo:'letto', ore:['tramonto', 'notte'], vol:.26, n:2, parole:/fium|lag|palud|stagn|torrent|canal|ruscell/,
+   prompt:'Frogs croaking softly near a quiet river bank at night, steady, no music', varia:['', 'toads and frogs, sparse']},
+  {id:'fiume', nome:'Fiume', med:'onda', modo:'letto', vol:.34, n:2, parole:/fium|torrent|ruscell|cascat/, ancheNeve:true,
+   prompt:'A gentle river flowing over stones, steady water heard from a short distance, no birds, no wind, no music', varia:['', 'a wider calm river with soft ripples']},
+  {id:'mare', nome:'Mare', med:'onda', modo:'letto', vol:.4, n:2, parole:/mare|cost|port|spiagg|scogl|golf|baia|isol/, ancheNeve:true,
+   prompt:'Calm sea waves washing on a pebble shore heard from a distance, steady, no gulls, no music', varia:['', 'gentle waves on a sandy beach']},
+  {id:'gabbiani', nome:'Gabbiani', med:'uccello', modo:'colpo', ore:['alba', 'giorno', 'tramonto'], vol:.28, ogni:[35, 110], n:3, parole:/mare|port|cost|spiagg|scogl|baia/,
+   prompt:'A few seagulls calling in the distance over the sea, nothing else', varia:['', 'a single gull close by', 'a group of gulls far away']},
+  {id:'fronde', nome:'Fronde al vento', med:'albero', modo:'letto', vol:.3, n:2, parole:/bosc|forest|alber|selv|querc|pin|cipress|oliv|faggi|castagn/, colVento:true,
+   prompt:'Wind gently rustling the leaves of a large forest, soft and continuous, no birds, no music', varia:['', 'tall poplars and oaks in a soft breeze']},
+  {id:'citta', nome:'Città lontana', med:'mercato', modo:'letto', ore:['giorno'], vol:.22, n:2, parole:/citt|borg|villagg|mercat|torri|paese|porto/,
+   prompt:'Distant medieval town heard from far away outside the walls: faint voices, a blacksmith hammering, cart wheels, very soft and distant, no music', varia:['', 'a market day, a distant crowd and animals']},
+  {id:'campane', nome:'Campane', med:'campana', modo:'colpo', ore:['alba', 'giorno', 'tramonto'], vol:.4, ogni:[240, 720], n:4, parole:/abbazi|monaster|chies|campanil|citt|borg|villagg|cattedral|convent|pieve/, ancheNeve:true,
+   prompt:'A distant medieval church bell across a valley, natural reverb, nothing else', varia:['a single deep bell tolling slowly five times', 'two bells ringing a short peal', 'a small monastery bell ringing quickly', 'a large bell striking three times, very far away']},
+  {id:'cani', nome:'Cani lontani', med:'ringhio', modo:'colpo', ore:['tramonto', 'notte'], vol:.24, ogni:[100, 320], n:3, parole:/citt|borg|villagg|fattori|campagn|cascin|paese/,
+   prompt:'A dog barking far away in a village at night, nothing else', varia:['a few barks', 'two dogs answering each other', 'a single howl and a bark']},
+  {id:'pecore', nome:'Pecore', med:'campana', modo:'colpo', ore:['giorno'], vol:.26, ogni:[70, 220], n:3, parole:/campagn|pascol|collin|prat|fattori|cascin|coltiv/,
+   prompt:'Sheep far away in hilly pastures, nothing else', varia:['sheep bleating and a cowbell', 'a flock of sheep with small bells passing', 'a few goats bleating']},
+  /* al chiuso: la taverna (13/11, Maurizio: «una finestra e due finestrelle dentro una taverna») */
+  {id:'taverna-sala', nome:'Sala della taverna', med:'boccale', modo:'letto', vol:.42, n:3, interno:true, parole:/tavern|locand|osteria/,
+   prompt:'Medieval tavern common room heard from a small window in the next room: many people talking and murmuring, occasional laughter, cups and plates, no music, no clear words',
+   varia:['', 'a quieter evening, fewer voices, a few low conversations', 'a lively crowd, louder, a few cheers']},
+  {id:'camino', nome:'Camino', med:'fuoco', modo:'letto', vol:.3, n:2, interno:true,
+   prompt:'A large stone fireplace with a crackling wood fire, steady, warm, nothing else', varia:['', 'logs popping and hissing now and then']},
+  {id:'boccali', nome:'Boccali', med:'boccale', modo:'colpo', vol:.32, ogni:[18, 55], n:4, interno:true, parole:/tavern|locand|osteria/,
+   prompt:'In a medieval tavern, nothing else', varia:['two pewter tankards clinking and a short cheer', 'a wooden tankard set down hard on a table', 'ale poured from a barrel tap into a mug', 'several mugs clinking at a table']},
+  {id:'risata', nome:'Risate', med:'boccale', modo:'colpo', vol:.3, ogni:[35, 110], n:4, interno:true, parole:/tavern|locand|osteria/,
+   prompt:'In a medieval tavern, a few seconds, no clear words, nothing else', varia:['a burst of hearty laughter from a group of men', 'a woman laughing and a man joining in', 'a table of drinkers laughing loudly', 'a short chuckle and applause']},
+  {id:'sedie', nome:'Sedie e tavoli', med:'porta', modo:'colpo', vol:.26, ogni:[45, 140], n:3, interno:true, parole:/tavern|locand|osteria/,
+   prompt:'In a medieval tavern with a stone floor, nothing else', varia:['a heavy wooden chair dragged on the floor', 'a bench scraping and someone sitting down', 'a fist knocking twice on a wooden table']},
   /* quando nelle finestre passa lo stormo (l'effetto di Illusionist) */
-  {id:'stormo', nome:'Stormo', med:'stormo', modo:'effetto', vol:.55,
-   prompt:'A flock of small birds flying past overhead, many wings flapping and chirping, passing by and fading away'},
+  {id:'stormo', nome:'Stormo', med:'stormo', modo:'effetto', vol:.55, n:3,
+   prompt:'A flock of small birds flying past overhead, many wings flapping and chirping, passing by and fading away', varia:['', 'starlings, a large murmuration', 'pigeons taking off together']},
 ];
+/* l'n-esima richiesta di un suono (per le registrazioni diverse dello stesso suono) */
+const bardPromptVita = (v, k) => { const x = (v.varia || [])[(k - 1) % Math.max(1, (v.varia || []).length)] || ''; return x ? v.prompt + '. ' + x[0].toUpperCase() + x.slice(1) + '.' : v.prompt; };
+const bardInterno = sc => /\binterno\b/.test(bardParole(sc));
+const adessoMs = () => Date.now();
 const BARD_VITA_ID = Object.fromEntries(BARD_VITA.map(v => [v.id, v]));
 /* le parole di un paesaggio: dal nome del file della sua immagine (…_painterly_valle-col-castello@castello.valle.fiume_giorno.jpg) */
 function bardParole(sc){
@@ -72,10 +103,16 @@ function bardParole(sc){
 /* quanto si sente ogni suono del paesaggio adesso (0 = niente) */
 function bardVitaAdesso(sc, ora){
   const out = {}; if (!sc || sc.acceso === false || sc.yt) return out;
-  const m = sc.meteo || 'sereno', k = sc.intensita == null ? .75 : sc.intensita, parole = bardParole(sc);
+  const m = sc.meteo || 'sereno', k = sc.intensita == null ? .75 : sc.intensita, parole = bardParole(sc), interno = /\binterno\b/.test(parole);
   const vento = sc.vento == null ? (BARD_VENTO[m] || .15) : sc.vento;
   for (const v of BARD_VITA){
     if (v.modo === 'effetto') continue;
+    if (!!v.interno !== interno) continue;
+    if (interno){   /* al chiuso il tempo non conta; l'ora sì: all'alba la taverna è quasi vuota, la sera piena */
+      if (v.parole && !v.parole.test(parole)) continue;
+      out[v.id] = v.vol * ({alba: .35, giorno: .75, tramonto: 1, notte: 1}[ora] || 1) * (v.id === 'camino' ? 1 : 1);
+      continue;
+    }
     if (v.ore && !v.ore.includes(ora)) continue;
     if (v.parole && !v.parole.test(parole)) continue;
     let f = 1;
@@ -158,6 +195,8 @@ class LettoreBard {
       this.master = x.createGain(); this.master.connect(x.destination);
       this.canali = {};
       for (const k of ['tempo', 'sottofondo', 'musica', 'effetti', 'vita']){ const g = x.createGain(); g.gain.value = 0; g.connect(this.master); this.canali[k] = g; }
+      /* al chiuso (la taverna) la pioggia e il vento si sentono da fuori: attutiti (13/11) */
+      try { const f = this.filtroTempo = x.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 20000; this.canali.tempo.disconnect(); this.canali.tempo.connect(f); f.connect(this.master); } catch(e) {}
     }
     if (this.ctx.state === 'suspended') this.ctx.resume().catch(() => {});
     return this.ctx;
@@ -180,7 +219,15 @@ class LettoreBard {
     const p = (async () => {
       const r = await fetch(url); if (!r.ok) throw new Error('suono non scaricato (' + r.status + ')');
       const ab = await r.arrayBuffer();
-      return await new Promise((ok, no) => this._ctx().decodeAudioData(ab, ok, no));
+      const b = await new Promise((ok, no) => this._ctx().decodeAudioData(ab, ok, no));
+      /* 13/11 · volumi pareggiati: le registrazioni dell'AI escono una forte e una piano. Si misura quanto è forte la parte
+         che suona (non i silenzi prima e dopo un verso) e si porta verso lo stesso livello, senza esagerare */
+      try {
+        const d = b.getChannelData(0), passo = Math.max(1, Math.floor(d.length / 60000)); let somma = 0, n = 0;
+        for (let i = 0; i < d.length; i += passo){ const v = d[i]; if (Math.abs(v) > .004){ somma += v * v; n++; } }
+        const rms = n ? Math.sqrt(somma / n) : 0; b._norm = rms > 0 ? Math.max(.4, Math.min(2.5, .16 / rms)) : 1;
+      } catch(e) { b._norm = 1; }
+      return b;
     })();
     this.buffer.set(chiave, p);
     p.catch(() => this.buffer.delete(chiave));
@@ -202,7 +249,8 @@ class LettoreBard {
         const b = await this._carica(chiave, url);
         if (this.strati[posto] !== voce) return;
         const s = x.createBufferSource(); s.buffer = b; s.loop = true;
-        s.connect(voce.g); s.start(0, Math.random() * Math.max(0, b.duration - 1)); voce.src = s;
+        if (/^[vf]:/.test(chiave) && b._norm){ const gn = x.createGain(); gn.gain.value = b._norm; s.connect(gn); gn.connect(voce.g); } else s.connect(voce.g);
+        s.start(0, Math.random() * Math.max(0, b.duration - 1)); voce.src = s;
       } else if (sintetico){ voce.src = sintetico(x, voce.g); }
       this._rampa(voce.g, volume, 2.5);
     } catch(e) {
@@ -218,7 +266,9 @@ class LettoreBard {
     try {
       const g = x.createGain(); g.gain.value = volume;
       if (pan && x.createStereoPanner){ const p = x.createStereoPanner(); p.pan.value = pan; g.connect(p); p.connect(this.canali[canale]); } else g.connect(this.canali[canale]);
-      if (url){ const b = await this._carica(chiave, url); const s = x.createBufferSource(); s.buffer = b; s.playbackRate.value = rate; s.connect(g); s.start(x.currentTime + dopo); }
+      if (url){ const b = await this._carica(chiave, url); const s = x.createBufferSource(); s.buffer = b; s.playbackRate.value = rate;
+        if (/^[ve]:/.test(chiave) && b._norm) g.gain.value = volume * b._norm;
+        s.connect(g); s.start(x.currentTime + dopo); }
       else if (sintetico) sintetico(x, g, x.currentTime + dopo);
     } catch(e) { console.warn('[bard] effetto', chiave, e.message); }
   }
@@ -231,7 +281,9 @@ class LettoreBard {
     const s = this.stato, on = this.attivo;
     if (on) this._ctx();
     if (!this.ctx) return;
-    this._rampa(this.canali.tempo, on && s.tempo && s.tempo.acceso ? s.tempo.volume : 0);
+    const dentro = bardInterno(this.scena);
+    this._rampa(this.canali.tempo, on && s.tempo && s.tempo.acceso ? s.tempo.volume * (dentro ? .45 : 1) : 0);
+    if (this.filtroTempo){ const t = this.ctx.currentTime; this.filtroTempo.frequency.cancelScheduledValues(t); this.filtroTempo.frequency.setTargetAtTime(dentro ? 700 : 20000, t, .6); }
     this._rampa(this.canali.sottofondo, on ? s.volSottofondo : 0);
     this._rampa(this.canali.musica, on ? s.volMusica : 0);
     this._rampa(this.canali.effetti, on ? s.volEffetti : 0, .2);
@@ -240,7 +292,7 @@ class LettoreBard {
     if (!on){ setTimeout(() => { if (!this.attivo){ Object.keys(this.strati).forEach(k => this._ferma(k)); if (this.el) this.el.pause(); } }, 1800); return; }
     this._tempo();
     this._vita();
-    if (s.sottofondo && s.sottofondo.url) this._loop('sottofondo', 'sottofondo', 'f:' + s.sottofondo.id, s.sottofondo.url, 1); else this._ferma('sottofondo');
+    this._sottofondo();
     this._musica();
   }
   /* il tempo segue le finestre: quello che si vede si sente */
@@ -283,34 +335,48 @@ class LettoreBard {
   }
   /* ── i suoni del paesaggio ───────────────────────────────────────────────── */
   _oraScena(){ const o = (this.scena || {}).ora; return !o || o === 'vera' ? (typeof oraVera === 'function' ? oraVera() : 'giorno') : o; }
+  /* le registrazioni di un suono (una o più) */
+  _lista(x){ return Array.isArray(x) ? x.filter(Boolean) : x ? [x] : []; }
+  /* quale registrazione suona un tappeto adesso: ne cambia ogni pochi minuti (mai la stessa di prima) */
+  _scegli(chiave, n, minuti){
+    const sc = this.scelte || (this.scelte = {}), ora = Date.now(), c = sc[chiave];
+    if (c && c.n === n && ora < c.fino) return c.i;
+    let i = Math.floor(Math.random() * n); if (c && n > 1 && i === c.i) i = (i + 1) % n;
+    sc[chiave] = {i, n, fino: n > 1 ? ora + (minuti[0] + Math.random() * (minuti[1] - minuti[0])) * 60000 : Infinity};
+    return i;
+  }
+  /* un verso: una registrazione a caso, mai quella dell'ultima volta */
+  _aCaso(chiave, n){ const u = this.ultimi || (this.ultimi = {}); let i = Math.floor(Math.random() * n); if (n > 1 && i === u[chiave]) i = (i + 1 + Math.floor(Math.random() * (n - 1))) % n; u[chiave] = i; return i; }
   _vita(){
     const s = this.stato, reg = s.suoniVita || {}, acceso = s.vita && s.vita.acceso;
     const ora = this._oraScena();
     this.vitaAdesso = acceso ? bardVitaAdesso(this.scena, ora) : {};
     for (const v of BARD_VITA){
       if (v.modo !== 'letto') continue;
-      const vol = this.vitaAdesso[v.id], url = reg[v.id];
-      if (vol && url) this._loop('v-' + v.id, 'vita', 'v:' + v.id, url, vol); else this._ferma('v-' + v.id);
+      const vol = this.vitaAdesso[v.id], urls = this._lista(reg[v.id]);
+      if (vol && urls.length){ const i = this._scegli('v-' + v.id, urls.length, [3, 7]); this._loop('v-' + v.id, 'vita', 'v:' + v.id + ':' + i, urls[i], vol); }
+      else { this._ferma('v-' + v.id); if (this.scelte) delete this.scelte['v-' + v.id]; }
     }
-    this.vitaFirma = JSON.stringify(this.vitaAdesso) + ora;
   }
   /** un verso del paesaggio, adesso (anche per lo stormo che passa nelle finestre) */
   colpoVita(id, volume){
-    const v = BARD_VITA_ID[id], url = (this.stato.suoniVita || {})[id];
-    if (!this.attivo || !v || !url || !(this.stato.vita && this.stato.vita.acceso)) return false;
-    this._colpo('v:' + id, url, volume != null ? volume : v.vol, 'vita', 0, null, (Math.random() * 2 - 1) * .6, .93 + Math.random() * .14);
+    const v = BARD_VITA_ID[id], urls = this._lista((this.stato.suoniVita || {})[id]);
+    if (!this.attivo || !v || !urls.length || !(this.stato.vita && this.stato.vita.acceso)) return false;
+    const i = this._aCaso('v:' + id, urls.length);
+    this._colpo('v:' + id + ':' + i, urls[i], volume != null ? volume : v.vol, 'vita', 0, null, (Math.random() * 2 - 1) * .6, .94 + Math.random() * .12);
     return true;
   }
   _ogniTanto(){
     if (!this.attivo || !this.ctx) return;
     /* i suoni del paesaggio: l'ora vera cambia da sola; i colpi arrivano a intervalli casuali */
     { const ora = this._oraScena();
-      if (!this.vitaAdesso || this.vitaOra !== ora){ this.vitaOra = ora; this._vita(); }
+      const scaduto = Object.values(this.scelte || {}).some(c => adessoMs() > c.fino);
+      if (!this.vitaAdesso || this.vitaOra !== ora || scaduto){ this.vitaOra = ora; this._vita(); this._sottofondo(); }
       const adesso = Date.now(), prossimi = this.prossimiColpi || (this.prossimiColpi = {});
       for (const v of BARD_VITA){
         if (v.modo !== 'colpo') continue;
         const vol = this.vitaAdesso[v.id];
-        if (!vol || !(this.stato.suoniVita || {})[v.id]){ delete prossimi[v.id]; continue; }
+        if (!vol || !this._lista((this.stato.suoniVita || {})[v.id]).length){ delete prossimi[v.id]; continue; }
         const [a, b] = v.ogni || [60, 180];
         if (!prossimi[v.id]){ prossimi[v.id] = adesso + (a * .3 + Math.random() * (b - a * .3)) * 1000; continue; }
         if (adesso > prossimi[v.id]){ this.colpoVita(v.id, vol * (.7 + .5 * Math.random())); prossimi[v.id] = adesso + (a + Math.random() * (b - a)) * 1000; }
@@ -329,8 +395,23 @@ class LettoreBard {
       else if (ora > this.prossimaRaffica){ this._colpo('t:raffica', raffica, (.4 + .4 * Math.random()) * BARD_GUADAGNO.raffica, 'tempo'); this.prossimaRaffica = 0; }
     }
   }
-  /** un effetto a comando */
-  effetto({id, url}){ if (this.attivo && url) this._colpo('e:' + id, url, 1, 'effetti'); }
+  /* il sottofondo: con più registrazioni ne cambia una ogni 4-8 minuti, con la dissolvenza (13/11) */
+  _sottofondo(){
+    const so = this.stato.sottofondo;
+    if (!this.attivo || !this.ctx) return;
+    const urls = so ? this._lista(so.varianti && so.varianti.length ? so.varianti : so.url) : [];
+    for (const k of Object.keys(this.scelte || {})) if (k.startsWith('f-') && (!so || k !== 'f-' + so.id)) delete this.scelte[k];
+    if (!urls.length){ this._ferma('sottofondo'); return; }
+    const i = this._scegli('f-' + so.id, urls.length, [4, 8]);
+    this._loop('sottofondo', 'sottofondo', 'f:' + so.id + ':' + i, urls[i], 1);
+  }
+  /** un effetto a comando: una delle sue registrazioni, mai la stessa due volte di fila */
+  effetto({id, url, varianti}){
+    const urls = this._lista(varianti && varianti.length ? varianti : url);
+    if (!this.attivo || !urls.length) return;
+    const i = this._aCaso('e:' + id, urls.length);
+    this._colpo('e:' + id + ':' + i, urls[i], 1, 'effetti', 0, null, 0, .97 + Math.random() * .06);
+  }
 
   /* ── la musica: un brano alla volta, lo stream dal deposito ─────────────── */
   _musica(){
@@ -449,9 +530,11 @@ function bardNomeFile(tipo, id, titolo, est = 'mp3'){ return `bard-${tipo}__${ba
 function bardDaNome(nome){
   const m = String(nome).match(BARD_NOME); if (!m) return null;
   const [, tipo, id, s] = m;
-  const titolo = tipo === 'tempo' && BARD_TEMPO[id] ? BARD_TEMPO[id] : tipo === 'vita' && BARD_VITA_ID[id] ? BARD_VITA_ID[id].nome : (s.replace(/-/g, ' ').replace(/^./, c => c.toUpperCase()) || 'Senza nome');
-  return {tipo, id, titolo, file: nome};
+  /* 13/11: più registrazioni dello stesso suono: «<id>-v1», «<id>-v2»… (base = l'id del suono) */
+  const mv = id.match(/^(.+)-v(\d+)$/), base = mv ? mv[1] : id, k = mv ? +mv[2] : 1;
+  const titolo = tipo === 'tempo' && BARD_TEMPO[base] ? BARD_TEMPO[base] : tipo === 'vita' && BARD_VITA_ID[base] ? BARD_VITA_ID[base].nome : (s.replace(/-/g, ' ').replace(/^./, c => c.toUpperCase()) || 'Senza nome');
+  return {tipo, id, base, k, titolo, file: nome};
 }
 const BARD_MIME = {mp3:'audio/mpeg', m4a:'audio/mp4', aac:'audio/aac', ogg:'audio/ogg', oga:'audio/ogg', webm:'audio/webm', wav:'audio/wav', flac:'audio/flac'};
 
-if (typeof module !== 'undefined') module.exports = {LettoreBard, BARD_PRED, BARD_TEMPO, BARD_VITA, bardVitaAdesso, bardParole, bardNomeFile, bardDaNome, bardSlug, BARD_MIME};
+if (typeof module !== 'undefined') module.exports = {LettoreBard, BARD_PRED, BARD_TEMPO, BARD_VITA, bardVitaAdesso, bardPromptVita, bardParole, bardNomeFile, bardDaNome, bardSlug, BARD_MIME};

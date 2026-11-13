@@ -1042,7 +1042,7 @@ class Vista {
   fonteVuota(){ return {fumi:[], fuochi:[], luci:[], prati:[], fumiUrl:null, dimg:null, img:null, tex:null, dep:null, depTex:null, video:null, cTex:null, cm:[0,0,0,0], fTex:null, iw:1, ih:1, url:null, ok:false}; }
 
   /* nuova immagine (o video in loop), con la sua profondità; sfuma da quella di prima in `dur` secondi */
-  async mostra({url, profondita = null, video = null, fuoco = null, cielo = null, fermo = null, maschera = null, comignoli = null, alberi = null, ricolora = false, notte = null}, dur = 0){
+  async mostra({url, profondita = null, video = null, fuoco = null, cielo = null, fermo = null, maschera = null, comignoli = null, alberi = null, ricolora = false, notte = null, interno = false}, dur = 0){
     if (this.fonti[0].ok && this.fonti[0].url === url + '|' + (video || '')){
       this.fonti[0].fuoco = fuoco;
       if ((comignoli || null) !== (this.fonti[0].fumiUrl || null)) this.caricaFumi(this.fonti[0], comignoli, this.fonti[0].dimg);   /* spostati dal telefono */
@@ -1052,6 +1052,7 @@ class Vista {
     const chiave = url + '|' + (video || '');
     if (this.inArrivo === chiave) return;
     this.inArrivo = chiave;
+    this.internoInArrivo = !!interno;   /* 13/11: un interno (la taverna) non ha cielo: la maschera del cielo resta vuota */
     try { await this._mostra(chiave, url, profondita, video, dur, fuoco, cielo, fermo, maschera, comignoli, alberi, ricolora && !!video, notte); } finally { if (this.inArrivo === chiave) this.inArrivo = null; }
   }
   /* dove sale il fumo: i punti dell'AI (o messi a mano dal telefono), con la profondità di ciascuno per la prospettiva */
@@ -1150,7 +1151,7 @@ class Vista {
     const im = await caricaImg(url);
     f.img = im; f.iw = im.naturalWidth; f.ih = im.naturalHeight; f.tex = this.texture(); this.carica(f.tex, this.entro(im)); this.mip(f.tex);
     let dimg = null;
-    if (pDep){ dimg = await pDep; if (dimg){ f.depTex = this.texture(); let dc = dimg; try { dc = mascheraCielo(dimg); } catch(e) { /* senza maschera: niente cielo che scorre, ma il resto va */ } this.carica(f.depTex, dc); this.mip(f.depTex); } }   /* 10/11: verde = maschera del cielo */
+    if (pDep){ dimg = await pDep; if (dimg){ f.depTex = this.texture(); let dc = dimg; try { dc = mascheraCielo(dimg, this.internoInArrivo); } catch(e) { /* senza maschera: niente cielo che scorre, ma il resto va */ } this.carica(f.depTex, dc); this.mip(f.depTex); } }   /* 10/11: verde = maschera del cielo */
     const imA = pAlberi ? (await pAlberi) || im : im;   /* 8/11: di notte gli alberi si trovano sull'immagine del giorno */
     try { f.aTex = this.texture(); this.carica(f.aTex, mascheraAlberi(imA, dimg)); } catch(e) { f.aTex = null; }
     f.dimg = dimg; await this.caricaFumi(f, comignoli, dimg);
@@ -1500,12 +1501,12 @@ function mascheraAlberi(img, dimg){
    · le gobbe di cielo strette (un pezzo di crinale nero come il cielo) si tolgono; la torre, che è il contrario, resta
    · verso l'orizzonte generale (mediana larga: la torre non conta) il cielo che scorre sfuma nel dipinto, su 5% d'altezza
    · un filo di sfocatura per il bordo, poi niente più soglie da un pixel all'altro */
-function mascheraCielo(dimg){
+function mascheraCielo(dimg, interno = false){
   const W = Math.min(dimg.naturalWidth, 2048), H = Math.round(W * dimg.naturalHeight / dimg.naturalWidth);
   const c = document.createElement('canvas'); c.width = W; c.height = H;
   const x = c.getContext('2d', {willReadFrequently:true}); x.drawImage(dimg, 0, 0, W, H);
   const im = x.getImageData(0, 0, W, H), d = im.data;
-  const m = mascheraCieloDa(d, W, H), o = mascheraOggettiDa(d, W, H);
+  const m = interno ? new Float32Array(W * H) : mascheraCieloDa(d, W, H), o = mascheraOggettiDa(d, W, H);
   for (let i = 0; i < W * H; i++){ d[i * 4 + 1] = Math.round(m[i] * 255); d[i * 4 + 2] = Math.round(o[i] * 255); d[i * 4 + 3] = 255; }
   x.putImageData(im, 0, 0);
   return c;
