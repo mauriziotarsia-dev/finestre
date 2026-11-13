@@ -9,7 +9,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
 const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 const euro = n => (n < .1 ? n.toFixed(3) : n.toFixed(2)).replace('.', ',') + ' $';
-const VERSIONE = '6.33';
+const VERSIONE = '6.34';
 /* 8/11 · l'app si aggiorna da sola (Maurizio: «vedo ancora il quadrato con la doppia finestra»: sul telefono restava la
    versione vecchia anche dopo averla chiusa). Quando torna in primo piano, e ogni 10 minuti, chiede al server quale
    app.js c'è adesso; se è un'altra, ricarica (mai mentre un lavoro AI è in corso) */
@@ -898,7 +898,21 @@ const STILI = [
    prefisso:'Classic oil painting on canvas, visible impasto brushstrokes, rich amber and gold palette, romantic landscape composition, evocative of Frank Frazetta and Caspar David Friedrich'},
   {id:'inked', nome:'A china', nota:'Xilografia gotica con accenti rossi. Per le serate a tema.',
    tela:'radial-gradient(18% 14% at 72% 30%,#b3261e 0,#b3261e 60%,transparent 62%),repeating-linear-gradient(45deg,#1a1a1a 0 1.5px,#e9e2d0 1.5px 4px)',
-   prefisso:'Dark ink illustration in the style of woodcut engraving, dense crosshatching, monochrome with red accents, gothic etched line art, evocative of Berserk and Gustave Doré'}
+   prefisso:'Dark ink illustration in the style of woodcut engraving, dense crosshatching, monochrome with red accents, gothic etched line art, evocative of Berserk and Gustave Doré'},
+  /* 13/11 · stili nuovi da provare con le bozze (Maurizio: «lo stile non mi piace, possiamo prima decidere lo stile visivo?»):
+     le prime bozze della taverna erano scure, fangose, marroni. Tutti chiedono un'immagine luminosa e leggibile. */
+  {id:'foto', nome:'Fotografia', nota:'Come una foto vera: il più credibile dietro una finestra.',
+   tela:'linear-gradient(180deg,#9fb6c9 0,#d8c8a8 50%,#6b5a42 51%,#3a3024 100%)',
+   prefisso:'Photorealistic photograph taken on a full-frame camera with a 35mm lens, natural available light, true-to-life colours, realistic materials and skin, deep focus, as if photographed inside a real, carefully reconstructed historical building, bright and clearly exposed'},
+  {id:'fiammingo', nome:'Pittura fiamminga', nota:'Come i quadri olandesi del Seicento: luce morbida dalle finestre, dettaglio fine.',
+   tela:'radial-gradient(40% 50% at 25% 35%,#f3e2b8 0,transparent 70%),linear-gradient(180deg,#4a3a28 0,#8a6a44 50%,#2e2418 100%)',
+   prefisso:'Dutch Golden Age genre painting in the manner of Pieter de Hooch, Jan Steen and Adriaen van Ostade: luminous soft daylight from the windows, clear and readable interior, warm earthy palette with clean colours, fine realistic detail, calm natural realism, oil on canvas with smooth brushwork'},
+  {id:'film', nome:'Film in costume', nota:'Come un fotogramma di un grande film storico, luce naturale.',
+   tela:'linear-gradient(180deg,#2f3d46 0,#b88a52 48%,#5a4430 52%,#1f1a14 100%)',
+   prefisso:'Still frame from a big-budget historical film, cinematic but bright and naturally exposed, realistic set dressing, practical light from fire and windows mixed with soft daylight, natural colour grading, sharp focus, no heavy darkness and no crushed blacks'},
+  {id:'fiaba', nome:'Illustrazione fantasy', nota:'Calda, colorata e accogliente: si vede che è un\'illustrazione.',
+   tela:'radial-gradient(50% 50% at 50% 40%,#ffd27a 0,#e07a3a 45%,transparent 70%),linear-gradient(180deg,#3a5a8a 0,#7a4a8a 100%)',
+   prefisso:'Warm and cosy high-end fantasy illustration, like premium storybook or video game concept art: rich saturated colours, crisp clean shapes and detail, bright and inviting light, cheerful atmosphere'}
 ];
 /* [nome, vista nord (le finestrelle), vista est (il TV): un altro soggetto della stessa terra] */
 const IDEE = [
@@ -1026,7 +1040,7 @@ ${LUCI_EST.giorno}`;
    pioggia, neve, nebbia, uccelli, pipistrelli e lucciole (js/vista.js, finestra/index.html); Bard fa sentire la sala. */
 const eInterno = p => !!p && Array.isArray(p.parole) && p.parole.includes('interno');
 const LUCI_INTERNO = {
-  giorno:'Time of day: daytime. Soft daylight enters through the small leaded windows of the room in slanting beams with floating dust; the hearth fire burns and a few candles are lit; a warm, readable interior.',
+  giorno:'Time of day: daytime. Plenty of soft daylight enters through the leaded windows of the room in slanting beams with a little floating dust, filling the room with bright, clean light; the hearth fire burns and a few candles are lit; a warm, bright, readable interior.',
   alba:'Change only the light to early morning: pale blue and pink dawn light through the small windows, the hearth fire low with glowing embers, most candles out, cool quiet light; everything else identical.',
   tramonto:'Change only the light to sunset: warm orange sunbeams slant low through the small windows across the room, the hearth fire and the candles glowing; everything else identical.',
   notte:'Change only the light to night: the windows are dark blue, the room is lit only by the hearth fire, candles and iron lanterns, warm golden pools of light and deep soft shadows; everything else identical.'
@@ -1040,6 +1054,7 @@ One wide picture (16:9) of the inside of ${descrizione}, ${vista || VISTA_INTERN
 The picture IS the view itself: no window frame, no wall edge, no curtains, no sill, nothing of the viewer's room in the foreground.
 Composition: ${centro} stands EXACTLY at the horizontal centre of the picture, compact, about one tenth of the picture width, fully visible. On both sides the room continues and is rich and interesting on its own: tables and benches, barrels, shelves with jugs and plates, hanging herbs and hams, iron candle chandeliers, rough stone walls and heavy dark wooden beams. Believable scale, natural perspective, depth with several layers (near, middle, far).
 A few patrons sit at the tables in the middle distance, seen small, calm, dressed in medieval clothes; nobody looks at the viewer, nobody stands close.
+Well lit and clearly readable everywhere: bright, natural exposure, visible details also in the corners, no murky darkness, no heavy brown haze, no dark vignetting.
 No text, no signs with letters, no signature, no watermark, no border, no vignette.
 ${LUCI_INTERNO.giorno}`;
 }
@@ -1326,7 +1341,7 @@ function chiediCrea(d){
    finestre/banco/bozza-<chiave>-<opzione>-<vista>.jpg, così Claude le vede. */
 let bozzeStato = leggi('atm-bozze', null);
 const salvaBozze = () => scrivi('atm-bozze', bozzeStato);
-const costoBozze = n => { const m = Ai.modello(imp.modello); return n * 2 * (m.fornitore === 'openai' ? m.costo.bassa : m.costo.alta); };
+const costoBozze = (n, d = {}) => { const m = Ai.modello(imp.modello); return n * (d.soloFinestrelle ? 1 : 2) * (m.fornitore === 'openai' ? m.costo[d.qualita || 'bassa'] : m.costo.alta); };
 function costoDaBozza(interno){
   const m = Ai.modello(imp.modello), mv = MODELLI_VIDEO.find(x => x.id === imp.video.modello) || MODELLI_VIDEO[0] || {euroSecondo: 0};
   const unaVista = (m.costo[imp.qualita] || m.costo.alta) * (1 + 3 * 1.15), nVideo = MODELLI_VIDEO.length ? nVideoCrea() : 0;
@@ -1338,10 +1353,10 @@ function chiediBozze(d){
     if (bozzeStato.scelta) return;
     if (d.opzioni.every(x => (bozzeStato.fatte || {})[x.id])){ mostraBozze(d); return; }
   }
-  const m = Ai.modello(imp.modello), ok = !!imp.chiavi[m.fornitore], costo = costoBozze(d.opzioni.length);
+  const m = Ai.modello(imp.modello), ok = !!imp.chiavi[m.fornitore], costo = costoBozze(d.opzioni.length, d);
   apriFoglio(`<h3 class="foglio-titolo">Bozze · ${esc(d.titolo || 'paesaggio nuovo')}</h3>
-    <p class="nota" style="margin-top:0">${d.opzioni.length} opzioni, ferme e a bassa qualità: per ognuna la vista delle finestrelle e quella del TV. Scegli guardandole; poi creo davvero solo quella che ti piace.</p>
-    <ul class="membri">${d.opzioni.map(x => `<li><span><b>${esc(x.id)} · ${esc(x.nome)}</b><small>Finestrelle: ${esc(x.centroIt || '')}<br>TV: ${esc(x.descEstIt || '')}</small></span></li>`).join('')}</ul>
+    <p class="nota" style="margin-top:0">${esc(d.spiega || d.opzioni.length + ' opzioni, ferme e a bassa qualità: per ognuna la vista delle finestrelle e quella del TV. Scegli guardandole; poi creo davvero solo quella che ti piace.')}</p>
+    <ul class="membri">${d.opzioni.map(x => `<li><span><b>${esc(x.id)} · ${esc(x.nome)}</b><small>${x.notaIt ? esc(x.notaIt) : 'Finestrelle: ' + esc(x.centroIt || '') + '<br>TV: ' + esc(x.descEstIt || '')}</small></span></li>`).join('')}</ul>
     <button class="btn oro piena" style="margin-top:14px" data-fai="bozzeVia"${ok ? '' : ' disabled'}>${icona('pennello', 18)}Fai le bozze · ≈ ${euro(costo)}</button>
     ${ok ? '' : `<p class="nota">Manca la chiave ${m.fornitore === 'google' ? 'Google' : 'OpenAI'} nelle Impostazioni.</p>`}
     <p class="nota">Ci vogliono uno o due minuti. Le bozze restano: le riapri da questo foglio finché non scegli.</p>
@@ -1363,17 +1378,18 @@ async function bozzeVia(){
   bozzeStato.richiesta = d; salvaBozze();
   try {
     await conLavoro('bozze', async L => {
-      const stile = d.stile || imp.stile;
       await Promise.all(d.opzioni.map(async x => {
         if ((bozzeStato.fatte || {})[x.id]) return;
-        const kn = 'b-' + x.id + '-n', ke = 'b-' + x.id + '-e';
+        const kn = 'b-' + x.id + '-n', ke = 'b-' + x.id + '-e', stile = x.stile || d.stile || imp.stile, qualita = d.qualita || 'bassa';
         passo(kn, 'ora', x.id + ' · finestrelle…');
-        const rn = await Ai.crea({modello: imp.modello, chiavi: imp.chiavi, qualita: 'bassa', misura: 'tv',
+        const rn = await Ai.crea({modello: imp.modello, chiavi: imp.chiavi, qualita, misura: 'tv',
           prompt: x.interno ? promptInterno(x.descrizione, x.centro || 'the main counter', stile, x.vista) : promptLargo(x.descrizione, stile)});
         const nord = await inJpeg(b64aBlob(rn.b64, rn.mime), 1600);
         const urlNord = await caricaBozza(d.chiave, x.id, 'nord', nord);
-        passo(kn, 'fatto', x.id + ' · finestrelle'); passo(ke, 'ora', x.id + ' · TV…');
-        const re = await Ai.modifica({modello: imp.modello, chiavi: imp.chiavi, qualita: 'bassa', misura: 'tv', foto: nord,
+        passo(kn, 'fatto', x.id + ' · finestrelle');
+        if (d.soloFinestrelle){ bozzeStato.fatte[x.id] = {nord: urlNord}; salvaBozze(); rapportoLavoro({bozze: bozzeStato.fatte}); return; }
+        passo(ke, 'ora', x.id + ' · TV…');
+        const re = await Ai.modifica({modello: imp.modello, chiavi: imp.chiavi, qualita, misura: 'tv', foto: nord,
           prompt: x.interno ? promptEstInterno(x.descEst, x.vista) : promptEst(x.descEst || '')});
         const est = await inJpeg(b64aBlob(re.b64, re.mime), 1600);
         const urlEst = await caricaBozza(d.chiave, x.id, 'est', est);
@@ -1390,9 +1406,11 @@ function mostraBozze(d){
     <p class="nota" style="margin-top:0">Sopra la vista larga delle finestrelle: i due riquadri dorati sono, all'incirca, quello che si vede da ciascuna finestrella. Sotto il TV. Sono bozze: la versione vera ha più dettaglio e la stessa composizione.</p>
     ${d.opzioni.map(x => { const b = f[x.id]; return `<div class="bozza">
       <b>${esc(x.id)} · ${esc(x.nome)}</b>
-      ${b ? `<div class="bozza-nord"><img alt="Finestrelle ${esc(x.id)}" src="${esc(b.nord)}"><i class="sx"></i><i class="dx"></i><span>Finestrelle</span></div>
-      <div class="bozza-est"><img alt="TV ${esc(x.id)}" src="${esc(b.est)}"><span>TV</span></div>
-      <button class="btn oro piena" data-fai="bozzaScelta" data-v="${esc(x.id)}">${icona('scintilla', 18)}Scelgo questa · ≈ ${euro(costo)}</button>` : '<p class="nota">Non riuscita: ' + esc((lavoro && lavoro.errore) || 'riprova') + '</p>'}
+      ${x.notaIt ? `<p class="nota" style="margin:0 0 8px">${esc(x.notaIt)}</p>` : ''}
+      ${b ? `<div class="bozza-nord"><img alt="Finestrelle ${esc(x.id)}" src="${esc(b.nord)}">${d.scopo === 'stile' ? '' : '<i class="sx"></i><i class="dx"></i>'}<span>${d.scopo === 'stile' ? esc(x.nome) : 'Finestrelle'}</span></div>
+      ${b.est ? `<div class="bozza-est"><img alt="TV ${esc(x.id)}" src="${esc(b.est)}"><span>TV</span></div>` : ''}
+      ${d.scopo === 'stile' ? `<button class="btn oro piena" data-fai="bozzaStile" data-v="${esc(x.id)}">${icona('pennello', 18)}Uso questo stile</button>`
+        : `<button class="btn oro piena" data-fai="bozzaScelta" data-v="${esc(x.id)}">${icona('scintilla', 18)}Scelgo questa · ≈ ${euro(costo)}</button>`}` : '<p class="nota">Non riuscita: ' + esc((lavoro && lavoro.errore) || 'riprova') + '</p>'}
     </div>`; }).join('')}
     <div id="lavoroFoglio"></div>`);
   foglioAperto = 'bozze';
@@ -1407,7 +1425,7 @@ async function bozzaScelta(id){
   try {
     const nord = await prendi(b.nord), est = await prendi(b.est);
     rapportoLavoro({messaggio: 'scelta la bozza ' + id + ': creo'});
-    await creaPaesaggio(Object.assign({}, x, {stile: d.stile, bozza: {nord, est}}));
+    await creaPaesaggio(Object.assign({}, x, {stile: x.stile || d.stile, bozza: {nord, est}}));
   } catch(e) { bozzeStato.scelta = null; salvaBozze(); avviso(e.message, true); }
   finally { clearInterval(t); rapportoLavoro({messaggio: lavoro && lavoro.errore ? 'errore: ' + lavoro.errore : 'finito (bozza ' + id + ')'}); }
 }
@@ -2477,6 +2495,10 @@ const AZIONI = {
   creaRichiestaVia: () => creaRichiestaVia(),
   bozzeVia: () => bozzeVia(),
   bozzaScelta: v => bozzaScelta(v),
+  /* le bozze degli stili: la scelta la legge Claude (lavoro-telefono.json) e rifà le bozze della taverna in quello stile */
+  bozzaStile: v => { const d = bozzeStato && bozzeStato.richiesta, x = d && d.opzioni.find(y => y.id === v); if (!x) return;
+    bozzeStato.scelta = v; salvaBozze(); rapportoLavoro({messaggio: 'stile scelto: ' + (x.stile || v), stileScelto: x.stile || v});
+    chiudiFoglio(); avviso('Stile scelto: ' + x.nome + '. Claude rifà le bozze in questo stile.'); },
   bozzeRivedi: () => { const d = leggi('atm-bozze', null); if (d && d.richiesta) mostraBozze(d.richiesta); },
   modello: v => { imp.modello = v; salvaImp(); disegnaImpostazioni(); },
   qualita: v => { imp.qualita = v; salvaImp(); disegnaImpostazioni(); },
