@@ -9,7 +9,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
 const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 const euro = n => (n < .1 ? n.toFixed(3) : n.toFixed(2)).replace('.', ',') + ' $';
-const VERSIONE = '6.29';
+const VERSIONE = '6.30';
 /* 8/11 · l'app si aggiorna da sola (Maurizio: «vedo ancora il quadrato con la doppia finestra»: sul telefono restava la
    versione vecchia anche dopo averla chiusa). Quando torna in primo piano, e ogni 10 minuti, chiede al server quale
    app.js c'è adesso; se è un'altra, ricarica (mai mentre un lavoro AI è in corso) */
@@ -486,7 +486,7 @@ let anteprimaPronta = false, anteprimaFrame = null, anteprimaTvPronta = false, a
 function scenaAnteprima(sc){
   const lp = sc && sc.immagini && libreria.find(x => x.id === sc.paesaggio); if (!lp) return sc;
   const im = Object.assign({}, sc.immagini);
-  for (const k of Object.keys(im)) if (/^(?:est-)?(?:giorno|alba|tramonto|notte)$/.test(k) && (lp.immagini[k] || '').split('?')[0] === (im[k] || '').split('?')[0]) im[k] = miniDi(lp.immagini, k);
+  for (const k of Object.keys(im)) if (/^(?:est-)?(?:fermo-)?(?:giorno|alba|tramonto|notte)$/.test(k) && (lp.immagini[k] || '').split('?')[0] === (im[k] || '').split('?')[0]) im[k] = miniDi(lp.immagini, k);
   return Object.assign({}, sc, {immagini: im});
 }
 function postaAnteprima(m){

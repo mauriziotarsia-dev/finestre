@@ -592,8 +592,34 @@ def _cuci_uno(cart, nomi, nome, base, parte, originale, larghezza, veloce):
             for nf, fl, tipo in ((f'{base}_{pre}fermo-{ora}.jpg', fj, 'image/jpeg'), (f'{base}_{pre}maschera-{ora}.png', mp, 'image/png')):
                 _chiedi('POST', f'/storage/v1/object/{DEPOSITO}/{cart}/' + urllib.parse.quote(nf), open(fl, 'rb').read(), tipo,
                         {'x-upsert': 'true', 'cache-control': 'max-age=60'})
+            # 13/11 · la copia piccola del fermo (lato lungo 1280) per l'anteprima del telefono, come per le luci (11/11)
+            try:
+                k = min(1, 1280 / max(fimg.shape[:2])); mini = cv2.resize(fimg, (round(fimg.shape[1] * k), round(fimg.shape[0] * k)), interpolation=cv2.INTER_AREA)
+                ok, buf = cv2.imencode('.jpg', mini, [cv2.IMWRITE_JPEG_QUALITY, 82, cv2.IMWRITE_JPEG_PROGRESSIVE, 1])
+                _chiedi('POST', f'/storage/v1/object/{DEPOSITO}/{cart}/' + urllib.parse.quote(f'{base}_{pre}mini-fermo-{ora}.jpg'), buf.tobytes(), 'image/jpeg',
+                        {'x-upsert': 'true', 'cache-control': 'max-age=60'})
+            except Exception as ex: print('copia piccola del fermo non fatta:', ex, file=sys.stderr, flush=True)
             print('  fatto:', info, flush=True)
             return 1
+
+
+def avvia_radar(chi):
+    """13/11 · il ricevitore del radar (pi/sensore.py) gira sul PC del TV. Dal 9/11 il TV ha la ROG Ally (prima il G10,
+    che lo faceva partire col suo installatore): l'Ally scarica a ogni avvio solo questo cucitore, quindi è il cucitore
+    a scaricare anche sensore.py e a farlo partire, se la porta 8788 è libera (= non gira già)."""
+    if os.name != 'nt' or chi.lower() not in ('ally', 'tv'): return
+    import socket
+    try:
+        with socket.socket() as so: so.bind(('127.0.0.1', 8788))
+    except OSError: return                                     # c'è già
+    dest = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'sensore.py')
+    try: urllib.request.urlretrieve('https://mauriziotarsia-dev.github.io/finestre/pi/sensore.py', dest)
+    except Exception as e: print('sensore.py non scaricato:', e, file=sys.stderr, flush=True)
+    if not os.path.exists(dest): return
+    exe = sys.executable.replace('python.exe', 'pythonw.exe')
+    subprocess.Popen([exe if os.path.exists(exe) else sys.executable, dest], cwd=os.path.dirname(dest),
+                     creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0) | getattr(subprocess, 'DETACHED_PROCESS', 0))
+    print('radar: ricevitore avviato', flush=True)
 
 
 def main():
@@ -620,6 +646,9 @@ def main():
         DEPOSITO = 'atmosfera'                                   # la casa privata: il suo deposito
         print('stanza privata:', ACCESSO['casa'], flush=True)
         o.casa = o.casa or 'privata'
+    if o.casa:
+        try: avvia_radar(o.chi)
+        except Exception as e: print('radar non avviato:', e, file=sys.stderr, flush=True)
     if o.casa and o.pieno:
         while True:
             try: giro_casa(o.casa, o.larghezza, veloce=o.veloce, forza=o.forza, chi=o.chi)
