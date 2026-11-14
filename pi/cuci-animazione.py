@@ -636,6 +636,33 @@ def giro_casa(casa, larghezza=None, veloce=False, forza=1, chi='pc'):
     return fatti
 
 
+URL_CUCITORE = 'https://mauriziotarsia-dev.github.io/finestre/pi/cuci-animazione.py'
+_controllato = [0.0]
+
+
+def aggiornati():
+    """14/11 · Maurizio ha riacceso G10 e Ally dallo stop: il cucitore ripartito dallo stop era quello vecchio (lo si
+    scarica solo all'avvio di Windows) e ha cucito il giorno dell'abbazia col solo primo pezzo. Ogni 10 minuti, fra un
+    giro e l'altro (mai durante una cucitura), si guarda se su GitHub c'è un cucitore diverso: se sì, si scarica al posto
+    di questo e si riparte con gli stessi argomenti (il radar, già acceso, resta com'è)."""
+    if time.time() - _controllato[0] < 600: return
+    _controllato[0] = time.time()
+    try:
+        nuovo = urllib.request.urlopen(URL_CUCITORE + '?t=' + str(int(time.time())), timeout=30).read()
+        qui = os.path.abspath(__file__)
+        if not nuovo or b'def giro_casa' not in nuovo or nuovo == open(qui, 'rb').read(): return
+        compile(nuovo, qui, 'exec')                                  # solo un file intero e valido
+        open(qui + '.nuovo', 'wb').write(nuovo); os.replace(qui + '.nuovo', qui)
+        print('cucitore aggiornato da GitHub: riparto', flush=True)
+        if os.name == 'nt':
+            subprocess.Popen([sys.executable, qui] + sys.argv[1:], cwd=os.path.dirname(qui),
+                             creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0) | getattr(subprocess, 'DETACHED_PROCESS', 0))
+            os._exit(0)
+        os.execv(sys.executable, [sys.executable, qui] + sys.argv[1:])
+    except Exception as e:
+        print('aggiornamento non controllato:', e, file=sys.stderr, flush=True)
+
+
 def metti_in_fila(pezzi, uscita):
     """13/11 notte · il giro lungo: più video da 10 s, ognuno con un movimento diverso, che partono e finiscono tutti
     sulla stessa immagine, messi uno dopo l'altro (ricodificati insieme: stessi fotogrammi al secondo e stessa misura)."""
@@ -656,7 +683,8 @@ def _cuci_uno(cart, nomi, nome, base, parte, originale, larghezza, veloce, ricuc
             e, u = os.path.join(d, 'e.mp4'), os.path.join(d, 'u.mp4')
             _scarica(cart, originale if ricuci else nome, e)
             # i pezzi in più del giro lungo (…_anim-notte-pezzo2.mp4 …): in fila dopo il primo
-            pezzi_n = [] if ricuci else [f'{base}_{parte[:-4]}-pezzo{k}.mp4' for k in range(2, 9) if f'{base}_{parte[:-4]}-pezzo{k}.mp4' in nomi]
+            # 14/11 · anche quando si ricuce: se i pezzi sono ancora lì, l'ha cucita un cucitore vecchio col solo primo pezzo
+            pezzi_n = [f'{base}_{parte[:-4]}-pezzo{k}.mp4' for k in range(2, 9) if f'{base}_{parte[:-4]}-pezzo{k}.mp4' in nomi]
             if pezzi_n:
                 pz = [e]
                 for i, pn in enumerate(pezzi_n):
@@ -680,7 +708,7 @@ def _cuci_uno(cart, nomi, nome, base, parte, originale, larghezza, veloce, ricuc
                 alta = os.path.join(d, 'a.jpg'); _scarica(cart, f'{base}_{pre}{ora_f}.jpg', alta)
             fxv = 0.5 if (pre or 'largo' in (base.split('@', 1)[1].split('.') if '@' in base else []) or 'interno' in (base.split('@', 1)[1].split('.') if '@' in base else [])) else fx
             info = cuci(e, u, prof, imm, fx, larghezza, veloce, fj, mp, alta, 1.5 if (pezzi_n or (ricuci and leggi_info(e)[0] / max(1, leggi_info(e)[1]) > 12)) else None, fxv)
-            if not ricuci:
+            if not ricuci or pezzi_n:                                    # l'originale lungo, con tutti i pezzi in fila
                 _chiedi('POST', f'/storage/v1/object/{DEPOSITO}/{cart}/' + urllib.parse.quote(originale), open(e, 'rb').read(), 'video/mp4', {'x-upsert': 'true'})
             _chiedi('POST', f'/storage/v1/object/{DEPOSITO}/{cart}/' + urllib.parse.quote(nome), open(u, 'rb').read(), 'video/mp4',
                     {'x-upsert': 'true', 'cache-control': 'max-age=60'})
@@ -761,6 +789,7 @@ def main():
         except Exception as e: print('radar non avviato:', e, file=sys.stderr, flush=True)
     if o.casa and o.pieno:
         while True:
+            if not o.una: aggiornati()
             try: giro_casa(o.casa, o.larghezza, veloce=o.veloce, forza=o.forza, chi=o.chi)
             except Exception as e: print('giro non riuscito:', e, file=sys.stderr, flush=True)
             if o.una: break
@@ -775,6 +804,7 @@ def main():
             except Exception: pass
         cv2.setNumThreads(2); global FF_THREADS; FF_THREADS = '2'
         while True:
+            if not o.una: aggiornati()
             try: giro_casa(o.casa, o.larghezza, veloce=o.veloce, forza=o.forza, chi=o.chi)
             except Exception as e: print('giro non riuscito:', e, file=sys.stderr, flush=True)
             if o.una: break
