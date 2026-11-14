@@ -40,9 +40,10 @@ const Ai = {
       return fai('credito', `Credito ${chi} esaurito (o limite di spesa raggiunto). Ricarica su ${ricarica}, poi riprova.`);
     if (r.status === 401 || (r.status === 403 && /key|auth|permission|denied/.test(tutto)) || /invalid_api_key|api key not valid|api_key_invalid/.test(tutto))
       return fai('chiave', `La chiave ${chi} non è valida o non ha accesso a questo modello. Controllala nelle Impostazioni.`);
+    /* 14/11 · il 429 di Google per «troppe richieste» dice anche «check quota»: è credito solo se la quota è a zero o giornaliera */
     if (r.status === 429 || /resource_exhausted|rate_limit/.test(tutto))
-      return fai(/quota|limit: 0|free tier|per day/.test(tutto) ? 'credito' : 'troppe',
-        /quota|limit: 0|free tier|per day/.test(tutto) ? `${chi}: hai raggiunto la quota (o il limite gratuito). Ricarica o aspetta il rinnovo su ${ricarica}.`
+      return fai(/limit: 0|free tier|per ?day|perday/.test(tutto) ? 'credito' : 'troppe',
+        /limit: 0|free tier|per ?day|perday/.test(tutto) ? `${chi}: hai raggiunto la quota (o il limite gratuito). Ricarica o aspetta il rinnovo su ${ricarica}.`
                                                         : `${chi} dice che stai facendo troppe richieste insieme: aspetta un minuto e riprova.`);
     if (/safety|moderation|blocked|content_policy/.test(tutto)) return fai('regole', `${chi} ha rifiutato la richiesta per le sue regole. Prova a cambiare la descrizione.`);
     return fai('altro', `${chi} ha risposto con un errore (${r.status}). ${m}`);

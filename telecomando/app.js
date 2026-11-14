@@ -9,7 +9,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
 const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 const euro = n => (n < .1 ? n.toFixed(3) : n.toFixed(2)).replace('.', ',') + ' $';
-const VERSIONE = '6.46';
+const VERSIONE = '6.47';
 /* 8/11 · l'app si aggiorna da sola (Maurizio: «vedo ancora il quadrato con la doppia finestra»: sul telefono restava la
    versione vecchia anche dopo averla chiusa). Quando torna in primo piano, e ogni 10 minuti, chiede al server quale
    app.js c'è adesso; se è un'altra, ricarica (mai mentre un lavoro AI è in corso) */
@@ -124,6 +124,7 @@ const gestoreCanale = {
     if (evento === 'aggiornaVecchi'){ chiediAggiornaVecchi(d); return; }
     if (evento === 'rifaiAnim'){ chiediRifaiAnim(d); return; }
     if (evento === 'crea'){ chiediCrea(d); return; }
+    if (evento === 'rifaiOre'){ chiediRifaiOre(d); return; }
     if (evento === 'bozze'){ chiediBozze(d); return; }
     if (evento === 'console'){ suConsole(d); return; }
     if (evento === 'consoleScheda'){ suScheda(d); return; }
@@ -1115,12 +1116,12 @@ const promptLuceInterno = (ora, p) => conInPiu(`Same exact room, view and compos
 /* 13/11 notte · più movimento («più animazioni possibili»), e diverso in ogni pezzo del giro lungo: tutti partono e
    finiscono sull'immagine, quindi chi si muove torna sempre nella posa di partenza */
 const MOSSE_INTERNO = [
-  'one patron lifts his pewter mug, drinks and puts it back down; another tells a story with lively hand gestures while the others listen, nod and smile',
-  'the patrons burst out laughing together at a joke, shoulders shaking, one leans back and slaps the table lightly, then they all settle down again',
-  'one patron pours from a jug into his mug, another leans in to say something, a third turns his head toward the fire for a moment and back',
-  'a quieter moment: they talk softly, one rests his chin on his hand, then two of them raise their mugs in a small toast and clink them gently'
+  'whoever is in the room keeps doing exactly what they are doing in the image, with natural small movements: someone eating takes a bite and chews, someone drinking lifts the mug and drinks, someone talking gestures while the others listen and nod, someone asleep breathes slowly and shifts a little, someone working keeps working',
+  'whoever is in the room keeps doing what they are doing in the image, with slightly different gestures: a laugh, a nod, a hand on the table, a glance towards the fire, a sip from the mug; someone asleep sighs and settles again',
+  'whoever is in the room keeps doing what they are doing in the image: someone pours from a jug, someone leans in to say something, someone turns their head for a moment and back; someone asleep stays asleep, breathing slowly',
+  'a quieter moment: whoever is in the room keeps doing what they are doing in the image with calm, slow movements; someone asleep stays asleep, breathing slowly'
 ];
-const promptAnimaInterno = (sec, ora, k = 0) => `[# Sources <FIRST_FRAME>@Image1 <LAST_FRAME>@Image1] A single continuous, unbroken shot of about ${sec} seconds, no scene cuts, of exactly this room, like real footage filmed on location. Locked-off static camera on a tripod: the camera does not move at all (no pan, no tilt, no zoom, no dolly, no shake). Lively but natural real-time motion everywhere it can be: the fire in the hearth flickers and dances, logs glow and crackle with sparks rising into the hood; every torch flame and every candle flame flickers on its own rhythm, and their warm light flickers softly on the stones, the beams, the faces and the tables; thin wisps of smoke curl up from the fire and the torches, dust motes drift slowly in the light${ora === 'giorno' || ora === 'tramonto' || ora === 'alba' ? ' of the windows' : ''}. The patrons stay seated at their places and move naturally: ${MOSSE_INTERNO[k % MOSSE_INTERNO.length]}; they breathe, blink and shift slightly. At the end of the clip everyone is back exactly in the pose of the first frame. Walls, beams, tables, benches, barrels and every object stay perfectly still and identical in every frame, with no shimmering. Nobody walks in or out, nobody stands up, no new people, no animals, no light change, same framing, light and colors as the image for the whole clip. No text, no dialogue, no music. Use this image as the first frame and the last frame.`;
+const promptAnimaInterno = (sec, ora, k = 0) => `[# Sources <FIRST_FRAME>@Image1 <LAST_FRAME>@Image1] A single continuous, unbroken shot of about ${sec} seconds, no scene cuts, of exactly this room, like real footage filmed on location. Locked-off static camera on a tripod: the camera does not move at all (no pan, no tilt, no zoom, no dolly, no shake). Lively but natural real-time motion everywhere it can be: the fire in the hearth flickers and dances, logs glow and crackle with sparks rising into the hood; every torch flame and every candle flame flickers on its own rhythm, and their warm light flickers softly on the stones, the beams, the faces and the tables; thin wisps of smoke curl up from the fire and the torches, dust motes drift slowly in the light${ora === 'giorno' || ora === 'tramonto' || ora === 'alba' ? ' of the windows' : ''}. The people stay at their places and move naturally (if nobody is in the room, only the flames, the smoke and the light move): ${MOSSE_INTERNO[k % MOSSE_INTERNO.length]}; they breathe, blink and shift slightly. At the end of the clip everyone is back exactly in the pose of the first frame. Walls, beams, tables, benches, barrels and every object stay perfectly still and identical in every frame, with no shimmering. Nobody walks in or out, nobody stands up, no new people, no animals, no light change, same framing, light and colors as the image for the whole clip. No text, no dialogue, no music. Use this image as the first frame and the last frame.`;
 
 /* ⚠ 30/10 · CIELO CHE SCORRE. Maurizio: «le nuvole quando reinizia il loop si spostano pesantemente».
    Nuvole che vanno sempre da una parte non possono stare in un video breve che gira (alla fine sono altrove).
@@ -1286,10 +1287,18 @@ async function faiAnimazione(p, foto, ora, elementi, tv = false){
   /* la vista nord larga (il trucco della prospettiva) si anima intera, orizzontale come quella del TV */
   const largo = !tv && (await misuraDi(foto)).largo;
   const n = pezziVideo(), pc = Array(n).fill(0);
-  const pezzi = await Promise.all(Array.from({length: n}, (_, k) => Ai.anima({chiave:imp.chiavi.google, modello:mv.id, foto, fuoco:p.fuoco, tv: tv || largo,
-    prompt: eInterno(p) ? promptAnimaInterno(secondiPezzo(), ora, k) : promptAnima(elementi, secondiPezzo(), ora),
-    progresso:(x, st) => { pc[k] = x; const m = pc.reduce((a, b) => a + b, 0) / n; lavoro.av = m;
-      passo(ka, 'ora', `${eti}Animazione con ${mv.nome}${n > 1 ? ' (' + n + ' pezzi da ' + secondiPezzo() + ' s)' : ''}: ${st === 'invio' ? 'la mando' : st === 'scarico' ? 'la scarico' : 'la sta girando'}… ${Math.round(m)}%`); }})));
+  /* 14/11 · se Google dice «troppe richieste insieme» si aspetta e si riprova solo quel pezzo (due animazioni su otto perse così) */
+  let fallita = false;
+  const unPezzo = async k => { for (let giro = 0; ; giro++){
+    try { return await Ai.anima({chiave:imp.chiavi.google, modello:mv.id, foto, fuoco:p.fuoco, tv: tv || largo,
+      prompt: eInterno(p) ? promptAnimaInterno(secondiPezzo(), ora, k) : promptAnima(elementi, secondiPezzo(), ora),
+      progresso:(x, st) => { if (fallita) return; pc[k] = x; const m = pc.reduce((a, b) => a + b, 0) / n; lavoro.av = m;
+        passo(ka, 'ora', `${eti}Animazione con ${mv.nome}${n > 1 ? ' (' + n + ' pezzi da ' + secondiPezzo() + ' s)' : ''}: ${st === 'invio' ? 'la mando' : st === 'scarico' ? 'la scarico' : 'la sta girando'}… ${Math.round(m)}%`); }}); }
+    catch(e) { if (e.tipo !== 'troppe' || giro >= 4) throw e;
+      for (let s = 60 + 30 * giro; s > 0; s -= 5){ if (fallita) throw e; passo(ka, 'ora', eti + 'Animazione: Google chiede di rallentare, riprovo fra ' + s + ' s…'); await new Promise(ok => setTimeout(ok, 5000)); } } } };
+  const pezzi = [];
+  for (let k = 0; k < n && !fallita; k++){ const pr = unPezzo(k); pr.catch(() => { fallita = true; }); pezzi.push(pr); if (k < n - 1) await new Promise(ok => setTimeout(ok, 8000)); }   /* partenze sfalsate */
+  await Promise.all(pezzi).then(v => v.forEach((x, i) => pezzi[i] = x));
   const mp4 = pezzi[0];
   passo(ka, 'ora', eti + 'Animazione: la salvo…');
   /* prima i pezzi in più (…_anim-notte-pezzo2.mp4 …), poi il primo: quando il cucitore vede il video ci sono già tutti */
@@ -1374,8 +1383,8 @@ function rapportoLavoro(extra = {}){
 /* la stessa richiesta si legge anche dalla rete all'apertura dell'app (se il telefono era chiuso quando Claude l'ha mandata) */
 async function richiestaInRete(){
   try { const r = await fetch(SUPABASE_URL + '/storage/v1/object/public/dmaster-media/finestre/banco/richiesta-telefono.json?t=' + Date.now(), {cache: 'no-store'});
-    if (!r.ok) return; const j = await r.json(); if (!j || foglioAperto === 'aggiorna' || foglioAperto === 'rifaiAnim' || foglioAperto === 'creaRichiesta' || foglioAperto === 'bozze' || (lavoro && !lavoro.finito)) return;
-    if (j.bozze) chiediBozze(j.bozze); else if (j.crea) chiediCrea(j.crea); else if (j.rifaiAnim) chiediRifaiAnim(j.rifaiAnim); else if (j.aggiornaVecchi) chiediAggiornaVecchi(j.aggiornaVecchi); } catch(e) {}
+    if (!r.ok) return; const j = await r.json(); if (!j || foglioAperto === 'aggiorna' || foglioAperto === 'rifaiAnim' || foglioAperto === 'creaRichiesta' || foglioAperto === 'bozze' || foglioAperto === 'rifaiOre' || (lavoro && !lavoro.finito)) return;
+    if (j.bozze) chiediBozze(j.bozze); else if (j.crea) chiediCrea(j.crea); else if (j.rifaiOre) chiediRifaiOre(j.rifaiOre); else if (j.rifaiAnim) chiediRifaiAnim(j.rifaiAnim); else if (j.aggiornaVecchi) chiediAggiornaVecchi(j.aggiornaVecchi); } catch(e) {}
 }
 /* 13/11 · un paesaggio nuovo chiesto da Claude (la taverna): il foglio col costo, e Avvia sul telefono */
 let creaFatti = new Set(leggi('atm-crea-fatti', []));
@@ -1550,6 +1559,83 @@ async function bozzaScelta(id){
     await creaPaesaggio(Object.assign({}, x, {stile: x.stile || d.stile, bozza: {nord, est}}));
   } catch(e) { bozzeStato.scelta = null; salvaBozze(); avviso(e.message, true); }
   finally { clearInterval(t); rapportoLavoro({messaggio: lavoro && lavoro.errore ? 'errore: ' + lavoro.errore : 'finito (bozza ' + id + ')'}); }
+}
+/* 14/11 notte · Maurizio: «sempre le stesse persone negli stessi posti… non avrebbe senso che cambi in base agli orari? la
+   notte uno addormentato ubriaco sul tavolo, all'alba nessuno, al tramonto più persone, di giorno solo uno che mangia».
+   rifaiOre: {chiave, id, nome?, parole?, modello, qualita, grande, inPiu, giro, oreIt:{ora: testo}, nord:{base, ore:{ora:{luce, persone}}}, est:{…}}
+   Ogni ora rifatta dalla stessa immagine di partenza (la stanza resta identica, cambiano la luce e le persone); poi via le
+   animazioni vecchie e si rifanno tutte. */
+const promptOraPersone = o => conInPiu(`Same exact room, view, framing and composition as the input image, with the same photographic realism, sharpness and fine detail: every wall, beam, door, window, torch, tapestry, counter, barrel, table, chair and object stays exactly in the same place. Only two things change.
+LIGHT: ${o.luce}
+PEOPLE: ${o.persone}
+People are seen small to medium, with natural poses and faces; nobody close to the camera. Do not add a window frame, text or borders.`);
+const costoRifaiOre = d => { const una = Ai.costoDi(d.modello || imp.modello, d.qualita || imp.qualita, !!d.grande), mv = MODELLI_VIDEO.find(v => v.id === imp.video.modello) || MODELLI_VIDEO[0] || {euroSecondo: 0};
+  const n = ['nord', 'est'].reduce((a, v) => a + Object.keys((d[v] && d[v].ore) || {}).length, 0), g = d.giro || giroVideo(), pz = pezziDi(g), sec = Math.min(10, Math.round(g / pz)) * pz;
+  return una * n + (MODELLI_VIDEO.length ? mv.euroSecondo * sec * n : 0); };
+function chiediRifaiOre(d){
+  if (!d || !d.chiave || creaFatti.has(d.chiave) || (lavoro && !lavoro.finito)) return;
+  const p = libreria.find(x => x.id === d.id);
+  if (!p){ rapportoLavoro({messaggio: 'rifaiOre: paesaggio ' + d.id + ' non trovato su questo telefono'}); return; }
+  const m = Ai.modello(d.modello || imp.modello), costo = costoRifaiOre(d), oreIt = d.oreIt || {};
+  apriFoglio(`<h3 class="foglio-titolo">Rifaccio «${esc(d.nome || p.nome)}»</h3>
+    <p class="nota" style="margin-top:0">${esc(d.perche || '')}</p>
+    <ul class="membri">${['notte', 'giorno', 'alba', 'tramonto'].filter(o => oreIt[o]).map(o => `<li><span><b>${esc(NOME_ORA[o][0].toUpperCase() + NOME_ORA[o].slice(1))}</b><small>${esc(oreIt[o])}</small></span></li>`).join('')}</ul>
+    <button class="btn oro piena" style="margin-top:14px" data-fai="rifaiOreVia"${imp.chiavi[m.fornitore] && imp.chiavi.google ? '' : ' disabled'}>${icona('scintilla', 18)}Avvia · ≈ ${euro(costo)}</button>
+    <p class="nota">Prima le immagini (qualche minuto), poi le animazioni, una dopo l'altra: in tutto circa un'ora. Tieni l'app aperta su questa pagina.</p>
+    <div id="lavoroFoglio"></div>`);
+  foglioAperto = 'rifaiOre'; chiediRifaiOre.d = d;
+  rapportoLavoro({messaggio: 'rifaiOre: in attesa di «Avvia»', costo: Math.round(costo * 100) / 100});
+}
+async function rifaiOreVia(){
+  const d = chiediRifaiOre.d; if (!d) return;
+  const b = document.querySelector('[data-fai="rifaiOreVia"]'); if (b) b.hidden = true;
+  const p = libreria.find(x => x.id === d.id); if (!p){ avviso('Non trovo il paesaggio.', true); return; }
+  creaFatti.add(d.chiave); scrivi('atm-crea-fatti', [...creaFatti]);
+  const t = setInterval(() => rapportoLavoro(), 20000);
+  creaCon = {modello: d.modello, qualita: d.qualita, grande: !!d.grande, inPiu: d.inPiu || '', giro: d.giro || null};
+  try {
+    await conLavoro('rifaiOre', async L => {
+      L.p = p;
+      /* le animazioni vecchie (e i loro pezzi, fermi, maschere) non vanno più con le immagini nuove */
+      passo('via', 'ora', 'Tolgo le animazioni vecchie…');
+      const vecchi = (p.file || []).filter(n => /_(est-)?(anim|fermo|maschera|mini-fermo)-(giorno|alba|tramonto|notte)(-originale)?\.(mp4|jpg|png)$/.test(n));
+      const pezzi = (p.file || []).filter(n => /_(est-)?anim-(giorno|alba|tramonto|notte)\.mp4$/.test(n)).flatMap(n => [2, 3, 4].map(k => n.replace(/\.mp4$/, '-pezzo' + k + '.mp4')));
+      await togliFile(casa, p, vecchi);
+      try { await togliFile(casa, p, pezzi); } catch(e) {}
+      for (const k of Object.keys(p.animati || {})) delete p.animati[k];
+      for (const k of Object.keys(p.immagini || {})) if (/^(est-)?(fermo|maschera|mini-fermo)-/.test(k)) delete p.immagini[k];
+      passo('via', 'fatto', 'Animazioni vecchie tolte (' + vecchi.length + ' file)');
+      if ((d.nome && d.nome !== p.nome) || d.parole){
+        passo('nome', 'ora', 'Nome: «' + (d.nome || p.nome) + '»…');
+        await rinominaPaesaggio(casa, p, d.nome || p.nome, d.parole || p.parole);
+        passo('nome', 'fatto', 'Nome: ' + p.nome);
+      }
+      aggiornaInLibreria(p);
+      for (const vista of ['nord', 'est']){
+        const v = d[vista]; if (!v || !v.ore) continue;
+        const r0 = await fetch(v.base, {cache: 'no-store'}); if (!r0.ok) throw new Error('Non trovo l\'immagine di partenza (' + r0.status + ')');
+        const base = await r0.blob();
+        for (const ora of ['notte', 'giorno', 'alba', 'tramonto']){
+          const o = v.ore[ora]; if (!o) continue;
+          const k = (vista === 'est' ? 'est-' : '') + ora, eti = (vista === 'est' ? 'TV · ' : 'Finestrelle · ') + NOME_ORA[ora];
+          passo(k, 'ora', eti + ': luce e persone di quell\'ora…');
+          try {
+            const r = await Ai.modifica({...opzImm(), prompt: promptOraPersone(o), foto: base, misura: 'tv',
+              bozza: b64 => { L.anteprime[k] = {url: 'data:image/png;base64,' + b64, bozza: true}; disegnaLavoro(); }});
+            const jpg = await inJpeg(b64aBlob(r.b64, r.mime), latoImm());
+            const u = vista === 'est' ? await caricaEst(casa, p, ora, jpg) : await caricaLuce(casa, p, ora, jpg);
+            p.immagini[k] = u + (u.includes('?') ? '' : '?v=' + Date.now().toString(36));
+            L.anteprime[k] = {url: p.immagini[k]}; passo(k, 'fatto', eti);
+          } catch(e) {
+            passo(k, 'errore', eti + ': ' + e.message);
+            if (e.tipo === 'credito' || e.tipo === 'chiave') throw e;
+          }
+          aggiornaInLibreria(p);
+        }
+      }
+      if (imp.anima) await animaTutto(p, animMancanti(p));
+    });
+  } finally { creaCon = {}; clearInterval(t); rapportoLavoro({messaggio: lavoro && lavoro.errore ? 'rifaiOre: errore ' + lavoro.errore : 'rifaiOre: finito'}); }
 }
 async function creaRichiestaVia(){
   const d = chiediCrea.d; if (!d) return;
@@ -2633,6 +2719,7 @@ const AZIONI = {
   creaRichiestaVia: () => creaRichiestaVia(),
   bozzeVia: () => bozzeVia(),
   bozzaScelta: v => bozzaScelta(v),
+  rifaiOreVia: () => rifaiOreVia(),
   bozzaCoppia: v => bozzaCoppia(v),
   bozzaCoppiaVia: () => bozzaCoppiaVia(),
   /* le bozze degli stili: la scelta la legge Claude (lavoro-telefono.json) e rifà le bozze della taverna in quello stile */
