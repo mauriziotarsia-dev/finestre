@@ -223,6 +223,16 @@ vec3 paesaggio(sampler2D img, sampler2D imgB, float vk, sampler2D dep, vec4 crop
        ~0,2) si tiene il dipinto fermo: la foschia la muove la nebbiolina viva, che non ha giro. Il video resta per
        l'acqua e la nebbia vicine. */
     float vivo = max(fb.a * chiaro * smoothstep(.3, .45, n), cm.x > 0. || haR > .5 ? 0. : sky);   /* 5/11: misurato, i salti del giro stanno fra 0,04 e 0,23 di profondità */
+    /* ⚠ 14/11 notte · DENTRO, PERSONE E FIAMME (Maurizio, davanti alla taverna: «per un movimento più marcato dei
+       personaggi?»). La regola qui sopra (dal video solo il chiaro e poco colorato) è fatta per nebbia e acqua; dentro
+       fermava la cuoca (restava un fantasma sfocato, con grembiule e cuffia che si muovevano su un corpo fermo) e
+       spegneva le fiamme. La maschera di un interno ha due piani (pi/cuci-animazione.py): fino a metà le zone «a nebbia»,
+       da metà in su persone e fiamme, che vengono dal video intero, a colori pieni. Col video del giorno ricolorato
+       (alba, tramonto, notte senza un video loro) il video intero no: sarebbero la cuoca e il fuoco del giorno */
+    if (uDentro > .5){
+      float zG = min(1., fb.a * 2.), zF = haR > .5 ? 0. : clamp(fb.a * 2. - 1., 0., 1.);
+      vivo = max(zG * chiaro * smoothstep(.3, .45, n), zF);
+    }
     /* ⚠ 8/11 · «RISPARMIO»: alba, tramonto e notte senza un video loro usano quello del giorno. Il fermo porta già i colori
        di quella luce; il video (giorno) si ricolora col rapporto luce/giorno, sfocato, punto per punto. Il cielo resta il dipinto */
     /* ⚠ 10/11 (Maurizio, confronto all'alba: «si può diminuire il gap? la ricolorata la vedo con una risoluzione
@@ -627,7 +637,7 @@ void main(){
 #else
     float dV = gVentoA * 255. - 128.;
     float ombraV = 0., nuvV = 0.;
-    if (uDentro > .5){
+    if (uDentro > .5 && uDentro < 1.5){   /* 2 = un interno con la luce dei fuochi spenta (prova «fuochi») */
       /* ⚠ 14/11 sera · LA LUCE DEI FUOCHI, DENTRO (Maurizio, davanti alla taverna di giorno: «Bisogna aumentare movimento
          anche di giorno»). In un interno non ci sono nuvole, chiome, foschia e uccelli: di vivo restava solo il video
          (le fiamme, piccole). Ora tutto quello che è illuminato dai fuochi (muri attorno alle torce, cucina, riflessi su
@@ -877,7 +887,7 @@ void main(){
      senza scorrere (ogni strato sfuma da un disegno a caso al successivo): lento e largo come il respiro di una fiamma,
      con sopra un tremito più svelto e più fitto. -1 … 1, in media 0 */
   float fuoco = 0.;
-  if (uDentro > .5){
+  if (uDentro > .5 && uDentro < 1.5){
     vec2 pq = uv * vec2(2.6, 1.9);
     float t1 = uT * 2.3, t2 = uT * 5.3, t3 = uT * .55, t4 = uT * 9.7;
     float k1 = floor(t1), f1 = fract(t1), k2 = floor(t2), f2 = fract(t2), k3 = floor(t3), f3 = fract(t3), k4 = floor(t4), f4 = fract(t4);
@@ -1535,8 +1545,10 @@ class Vista {
     const uc = s.stormi || {dati: new Float32Array(96), n: 0};
     gl.uniform4fv(u.uU, uc.dati); gl.uniform1f(u.uNU, sp.has('uccelli') ? 0 : uc.n); gl.uniform4fv(u.uUBox, uc.box || [0, 0, 1, 1]);
     gl.uniform1f(u.uNotte, s.notte || 0); gl.uniform1f(u.uOmbre, s.ombre || 0);
-    const dentro = haImg && !!(s.vita && s.vita.interno) && !sp.has('fuochi');   /* 14/11 sera: un interno: la luce dei fuochi respira (vedi «LA LUCE DEI FUOCHI, DENTRO») */
-    gl.uniform1f(u.uDentro, dentro ? 1 : 0);
+    /* 14/11 sera: un interno: la luce dei fuochi respira (vedi «LA LUCE DEI FUOCHI, DENTRO»). 2 = interno con i fuochi
+       spenti per prova: la maschera del video si legge comunque da interno (due piani) */
+    const dentro = haImg && !!(s.vita && s.vita.interno) ? (sp.has('fuochi') ? 2 : 1) : 0;
+    gl.uniform1f(u.uDentro, dentro);
     const me = s.meteora || null;
     gl.uniform4fv(u.uMeteora, me ? me.da : [0,0,0,0]); gl.uniform1f(u.uMeteoraK, me ? me.k : 0);
     const oc = s.occhio || {x:0, z:0}; gl.uniform3f(u.uOcchio, oc.x || 0, 0, oc.z || 0);
@@ -1582,7 +1594,7 @@ class Vista {
         gl.uniform4fv(this.uv.uCropD, v0 ? this.cropProfondita(f0, c0v) : c0v);
         gl.uniform4fv(this.uv.uCieloM, f0.cTex && !sp.has('cielo') ? f0.cm : [0,0,0,0]); gl.uniform1f(this.uv.uCieloX, s.cieloX || 0);
         gl.uniform1f(this.uv.uHaNuvole, nuvoleCielo ? 1 : 0);
-        gl.uniform1f(this.uv.uDentro, dentro ? 1 : 0);
+        gl.uniform1f(this.uv.uDentro, dentro);
         gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
         gl.bindFramebuffer(gl.FRAMEBUFFER, null);
       }

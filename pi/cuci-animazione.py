@@ -168,6 +168,38 @@ def analizza(percorso, n, fps, w, h, cielo):
     z = cv2.morphologyEx(z, cv2.MORPH_CLOSE, np.ones((9, 9), np.uint8))  # i banchi di nebbia interi, non a chiazze
     z = cv2.dilate(z, np.ones((3, 3), np.uint8))
     zone = cv2.GaussianBlur(cv2.resize(z, (w, h), interpolation=cv2.INTER_LINEAR), (0, 0), 14)
+    # ⚠ 14/11 notte · DENTRO: LE PERSONE E LE FIAMME (Maurizio, davanti alla taverna: «Anima di più la taverna di giorno»,
+    # «per un movimento più marcato dei personaggi?»). Il video dell'AI della taverna il movimento l'aveva: la cuoca
+    # impasta, si china, gira la testa (misurato: nella sua zona la luce cambia di 22-37 livelli, il camino di 16).
+    # Era il cucitore a toglierlo: nelle zone vive lascia passare dal video solo ciò che è chiaro e poco colorato
+    # (nebbia, fumo, acqua: giusto per i paesaggi), quindi della cuoca si muovevano grembiule e cuffia sopra un corpo
+    # fermo e sfocato (la mediana dei primi due secondi di una che si muove), e delle fiamme solo il cuore bianco.
+    # In un interno, dove ci sono persone che si muovono e fiamme si prende il video intero, a colori pieni, con un
+    # margine attorno perché braccia e teste non escano dalla zona; le zone «a nebbia» (raggi di luce, fumo) restano
+    # com'erano. Non si chiede che la fine somigli all'inizio: una persona ferma e sfocata è peggio di un passaggio.
+    forte = None
+    if SENZA_CIELO:
+        # chi cambia FORMA (le persone): si confronta l'immagine a contrasto locale normalizzato, così la luce del fuoco
+        # che sale e scende su muri, soffitto e pavimento non conta (misurato a questa grandezza: cuoca .47, la sua testa
+        # .89; muri, soffitto, pavimento, tavoli .08-.25). Poi le fiamme: dove la luce cambia moltissimo, con un margine
+        # piccolo, perché lì attorno c'è il muro che nel fermo in 4K è più bello del video
+        def _norm(x):
+            m = cv2.GaussianBlur(x, (0, 0), 4); d = x - m
+            return d / (np.sqrt(cv2.GaussianBlur(d * d, (0, 0), 4)) + 4.)
+        forma = np.stack([_norm(x) for x in L]).std(0)
+        pers = (forma > .42).astype(np.uint8)
+        pers = cv2.morphologyEx(pers, cv2.MORPH_OPEN, np.ones((2, 2), np.uint8))
+        nb, etich, stat, _ = cv2.connectedComponentsWithStats(pers, 8)
+        tieni = np.zeros(nb, np.uint8); tieni[1:] = stat[1:, cv2.CC_STAT_AREA] >= max(10, L.shape[1] * L.shape[2] // 3000)
+        pers = tieni[etich].astype(np.float32)
+        pers = cv2.morphologyEx(pers, cv2.MORPH_CLOSE, np.ones((7, 7), np.uint8))   # una persona intera, non a pezzi
+        pers = cv2.dilate(pers, np.ones((5, 5), np.uint8))                          # il margine per braccia e testa
+        fiam = (vivo > max(18., soglia * 2.6)).astype(np.float32)
+        fiam = cv2.dilate(cv2.morphologyEx(fiam, cv2.MORPH_OPEN, np.ones((2, 2), np.uint8)), np.ones((3, 3), np.uint8))
+        zf = np.maximum(pers, fiam)
+        forte = np.clip(cv2.GaussianBlur(cv2.resize(zf, (w, h), interpolation=cv2.INTER_LINEAR), (0, 0), 6) * 1.3, 0, 1)
+        firma = L[:, zf > .5].astype(np.float16)       # le persone e le fiamme, piccole: per scegliere dove richiudere il giro
+        zone = np.maximum(zone, forte)
     # il cielo: dove l'AI «inciampa» (un fotogramma di colpo più scuro e ridisegnato, a metà video) e quanto
     # scorre ogni nuvola, per ricucire lo strappo
     mc = cv2.resize(cielo, (L.shape[2], L.shape[1]))
@@ -187,7 +219,8 @@ def analizza(percorso, n, fps, w, h, cielo):
         if vicini: scorre[i] = np.median(vicini, axis=0)
     sostituti = ricuci(percorso, sp, strappi, scorre, len(L))
     return sp, riferimento, np.clip(zone, 0, 1), guadagni, sostituti, {
-        'soglia_vivo': round(soglia, 1), 'parte_viva': round(float(z.mean()) * 100, 1), 'strappi_nel_cielo': strappi}
+        'soglia_vivo': round(soglia, 1), 'parte_viva': round(float(z.mean()) * 100, 1), 'strappi_nel_cielo': strappi,
+        **({'parte_piena': round(float((forte > .5).mean()) * 100, 1), '_firma': firma} if forte is not None else {})}, forte
 
 
 def ricuci(percorso, sp, strappi, scorre, n, raggio=4):
@@ -208,7 +241,7 @@ def ricuci(percorso, sp, strappi, scorre, n, raggio=4):
 
 class Cucitore:
     """Fotogrammi ripuliti da `da` in poi: fermo dal riferimento, cielo dal video (mediana di 5), zone vive dal video."""
-    def __init__(self, percorso, da, sp, riferimento, cielo, zone, guadagni=None, sostituti=None):
+    def __init__(self, percorso, da, sp, riferimento, cielo, zone, guadagni=None, sostituti=None, forte=None):
         self.percorso, self.da, self.sp = percorso, da, sp
         self.guadagni, self.sostituti = guadagni, sostituti or {}
         self.rif = riferimento.astype(np.float32)
@@ -218,6 +251,8 @@ class Cucitore:
         chiaro = np.clip((hsv[..., 2] - .38) / .22, 0, 1) * np.clip((.42 - hsv[..., 1]) / .22, 0, 1)
         chiaro = cv2.GaussianBlur(chiaro, (0, 0), 2)
         self.mc = cielo[..., None]; self.mz = (np.clip(zone - cielo, 0, 1) * chiaro)[..., None]
+        # dentro: dove si muovono persone e fiamme il video passa intero (vedi «DENTRO: LE PERSONE E LE FIAMME»)
+        if forte is not None: self.mz = np.maximum(self.mz, np.clip(forte - cielo, 0, 1)[..., None])
 
     def __iter__(self):
         primo = max(0, self.da - 2)
@@ -288,7 +323,7 @@ def cuci(entrata, uscita, profondita=None, immagine=None, fuoco_x=0.5, larghezza
     n, fps, w, h = leggi_info(entrata)
     primo = next(fotogrammi(entrata))
     cielo = maschera_cielo(w, h, profondita, immagine, fuoco_x, primo)
-    sp, rif, zone, guad, sost, info = analizza(entrata, n, fps, w, h, cielo)
+    sp, rif, zone, guad, sost, info, forte = analizza(entrata, n, fps, w, h, cielo)
     foto, lut = fermo_dalla_foto(rif, alta, zone, cielo, fuoco_x if fx_video is None else fx_video) if alta else (None, None)
     c = int(round(fps * (sfuma or SECONDI_GIRO)))            # 14/11: coi pezzi (tutti da e verso la stessa immagine) basta 1,5 s
     lung = n - c                                               # il giro: n - c fotogrammi
@@ -306,13 +341,27 @@ def cuci(entrata, uscita, profondita=None, immagine=None, fuoco_x=0.5, larghezza
            '-profile:v', 'high', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', uscita]
     # su Windows, lanciato da pythonw, ffmpeg aprirebbe una finestra nera sopra il TV per tutta la cucitura (11/11)
     ff = subprocess.Popen(cmd, stdin=subprocess.PIPE, creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
-    inizio = iter(Cucitore(entrata, 0, sp, rif, cielo, zone, guad, sost))
-    fine = iter(Cucitore(entrata, lung, sp, rif, cielo, zone, guad, sost))
+    inizio = iter(Cucitore(entrata, 0, sp, rif, cielo, zone, guad, sost, forte))
+    fine = iter(Cucitore(entrata, lung, sp, rif, cielo, zone, guad, sost, forte))
+    # ⚠ 14/11 notte · LE PERSONE AL GIRO DEL LOOP: sfumate per un secondo e mezzo come la nebbia, la cuoca (che a fine
+    # video non è esattamente nella posa dell'inizio) appariva doppia, due pose sovrapposte: proprio il momento da cui si
+    # capisce il loop. Dove c'è video pieno si passa invece in un quinto di secondo, nell'istante del tratto in cui la
+    # fine somiglia di più all'inizio; il resto sfuma come prima
+    firma = info.pop('_firma', None); j0 = None
+    if firma is not None and firma.shape[1] and c >= 8:
+        dif = np.array([float(np.abs(firma[j].astype(np.float32) - firma[lung + j].astype(np.float32)).mean()) for j in range(c)])
+        dif = np.convolve(np.pad(dif, 2, mode='edge'), np.ones(5) / 5, 'valid')
+        j0 = 3 + int(np.argmin(dif[3:c - 3]))
+        info['giro_persone'] = {'secondo': round(j0 / fps, 2), 'scarto': round(float(dif[j0]), 1), 'scarto_medio': round(float(dif.mean()), 1)}
+        Wf = forte[..., None].astype(np.float32)
     scritti = 0; testa = []
     for j in range(lung):
         a = next(inizio)
         if j < c:
             b = next(fine); t = (j + .5) / c; t = t * t * (3 - 2 * t)
+            if j0 is not None:
+                tf = float(np.clip((j - j0 + 2.5) / 5, 0, 1)); tf = tf * tf * (3 - 2 * tf)
+                t = t * (1 - Wf) + tf * Wf
             # ⚠ 14/11: arrotondato, non troncato. Troncando, il tratto sfumato (il primo secondo e mezzo del giro) veniva
             # quasi un livello più scuro del resto: al giro del loop la nebbia e il fuoco facevano un piccolo scatto
             a = np.clip(b.astype(np.float32) * (1 - t) + a.astype(np.float32) * t + .5, 0, 255).astype(np.uint8)
@@ -332,6 +381,9 @@ def cuci(entrata, uscita, profondita=None, immagine=None, fuoco_x=0.5, larghezza
     if fermo: cv2.imwrite(fermo, foto if foto is not None else rif, [cv2.IMWRITE_JPEG_QUALITY, 93])
     if maschera:
         m = np.clip(zone - cielo, 0, 1)
+        # dentro la maschera ha due piani (li legge js/vista.js, paesaggio()): fino a metà, le zone «a nebbia» (dal video
+        # passa solo il chiaro e poco colorato); da metà in su, persone e fiamme: video intero
+        if forte is not None: m = .5 * np.maximum(m, np.clip(forte * 3, 0, 1)) + .5 * forte
         cv2.imwrite(maschera, (cv2.resize(m, (270, int(round(270 * h / w))), interpolation=cv2.INTER_AREA) * 255).astype(np.uint8))
     info.update({'fermo': 'foto %dx%d' % (foto.shape[1], foto.shape[0]) if foto is not None else 'video', 'video': f'{W}x{H}', 'fotogrammi_in': n, 'fps_in': round(fps, 2), 'secondi_giro': round(lung / fps, 2),
                  'tremolio_max_px': round(float(np.abs(sp).max()), 2), 'cielo_pct': round(float(cielo.mean()) * 100, 1)})
@@ -652,7 +704,9 @@ def giro_casa(casa, larghezza=None, veloce=False, forza=1, chi='pc'):
             base, _, parte = nome.rpartition('_')
             if not re.fullmatch(r'(est-)?anim-(giorno|alba|tramonto|notte)\.mp4', parte): continue
             originale = f'{base}_{parte[:-4]}-originale.mp4'
-            if originale not in nomi or f'{base}_{parte[:-4]}-v2.png' in nomi: continue
+            # 14/11 notte: gli interni cuciti prima di «DENTRO: LE PERSONE E LE FIAMME» si rifanno una volta (segno v3)
+            dentro = 'interno' in (base.split('@', 1)[1].split('.') if '@' in base else [])
+            if originale not in nomi or f'{base}_{parte[:-4]}-' + ('v3' if dentro else 'v2') + '.png' in nomi: continue
             _SOSPESI[0] += 1                                   # c'è un video da ricucire
             if piu_forte: break
             segno = f'{base}_{parte[:-4]}-incorso.png'
@@ -671,7 +725,7 @@ def giro_casa(casa, larghezza=None, veloce=False, forza=1, chi='pc'):
                 fatti += _cuci_uno(cart, nomi, nome, base, parte, originale, larghezza, veloce, ricuci=True)
             except Exception as ex:
                 print('  ricucitura non riuscita:', ex, file=sys.stderr, flush=True)
-                try: _rinfresca(cart, f'{base}_{parte[:-4]}-v2.png')   # non riprovarla all'infinito
+                try: _rinfresca(cart, f'{base}_{parte[:-4]}-v2.png'); _rinfresca(cart, f'{base}_{parte[:-4]}-v3.png')   # non riprovarla all'infinito
                 except Exception: pass
             finally:
                 vivo.set(); _libera(cart, segno)
@@ -951,7 +1005,9 @@ def _cuci_uno(cart, nomi, nome, base, parte, originale, larghezza, veloce, ricuc
                         {'x-upsert': 'true', 'cache-control': 'max-age=60'})
             except Exception as ex: print('copia piccola del fermo non fatta:', ex, file=sys.stderr, flush=True)
             for pn in pezzi_n: _libera(cart, pn)                          # i pezzi sono dentro l'originale lungo
-            try: _rinfresca(cart, f'{base}_{parte[:-4]}-v2.png')          # cucita con il fermo dalla foto (o provato): non si rifà
+            try:
+                _rinfresca(cart, f'{base}_{parte[:-4]}-v2.png')          # cucita con il fermo dalla foto (o provato): non si rifà
+                if SENZA_CIELO: _rinfresca(cart, f'{base}_{parte[:-4]}-v3.png')   # un interno, con persone e fiamme vive
             except Exception: pass
             print('  fatto:', info, flush=True)
             return 1
