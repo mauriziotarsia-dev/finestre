@@ -1761,13 +1761,34 @@ async function mascheraNuvole(img){
     }
     x.drawImage(src, 0, 0, W, H);
   }
-  const t1 = performance.now(), im = x.getImageData(0, 0, W, H), m = mascheraNuvoleDa(im.data, W, H);
+  /* ⚠ il calcolo si fa in disparte (un «operaio» del browser, fuori dal giro del disegno): fatto qui, sugli schermi veri
+     teneva fermo il disegno per 0,2 s (TV) e 0,3 s (finestrelle) a ogni cielo di notte o di tramonto. Se l'operaio non
+     parte, si fa qui come prima */
+  const t1 = performance.now(), im = x.getImageData(0, 0, W, H);
+  let m, dove = 'in disparte';
+  try { m = await nuvoleInDisparte(new Uint8ClampedArray(im.data), W, H); if (!m || m.length !== W * H) throw new Error('risposta sbagliata'); }
+  catch(e) { dove = 'qui'; m = mascheraNuvoleDa(im.data, W, H); }
   let tot = 0;
   for (let i = 0; i < W * H; i++){ const v = Math.round(m[i] * 255); im.data[i * 4] = im.data[i * 4 + 1] = im.data[i * 4 + 2] = v; im.data[i * 4 + 3] = 255; tot += m[i]; }
-  im.tempi = {riduzione: Math.round(t1 - t0), calcolo: Math.round(performance.now() - t1), nuvole: Math.round(tot / (W * H) * 100)};   /* per lo stato: quanto è costato su questo apparecchio, e quanta parte del cielo è nuvola */
+  im.tempi = {riduzione: Math.round(t1 - t0), calcolo: Math.round(performance.now() - t1), nuvole: Math.round(tot / (W * H) * 100), dove};   /* per lo stato: quanto è costato su questo apparecchio, e quanta parte del cielo è nuvola */
   return im;
 }
-/* il calcolo, su RGBA: a parte, per provarlo fuori dal browser (confrontato punto per punto con la versione di prova) */
+function nuvoleInDisparte(dati, W, H){
+  return new Promise((ok, no) => {
+    let w = null, url = null, t = 0;
+    const fine = () => { clearTimeout(t); try { if (w) w.terminate(); if (url) URL.revokeObjectURL(url); } catch(e) {} };
+    try {
+      url = URL.createObjectURL(new Blob(['onmessage = e => { const m = (' + mascheraNuvoleDa.toString() + ')(e.data.d, e.data.W, e.data.H); postMessage(m, [m.buffer]); };'], {type: 'application/javascript'}));
+      w = new Worker(url);
+      t = setTimeout(() => { fine(); no(new Error('operaio lento')); }, 6000);
+      w.onmessage = e => { fine(); ok(e.data); };
+      w.onerror = e => { fine(); no(new Error('operaio: ' + (e && e.message || 'errore'))); };
+      w.postMessage({d: dati, W, H}, [dati.buffer]);
+    } catch(e) { fine(); no(e); }
+  });
+}
+/* il calcolo, su RGBA: a parte, per provarlo fuori dal browser (confrontato punto per punto con la versione di prova)
+   e per darlo all'operaio (deve bastare a sé stesso: niente che stia fuori da questa funzione) */
 function mascheraNuvoleDa(d, W, H){
   const N = W * H, ss = (a, b, v) => { const t = Math.max(0, Math.min(1, (v - a) / (b - a))); return t * t * (3 - 2 * t); };
   /* massimo o minimo su un quadrato di lato 2r+1 (prima le righe, avvolgendo ai lati; poi le colonne, col bordo ripetuto).
