@@ -9,7 +9,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
 const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 const euro = n => (n < .1 ? n.toFixed(3) : n.toFixed(2)).replace('.', ',') + ' $';
-const VERSIONE = '6.47';
+const VERSIONE = '6.48';
 /* 8/11 · l'app si aggiorna da sola (Maurizio: «vedo ancora il quadrato con la doppia finestra»: sul telefono restava la
    versione vecchia anche dopo averla chiusa). Quando torna in primo piano, e ogni 10 minuti, chiede al server quale
    app.js c'è adesso; se è un'altra, ricarica (mai mentre un lavoro AI è in corso) */
@@ -1571,7 +1571,11 @@ PEOPLE: ${o.persone}
 People are seen small to medium, with natural poses and faces; nobody close to the camera. Do not add a window frame, text or borders.`);
 const costoRifaiOre = d => { const una = Ai.costoDi(d.modello || imp.modello, d.qualita || imp.qualita, !!d.grande), mv = MODELLI_VIDEO.find(v => v.id === imp.video.modello) || MODELLI_VIDEO[0] || {euroSecondo: 0};
   const n = ['nord', 'est'].reduce((a, v) => a + Object.keys((d[v] && d[v].ore) || {}).length, 0), g = d.giro || giroVideo(), pz = pezziDi(g), sec = Math.min(10, Math.round(g / pz)) * pz;
-  return una * n + (MODELLI_VIDEO.length ? mv.euroSecondo * sec * n : 0); };
+  return (d.soloAnimazioni ? 0 : una * n) + (MODELLI_VIDEO.length && d.animazioni !== false ? mv.euroSecondo * sec * n : 0); };
+const costoAnimOre = d => { const mv = MODELLI_VIDEO.find(v => v.id === imp.video.modello) || MODELLI_VIDEO[0] || {euroSecondo: 0};
+  const n = ['nord', 'est'].reduce((a, v) => a + Object.keys((d[v] && d[v].ore) || {}).length, 0), g = d.giro || giroVideo(), pz = pezziDi(g), sec = Math.min(10, Math.round(g / pz)) * pz;
+  return mv.euroSecondo * sec * n; };
+const oreDiRifai = d => [...new Set(['nord', 'est'].flatMap(v => Object.keys((d[v] && d[v].ore) || {})))];
 function chiediRifaiOre(d){
   if (!d || !d.chiave || creaFatti.has(d.chiave) || (lavoro && !lavoro.finito)) return;
   const p = libreria.find(x => x.id === d.id);
@@ -1581,37 +1585,41 @@ function chiediRifaiOre(d){
     <p class="nota" style="margin-top:0">${esc(d.perche || '')}</p>
     <ul class="membri">${['notte', 'giorno', 'alba', 'tramonto'].filter(o => oreIt[o]).map(o => `<li><span><b>${esc(NOME_ORA[o][0].toUpperCase() + NOME_ORA[o].slice(1))}</b><small>${esc(oreIt[o])}</small></span></li>`).join('')}</ul>
     <button class="btn oro piena" style="margin-top:14px" data-fai="rifaiOreVia"${imp.chiavi[m.fornitore] && imp.chiavi.google ? '' : ' disabled'}>${icona('scintilla', 18)}Avvia · ≈ ${euro(costo)}</button>
-    <p class="nota">Prima le immagini (qualche minuto), poi le animazioni, una dopo l'altra: in tutto circa un'ora. Tieni l'app aperta su questa pagina.</p>
-    <div id="lavoroFoglio"></div>`);
+    <p class="nota">${d.soloAnimazioni ? 'Solo le animazioni, una dopo l\'altra: qualche minuto ciascuna.' : d.animazioni === false ? 'Prima solo le immagini (qualche minuto): le guardi e, se vanno bene, qui sotto compare il tasto per le animazioni.' : 'Prima le immagini (qualche minuto), poi le animazioni, una dopo l\'altra: in tutto circa un\'ora.'} Tieni l'app aperta su questa pagina.</p>
+    <div id="lavoroFoglio"></div><div id="rifaiOreDopo"></div>`);
   foglioAperto = 'rifaiOre'; chiediRifaiOre.d = d;
   rapportoLavoro({messaggio: 'rifaiOre: in attesa di «Avvia»', costo: Math.round(costo * 100) / 100});
 }
-async function rifaiOreVia(){
-  const d = chiediRifaiOre.d; if (!d) return;
+async function rifaiOreVia(dd){
+  const d = dd && dd.chiave ? dd : chiediRifaiOre.d; if (!d) return;
   const b = document.querySelector('[data-fai="rifaiOreVia"]'); if (b) b.hidden = true;
   const p = libreria.find(x => x.id === d.id); if (!p){ avviso('Non trovo il paesaggio.', true); return; }
   creaFatti.add(d.chiave); scrivi('atm-crea-fatti', [...creaFatti]);
   const t = setInterval(() => rapportoLavoro(), 20000);
   creaCon = {modello: d.modello, qualita: d.qualita, grande: !!d.grande, inPiu: d.inPiu || '', giro: d.giro || null};
+  if (d.soloAnimazioni) rapportoLavoro({messaggio: 'rifaiOre: animazioni di ' + oreDiRifai(d).join(', ')});
   try {
     await conLavoro('rifaiOre', async L => {
       L.p = p;
       /* le animazioni vecchie (e i loro pezzi, fermi, maschere) non vanno più con le immagini nuove */
-      passo('via', 'ora', 'Tolgo le animazioni vecchie…');
-      const vecchi = (p.file || []).filter(n => /_(est-)?(anim|fermo|maschera|mini-fermo)-(giorno|alba|tramonto|notte)(-originale)?\.(mp4|jpg|png)$/.test(n));
-      const pezzi = (p.file || []).filter(n => /_(est-)?anim-(giorno|alba|tramonto|notte)\.mp4$/.test(n)).flatMap(n => [2, 3, 4].map(k => n.replace(/\.mp4$/, '-pezzo' + k + '.mp4')));
+      const ore = oreDiRifai(d), orRe = '(' + ore.join('|') + ')';
+      if (!d.soloAnimazioni){
+      passo('via', 'ora', 'Tolgo le animazioni vecchie di ' + ore.map(o => NOME_ORA[o]).join(', ') + '…');
+      const vecchi = (p.file || []).filter(n => new RegExp('_(est-)?(anim|fermo|maschera|mini-fermo)-' + orRe + '(-originale)?\\.(mp4|jpg|png)$').test(n));
+      const pezzi = (p.file || []).filter(n => new RegExp('_(est-)?anim-' + orRe + '\\.mp4$').test(n)).flatMap(n => [2, 3, 4].map(k => n.replace(/\.mp4$/, '-pezzo' + k + '.mp4')));
       await togliFile(casa, p, vecchi);
       try { await togliFile(casa, p, pezzi); } catch(e) {}
-      for (const k of Object.keys(p.animati || {})) delete p.animati[k];
-      for (const k of Object.keys(p.immagini || {})) if (/^(est-)?(fermo|maschera|mini-fermo)-/.test(k)) delete p.immagini[k];
+      for (const k of Object.keys(p.animati || {})) if (new RegExp('^(est-)?' + orRe + '$').test(k)) delete p.animati[k];
+      for (const k of Object.keys(p.immagini || {})) if (new RegExp('^(est-)?(fermo|maschera|mini-fermo)-' + orRe + '$').test(k)) delete p.immagini[k];
       passo('via', 'fatto', 'Animazioni vecchie tolte (' + vecchi.length + ' file)');
-      if ((d.nome && d.nome !== p.nome) || d.parole){
+      }
+      if (!d.soloAnimazioni && ((d.nome && d.nome !== p.nome) || d.parole)){
         passo('nome', 'ora', 'Nome: «' + (d.nome || p.nome) + '»…');
         await rinominaPaesaggio(casa, p, d.nome || p.nome, d.parole || p.parole);
         passo('nome', 'fatto', 'Nome: ' + p.nome);
       }
       aggiornaInLibreria(p);
-      for (const vista of ['nord', 'est']){
+      for (const vista of (d.soloAnimazioni ? [] : ['nord', 'est'])){
         const v = d[vista]; if (!v || !v.ore) continue;
         const r0 = await fetch(v.base, {cache: 'no-store'}); if (!r0.ok) throw new Error('Non trovo l\'immagine di partenza (' + r0.status + ')');
         const base = await r0.blob();
@@ -1633,9 +1641,19 @@ async function rifaiOreVia(){
           aggiornaInLibreria(p);
         }
       }
-      if (imp.anima) await animaTutto(p, animMancanti(p));
+      if (imp.anima && d.animazioni !== false) await animaTutto(p, animMancanti(p, [false, true], ore));
     });
-  } finally { creaCon = {}; clearInterval(t); rapportoLavoro({messaggio: lavoro && lavoro.errore ? 'rifaiOre: errore ' + lavoro.errore : 'rifaiOre: finito'}); }
+  } finally { creaCon = {}; clearInterval(t); rapportoLavoro({messaggio: lavoro && lavoro.errore ? 'rifaiOre: errore ' + lavoro.errore : d.animazioni === false && !d.soloAnimazioni ? 'rifaiOre: immagini fatte, in attesa del sì per le animazioni' : 'rifaiOre: finito'}); }
+  /* 14/11 · prima solo le immagini: se vanno bene, le animazioni di quelle ore con un tocco */
+  const dopo = document.getElementById('rifaiOreDopo');
+  if (dopo && d.animazioni === false && !d.soloAnimazioni && !(lavoro && lavoro.errore) && MODELLI_VIDEO.length)
+    dopo.innerHTML = `<p class="nota" style="margin-top:12px">Guarda le immagini qui sopra (toccandole si ingrandiscono). Se vanno bene:</p>
+      <button class="btn oro piena" data-fai="rifaiOreAnima">${icona('anima', 18)}Faccio le ${oreDiRifai(d).length * 2} animazioni · ≈ ${euro(costoAnimOre(d))}</button>`;
+}
+async function rifaiOreAnima(){
+  const d = chiediRifaiOre.d; if (!d) return;
+  const b = document.querySelector('[data-fai="rifaiOreAnima"]'); if (b) b.hidden = true;
+  await rifaiOreVia.call(null, Object.assign({}, d, {soloAnimazioni: true, animazioni: true}));
 }
 async function creaRichiestaVia(){
   const d = chiediCrea.d; if (!d) return;
@@ -2720,6 +2738,7 @@ const AZIONI = {
   bozzeVia: () => bozzeVia(),
   bozzaScelta: v => bozzaScelta(v),
   rifaiOreVia: () => rifaiOreVia(),
+  rifaiOreAnima: () => rifaiOreAnima(),
   bozzaCoppia: v => bozzaCoppia(v),
   bozzaCoppiaVia: () => bozzaCoppiaVia(),
   /* le bozze degli stili: la scelta la legge Claude (lavoro-telefono.json) e rifà le bozze della taverna in quello stile */
