@@ -311,7 +311,7 @@ vec3 paesaggio(sampler2D img, sampler2D imgB, float vk, sampler2D dep, vec4 crop
            più forte quando passa una raffica e meno fra una e l'altra: le chiome si piegano e tornano */
       /* 14/11, mezz'ora dopo (Maurizio: «adesso però le chiome si muovono poco niente, bisogna riaumentare di qualcosina senza
          esagerare»): +50% (era 1,5 + 10 n). Resta poco più di metà di prima; dove si muove (solo le chiome vere) non cambia */
-      float amp = (2.25 + 15. * n) * vt.b;   /* 14/11: era 10 + 16 n (alzato tre volte quando le immagini erano morbide) */
+      float amp = (2.475 + 16.5 * n) * vt.b;   /* 14/11: era 10 + 16 n (alzato tre volte quando le immagini erano morbide); nel pomeriggio 2,25 + 15 n, poi +10% (Maurizio: «mi sembrano troppo ferme le chiome, le farei muovere un 10% in più») */
       vec2 osc = vec2((vt.r - .5) * 2.2, (vt.g - .5) * .8) * amp * (.45 + uVento * .55);
       float spinta = amp * uVento * uVento * 2.;
       float luccica = 0.;
