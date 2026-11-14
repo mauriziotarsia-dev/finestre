@@ -864,6 +864,9 @@ def ascolta_spinte(casa):
                             _SPINTA['viva'] = time.time(); pausa = 5
                         elif ev in ('phx_error', 'phx_close'): raise OSError('canale: ' + ev)
                         elif ev == 'broadcast' and corpo.get('event') == 'cuci':
+                            # 14/11 notte (Maurizio: «non puoi fare tu push? Così iniziano subito»): con {aggiorna: true}
+                            # al risveglio si guarda subito se su GitHub c'è un cucitore nuovo, senza aspettare i 10 minuti
+                            if (corpo.get('payload') or {}).get('aggiorna'): _controllato[0] = 0.0
                             _SPINTA['ultima'] = time.time(); SVEGLIA.set()
         except Exception as e:
             print('spinta: canale giù (' + str(e)[:100] + '), riprovo fra', pausa, 's', file=sys.stderr, flush=True)
