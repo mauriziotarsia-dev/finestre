@@ -125,10 +125,12 @@ const Ai = {
       if (it) break;
     }
     if (!it) throw ripiega(new Error('Sottofondo non disponibile.'));
-    const inizio = Date.now();
+    /* 14/11 · prima si fermava a 15 minuti d'orologio: se il telefono si spegneva o l'app andava in sottofondo, al ritorno
+       scadeva subito anche se l'immagine era pronta (pagata e persa). Ora conta i controlli fatti davvero (≈ 25 minuti attivi). */
+    let controlli = 0;
     while (it.status && !/^(completed|failed|cancelled|incomplete)$/.test(it.status)){
       await new Promise(ok => setTimeout(ok, 4000));
-      if (Date.now() - inizio > 15 * 60 * 1000) throw new Error('OpenAI ci sta mettendo troppo: riprova più tardi.');
+      if (++controlli > 375) throw new Error('OpenAI ci sta mettendo troppo: riprova più tardi.');
       try { r = await fetch('https://api.openai.com/v1/responses/' + encodeURIComponent(it.id), {headers:{'Authorization':'Bearer ' + chiave}}); } catch(e) { continue; }   /* un controllo perso non ferma niente */
       if (!r.ok) throw await this.errore(r, 'OpenAI');
       it = await r.json();
@@ -283,10 +285,10 @@ const Ai = {
     catch(e){ try { r = await fetch(base, {method:'POST', headers:intest, body:JSON.stringify(corpo)}); } catch(e2) { throw ripiega(this.rete('Google', e2)); } }
     if (!r.ok){ const e = await this.errore(r, 'Google'); if (r.status === 400 || r.status === 404) throw ripiega(e); throw e; }
     let it = await r.json();
-    const inizio = Date.now();
+    let controlli = 0;
     while (it.status && it.status !== 'completed' && it.status !== 'failed' && it.status !== 'cancelled'){
       await new Promise(ok => setTimeout(ok, 4000));
-      if (Date.now() - inizio > 15 * 60 * 1000) throw new Error('Google ci sta mettendo troppo: riprova più tardi.');
+      if (++controlli > 375) throw new Error('Google ci sta mettendo troppo: riprova più tardi.');
       try { r = await fetch(base + '/' + encodeURIComponent(it.id), {headers:{'x-goog-api-key':chiave}}); } catch(e) { continue; }
       if (!r.ok) throw await this.errore(r, 'Google');
       it = await r.json();
@@ -380,12 +382,12 @@ Answer ONLY with JSON: {"comignoli":[{"x":<0-1000>,"y":<0-1000>,"w":<0-1000>}]} 
     }
     if (!r.ok) throw await this.errore(r, 'Google');
     let it = await r.json();
-    const inizio = Date.now();
+    const inizio = Date.now(); let controlli = 0;
     while (it.status && it.status !== 'completed' && it.status !== 'failed' && it.status !== 'cancelled'){
       const sec = (Date.now() - inizio) / 1000;
       o.progresso && o.progresso(Math.min(95, 5 + sec / 1.8), it.status);       /* stima: 2-3 minuti */
       await new Promise(ok => setTimeout(ok, 5000));
-      if (sec > 15 * 60) throw new Error('Google ci sta mettendo troppo: riprova più tardi.');
+      if (++controlli > 300) throw new Error('Google ci sta mettendo troppo: riprova più tardi.');   /* 14/11: controlli fatti, non orologio */
       try { r = await fetch(base + '/' + encodeURIComponent(it.id), {headers:{'x-goog-api-key':o.chiave}}); } catch(e) { continue; }   /* un controllo perso non ferma niente */
       if (!r.ok) throw await this.errore(r, 'Google');
       it = await r.json();

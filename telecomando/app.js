@@ -9,7 +9,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
 const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 const euro = n => (n < .1 ? n.toFixed(3) : n.toFixed(2)).replace('.', ',') + ' $';
-const VERSIONE = '6.49';
+const VERSIONE = '6.50';
 /* 8/11 · l'app si aggiorna da sola (Maurizio: «vedo ancora il quadrato con la doppia finestra»: sul telefono restava la
    versione vecchia anche dopo averla chiusa). Quando torna in primo piano, e ogni 10 minuti, chiede al server quale
    app.js c'è adesso; se è un'altra, ricarica (mai mentre un lavoro AI è in corso) */
@@ -1645,10 +1645,12 @@ async function rifaiOreVia(dd){
       }
       if (imp.anima && d.animazioni !== false) await animaTutto(p, animMancanti(p, [false, true], ore));
     });
-  } finally { creaCon = {}; clearInterval(t); rapportoLavoro({messaggio: lavoro && lavoro.errore ? 'rifaiOre: errore ' + lavoro.errore : d.animazioni === false && !d.soloAnimazioni ? 'rifaiOre: immagini fatte, in attesa del sì per le animazioni' : 'rifaiOre: finito'}); }
-  /* 14/11 · prima solo le immagini: se vanno bene, le animazioni di quelle ore con un tocco */
+  } finally { creaCon = {}; clearInterval(t); }
+  /* 14/11 · prima solo le immagini: se vanno bene, le animazioni di quelle ore con un tocco (solo se almeno una è riuscita) */
+  const riuscite = ((lavoro && lavoro.passi) || []).filter(x => x.cls === 'fatto' && /^(Finestrelle|TV) · /.test(x.testo)).length;
+  rapportoLavoro({messaggio: lavoro && lavoro.errore ? 'rifaiOre: errore ' + lavoro.errore : d.animazioni === false && !d.soloAnimazioni ? (riuscite ? 'rifaiOre: immagini fatte (' + riuscite + '), in attesa del sì per le animazioni' : 'rifaiOre: nessuna immagine riuscita') : 'rifaiOre: finito'});
   const dopo = document.getElementById('rifaiOreDopo');
-  if (dopo && d.animazioni === false && !d.soloAnimazioni && !(lavoro && lavoro.errore) && MODELLI_VIDEO.length)
+  if (dopo && d.animazioni === false && !d.soloAnimazioni && riuscite && !(lavoro && lavoro.errore) && MODELLI_VIDEO.length)
     dopo.innerHTML = `<p class="nota" style="margin-top:12px">Guarda le immagini qui sopra (toccandole si ingrandiscono). Se vanno bene:</p>
       <button class="btn oro piena" data-fai="rifaiOreAnima">${icona('anima', 18)}Faccio le ${oreDiRifai(d).length * 2} animazioni · ≈ ${euro(costoAnimOre(d))}</button>`;
 }
