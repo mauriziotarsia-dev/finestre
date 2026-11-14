@@ -28,7 +28,7 @@
 <script src="../js/accesso.js?v=8"></script>
 <script src="../js/qrcode.js?v=1"></script>
 <script src="../js/vita.js?v=5"></script>
-<script src="../js/vista.js?v=5.62"></script>
+<script src="../js/vista.js?v=5.63"></script>
 <script src="../js/inseguitore.js?v=1"></script>
 <script src="../js/uccelli.js?v=10"></script>
 <script src="../js/bard.js?v=9"></script>
@@ -790,10 +790,17 @@ async function banco(d, rispondi, schedaVideo){
     {nome:'finestrella sinistra', w:1080, h:1920, fps:30, lato:-1},
     {nome:'finestrella destra', w:1080, h:1920, fps:30, lato:1}]).slice(0, 4);
   const giri = Math.max(60, Math.min(1800, +d.giri || 600));        /* giri da 1/60 di secondo: 600 = 10 secondi */
-  const f = fonteDi(scena);
+  /* 14/11 sera · il banco può misurare (e fotografare) una scena diversa da quella sullo schermo, senza toccarla:
+     d.scena = una scena intera (con le immagini), d.passate = [{nome, cambia}] al posto delle due solite, d.foto =
+     {ritaglio: [x, y, w, h], w} per avere un pezzo del disegno fatto qui, da questa scheda video (in
+     finestre/banco/banco-<chi>-<id>-<n>.jpg). Serve a provare un paesaggio, un'ora o una variante del disegno
+     sull'apparecchio vero mentre sullo schermo resta quello che c'è (fermo per qualche secondo) */
+  const scenaB = d.scena && (d.scena.immagini || d.scena.yt) ? Object.assign({}, scena, d.scena) : scena;
+  const f = fonteDi(scenaB);
   const esito = {id, chi: mio, quando: new Date().toISOString(), gl: schedaVideo(), browser: navigator.userAgent,
     schermo: {w: screen.width, h: screen.height, dpr: devicePixelRatio, visibile: document.visibilityState},
     fonte: f ? String(f.url || '').split('/').pop().slice(0, 120) : null, video: !!(f && f.video), cielo: !!(f && f.cielo), profondita: !!(f && f.profondita),
+    scena: {paesaggio: scenaB.paesaggio, ora: scenaB.ora, meteo: scenaB.meteo, data: scenaB !== scena},
     giri, prove: prove.map(p => ({nome: p.nome, w: p.w, h: p.h, fps: p.fps, radar: !!p.radar, spegni: p.spegni || null, qualita: p.qualita == null ? 1 : p.qualita})), passate: []};
   const viste = [];
   const cede = () => new Promise(r => { const m = new MessageChannel(); m.port1.onmessage = () => r(); m.port2.postMessage(0); });
@@ -808,8 +815,10 @@ async function banco(d, rispondi, schedaVideo){
     await new Promise(r => setTimeout(r, 1500));
     const base = ultimoParam || {t: 0, movimento: true, prospettiva: true, coperto: 0, nebbia: 0, pioggia: 0, neve: 0, tempesta: 0, vento: .3, lampo: 0, lampoX: .5,
       uccelli: 0, notte: 0, ombre: 0, cieloX: 0, notteFinta: 0, luce: .7, buio: 0, qualita: 1, colNebbia: [.6, .62, .65], occhio: {x: 0, z: 0}, margine: 1.04};
-    const passate = [{nome: 'tempo di adesso (' + (scena.meteo || 'sereno') + ')', cambia: {}},
+    const passate = Array.isArray(d.passate) && d.passate.length ? d.passate.slice(0, 4).map(x => ({nome: String(x && x.nome || 'prova').slice(0, 60), cambia: (x && x.cambia) || {}}))
+      : [{nome: 'tempo di adesso (' + (scena.meteo || 'sereno') + ')', cambia: {}},
       {nome: 'temporale', cambia: {coperto: 1, nebbia: .18, pioggia: 1, neve: 0, tempesta: 1, vento: .9}}];
+    esito.disegno = viste.map(({v}) => ({senzaNuvole: !!v.senzaNuvole, nuvole: !!(v.fonti[0] && v.fonti[0].nTex), leggero: !!v.leggero, ok: !!(v.fonti[0] && v.fonti[0].ok)}));
     const px = new Uint8Array(4);
     const stat = a => { const o = a.slice().sort((x, y) => x - y), n = o.length || 1, m = o.reduce((x, y) => x + y, 0) / n;
       return {media: +m.toFixed(2), p95: +(o[Math.floor(n * .95)] || 0).toFixed(2), max: +(o[n - 1] || 0).toFixed(2)}; };
@@ -835,6 +844,22 @@ async function banco(d, rispondi, schedaVideo){
       const oltre = perGiro.filter(x => x > 1000 / 60).length;
       esito.passate.push({nome: pa.nome, giro: stat(perGiro), giriOltre16ms: +(oltre / perGiro.length * 100).toFixed(1),
         viste: viste.map(({p}, j) => Object.assign({nome: p.nome}, stat(perVista[j])))});
+    }
+    if (d.foto && viste.length){
+      const rt = Array.isArray(d.foto.ritaglio) && d.foto.ritaglio.length === 4 ? d.foto.ritaglio.map(v => Math.max(0, Math.min(1, +v || 0))) : [0, 0, 1, 1], maxW = Math.max(160, Math.min(1920, +d.foto.w || 800));
+      esito.foto = [];
+      for (let j = 0; j < viste.length; j++){
+        const {p, v, fori} = viste[j];
+        v.disegna(fori, Object.assign({}, base, passate[0].cambia, {t: (base.t || 0) + giri / 60 + 1, qualita: p.qualita == null ? 1 : p.qualita, lampo: 0, occhio: {x: 0, z: 0}, margine: 1.04}));
+        const sx = Math.round(rt[0] * p.w), sy = Math.round(rt[1] * p.h), sw = Math.max(2, Math.min(p.w - sx, Math.round(rt[2] * p.w))), sh = Math.max(2, Math.min(p.h - sy, Math.round(rt[3] * p.h)));
+        const k = Math.min(1, maxW / sw), o = document.createElement('canvas'); o.width = Math.round(sw * k); o.height = Math.round(sh * k);
+        o.getContext('2d').drawImage(v.c, sx, sy, sw, sh, 0, 0, o.width, o.height);
+        const blob = await new Promise(r => o.toBlob(r, 'image/jpeg', .93)), nome = 'banco-' + mio + '-' + id + '-' + j + '.jpg';
+        esito.foto.push({nome, w: o.width, h: o.height});
+        if (d.salva !== false) await fetch(SUPABASE_URL + '/storage/v1/object/dmaster-media/finestre/banco/' + nome, {method: 'POST',
+          headers: {apikey: SUPABASE_CHIAVE_PUBBLICA, Authorization: 'Bearer ' + SUPABASE_CHIAVE_PUBBLICA, 'Content-Type': 'image/jpeg', 'x-upsert': 'true'}, body: blob}).catch(() => {});
+        else (window.__bancoFoto || (window.__bancoFoto = [])).push(o.toDataURL('image/jpeg', .9));
+      }
     }
   } catch(e) { esito.errore = String(e && e.message || e); }
   for (const {v} of viste){ try { v.togli(); const x = v.gl.getExtension('WEBGL_lose_context'); if (x) x.loseContext(); } catch(e) {} }
@@ -1002,7 +1027,7 @@ function giro(ora){
   const troppeCadute = (cadute > .03 && scala > .7 || cadute > .12 && scala > scalaMin) && ora - ultimoCalo > 3000 && ora - avvioGiro > 40000;
   /* 9/11: mentre arriva un paesaggio o un'altra luce (immagini e video nuovi da decodificare) qualche giro salta per
      forza: alle prove, cambiando ora e tempo di seguito, il TV è sceso da 0,8 a 0,6 per quello, non per il disegno */
-  if (inCambio || vista.inArrivo || fotoInCorso || document.hidden || ora - (vista.lavoroDa || -1e9) < 3000){ quieteDa = ora; lentoR = 0; cadute = 0; provaLenti = 0; }   /* 14/11: anche la pagina coperta da un'altra finestra (le impostazioni di Windows aperte sopra: la scala era scesa a 0,7 per niente) */   /* 11/11: anche la ricerca delle finestre accese alla prima notte di un paesaggio (al giro di prove le finestrelle scendevano a 0,9 e 0,8 proprio lì) */   /* anche la foto chiesta da lontano (copia e carica il disegno: alle prove ha fatto saltare il 16–19% dei giri) */
+  if (inCambio || vista.inArrivo || fotoInCorso || bancoInCorso || document.hidden || ora - (vista.lavoroDa || -1e9) < 3000){ quieteDa = ora; lentoR = 0; cadute = 0; provaLenti = 0; }   /* 14/11 sera: anche il banco di prova (tiene fermo il disegno: non è fatica dello schermo) */   /* 14/11: anche la pagina coperta da un'altra finestra (le impostazioni di Windows aperte sopra: la scala era scesa a 0,7 per niente) */   /* 11/11: anche la ricerca delle finestre accese alla prima notte di un paesaggio (al giro di prove le finestrelle scendevano a 0,9 e 0,8 proprio lì) */   /* anche la foto chiesta da lontano (copia e carica il disegno: alle prove ha fatto saltare il 16–19% dei giri) */
   const provaFallita = ora - ultimaSalita < 12000 && provaLenti >= 6;   /* la salita non regge: lo si vede subito */
   if (!scalaFissa && ora - avvioGiro > 15000 && ora - quieteDa > 6000 && (lentoR > .55 || troppeCadute || provaFallita || (intervalloSchermo > passo * 1.25 && ora - ultimoCalo > 4000 && scala > .8)) && scala > scalaMin){
     const da = scala;
