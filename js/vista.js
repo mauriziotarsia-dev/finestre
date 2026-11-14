@@ -67,6 +67,7 @@ uniform float uNU;            /* quanti uccelli */
 uniform vec4 uUBox;           /* dove sono, tutti insieme (x0, y0, x1, y1 nella vista): fuori da lì non si calcola niente */
 uniform float uNotte;         /* 0 giorno … 1 notte (stelle, fuochi che tremolano) */
 uniform float uOmbre;         /* quanto si vedono le ombre delle nuvole (giorno sereno) */
+uniform float uDentro;        /* 14/11 sera · 1 = un interno (la taverna): niente cielo né ombre di nuvole; il quarto canale del vento porta il respiro della luce dei fuochi */
 uniform vec4 uMeteora;        /* stella cadente: da (x, y) a (z, w), nella vista */
 uniform float uMeteoraK;      /* a che punto è (0 = nessuna) */
 uniform float uHaVento;   /* (il passaggio a bassa risoluzione scrive dal basso: si legge capovolto) */
@@ -625,11 +626,28 @@ void main(){
     if (uOmbre > .01 && uHaVento > .5){ float om = texture2D(uVentoT, vec2(vUv.x, 1. - vUv.y)).a; col *= 1. - om * .17 * uOmbre * (1. - sky); }
 #else
     float dV = gVentoA * 255. - 128.;
-    float ombraV = clamp(-dV / 127., 0., 1.), nuvV = clamp(dV / 127., 0., 1.);
-    if (uOmbre > .01) col *= 1. - ombraV * .17 * uOmbre * (1. - sky);
+    float ombraV = 0., nuvV = 0.;
+    if (uDentro > .5){
+      /* ⚠ 14/11 sera · LA LUCE DEI FUOCHI, DENTRO (Maurizio, davanti alla taverna di giorno: «Bisogna aumentare movimento
+         anche di giorno»). In un interno non ci sono nuvole, chiome, foschia e uccelli: di vivo restava solo il video
+         (le fiamme, piccole). Ora tutto quello che è illuminato dai fuochi (muri attorno alle torce, cucina, riflessi su
+         pavimento e tavoli: il caldo e chiaro dell'immagine) respira con la fiamma, a tutte le ore. Il respiro è un
+         campo morbido (ogni torcia ha il suo, senza quadretti: il tremolio a cellette della notte, sui muri grandi,
+         faceva un mosaico) calcolato nel passaggio del vento, che dentro non ha altro da portare in questo canale */
+      float caldoD = smoothstep(.2, .55, col.r) * smoothstep(1.08, 1.34, col.r / max(col.g, .01)) * smoothstep(1.1, 1.5, col.g / max(col.b, .01));
+      col *= 1. + .2 * (dV / 127.) * caldoD;
+    } else {
+      ombraV = clamp(-dV / 127., 0., 1.); nuvV = clamp(dV / 127., 0., 1.);
+      if (uOmbre > .01) col *= 1. - ombraV * .17 * uOmbre * (1. - sky);
+    }
 #endif
-    /* fuochi, lanterne e finestre accese tremolano come fiamme, di notte e un po' al tramonto */
+    /* fuochi, lanterne e finestre accese tremolano come fiamme, di notte e un po' al tramonto (dentro no: lì c'è la
+       luce dei fuochi qui sopra) */
+#ifdef SENZA_NUVOLE
     if (uNotte > .5){
+#else
+    if (uNotte > .5 && uDentro < .5){
+#endif
       float caldo = smoothstep(.33, .6, col.r) * smoothstep(1.12, 1.4, col.r / max(col.g, .01)) * smoothstep(1.15, 1.6, col.g / max(col.b, .01)) * (1. - sky);
       if (caldo > .01){
         vec2 cel = floor(uv * uPix / (14. * scP));
@@ -802,7 +820,7 @@ uniform vec4 uMap, uCropD, uCieloM;
 uniform float uT, uCieloX, uVento;
 uniform sampler2D uAlberi, uCielo;
 #ifndef SENZA_NUVOLE
-uniform float uHaNuvole;
+uniform float uHaNuvole, uDentro;
 uniform sampler2D uNuvole;   /* le nuvole del cielo che scorre (r: 0 sgombro … 1 nuvola), vedi mascheraNuvole */
 #endif
 float h1(vec2 p){ vec3 p3 = fract(vec3(p.xyx) * .1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
@@ -836,6 +854,22 @@ void main(){
     vec2 pp = vec2(ti.x * uCieloM.z / (uCieloM.y * uCieloM.x) + uCieloX, ti.y / uCieloM.x);
     nuvola = texture2D(uNuvole, vec2(fract(pp.x), clamp(pp.y, .002, .998))).r * (1. - smoothstep(.8, 1., pp.y));
   }
+  /* ⚠ 14/11 sera · DENTRO (uDentro): niente cielo e niente ombre, il canale porta il respiro della luce dei fuochi
+     (vedi «LA LUCE DEI FUOCHI, DENTRO» nel disegno principale): un campo morbido nello spazio, che cambia nel tempo
+     senza scorrere (ogni strato sfuma da un disegno a caso al successivo): lento e largo come il respiro di una fiamma,
+     con sopra un tremito più svelto e più fitto. -1 … 1, in media 0 */
+  float fuoco = 0.;
+  if (uDentro > .5){
+    vec2 pq = uv * vec2(2.6, 1.9);
+    float t1 = uT * 2.3, t2 = uT * 5.3, t3 = uT * .55, t4 = uT * 9.7;
+    float k1 = floor(t1), f1 = fract(t1), k2 = floor(t2), f2 = fract(t2), k3 = floor(t3), f3 = fract(t3), k4 = floor(t4), f4 = fract(t4);
+    f1 = f1 * f1 * (3. - 2. * f1); f2 = f2 * f2 * (3. - 2. * f2); f3 = f3 * f3 * (3. - 2. * f3); f4 = f4 * f4 * (3. - 2. * f4);
+    float n1 = mix(rumore(pq + vec2(h1(vec2(k1, 1.)), h1(vec2(k1, 7.))) * 37.), rumore(pq + vec2(h1(vec2(k1 + 1., 1.)), h1(vec2(k1 + 1., 7.))) * 37.), f1);
+    float n2 = mix(rumore(pq * 1.7 + vec2(h1(vec2(k2, 2.)), h1(vec2(k2, 8.))) * 53.), rumore(pq * 1.7 + vec2(h1(vec2(k2 + 1., 2.)), h1(vec2(k2 + 1., 8.))) * 53.), f2);
+    float n3 = mix(rumore(pq * .7 + vec2(h1(vec2(k3, 3.)), h1(vec2(k3, 9.))) * 29.), rumore(pq * .7 + vec2(h1(vec2(k3 + 1., 3.)), h1(vec2(k3 + 1., 9.))) * 29.), f3);
+    float n4 = mix(rumore(pq * 2.6 + vec2(h1(vec2(k4, 4.)), h1(vec2(k4, 5.))) * 41.), rumore(pq * 2.6 + vec2(h1(vec2(k4 + 1., 4.)), h1(vec2(k4 + 1., 5.))) * 41.), f4);
+    fuoco = clamp((n1 * .4 + n2 * .3 + n3 * .15 + n4 * .15 - .5) * 2.6, -1., 1.);
+  }
 #endif
   /* ⚠ 4/11 (Maurizio: «sugli alberi che si muovono è troppo evidente il loop, ogni tot secondi si capisce che
      ricomincia»): le raffiche erano un'onda regolare, una ogni 7,4 secondi esatti, quasi quanto il giro del video
@@ -855,7 +889,7 @@ void main(){
 #ifdef SENZA_NUVOLE
   gl_FragColor = vec4(clamp(fx * .9 + .5, 0., 1.), clamp(fy * .9 + .5, 0., 1.), raffica * alberi, ombra);
 #else
-  gl_FragColor = vec4(clamp(fx * .9 + .5, 0., 1.), clamp(fy * .9 + .5, 0., 1.), raffica * alberi, (128. + 127. * (nuvola - ombra)) / 255.);
+  gl_FragColor = vec4(clamp(fx * .9 + .5, 0., 1.), clamp(fy * .9 + .5, 0., 1.), raffica * alberi, (128. + 127. * (uDentro > .5 ? fuoco : nuvola - ombra)) / 255.);
 #endif
 }`;
 
@@ -1092,7 +1126,7 @@ class Vista {
     /* il programma principale: paesaggio, cielo, nebbia, lampo, luce */
     this.p = programma(VERT, FRAG, ['aPos']);
     this.fumoDati = new Float32Array(32); this.fumoForza = new Float32Array(8);
-    this.u = posizioni(this.p, ['uOcchio','uImg0b','uVmix','uImg0','uImg1','uDep0','uDep1','uMap','uCrop0','uCrop1','uCropD0','uCropD1','uUccelli','uCielo0','uCielo1','uCieloM0','uCieloM1','uCieloX','uFermo0','uFermo1','uHaFermo0','uHaFermo1','uRap0','uHaRap0','uVentoT','uAlberiM','uHaVento','uU','uNU','uUBox','uFumo','uFumoI','uNFumo','uFumoA','uNebV','uNebG','uChiar','uNotte','uOmbre','uMeteora','uMeteoraK','uMix','uHaImg','uHaDep0','uHaDep1','uMovimento0','uMovimento1',
+    this.u = posizioni(this.p, ['uOcchio','uImg0b','uVmix','uImg0','uImg1','uDep0','uDep1','uMap','uCrop0','uCrop1','uCropD0','uCropD1','uUccelli','uCielo0','uCielo1','uCieloM0','uCieloM1','uCieloX','uFermo0','uFermo1','uHaFermo0','uHaFermo1','uRap0','uHaRap0','uVentoT','uAlberiM','uHaVento','uU','uNU','uUBox','uFumo','uFumoI','uNFumo','uFumoA','uNebV','uNebG','uDentro','uChiar','uNotte','uOmbre','uMeteora','uMeteoraK','uMix','uHaImg','uHaDep0','uHaDep1','uMovimento0','uMovimento1',
       'uLato','uT','uTV','uRaf','uAspetto','uPix','uCoperto','uNebbia','uPioggia','uNeve','uTempesta','uVento','uLampo','uLampoX','uLampoS','uLampoB',
       'uNotteFinta','uLuce','uBuio','uQualita','uColNebbia','uMeteo','uSale']);
     gl.useProgram(this.p);
@@ -1103,7 +1137,7 @@ class Vista {
     this.pm = programma(VERT, METEO_FRAG, ['aPos']);
     this.um = posizioni(this.pm, ['uMap','uT','uTV','uRaf','uVento']);
     this.pv = programma(VERT, VENTO_FRAG, ['aPos']);
-    this.uv = posizioni(this.pv, ['uMap','uT','uCropD','uCieloM','uCieloX','uAlberi','uCielo','uVento','uNuvole','uHaNuvole']);
+    this.uv = posizioni(this.pv, ['uMap','uT','uCropD','uCieloM','uCieloX','uAlberi','uCielo','uVento','uNuvole','uHaNuvole','uDentro']);
     gl.useProgram(this.pv); gl.uniform1i(this.uv.uAlberi, 11); gl.uniform1i(this.uv.uCielo, 6); if (this.uv.uNuvole) gl.uniform1i(this.uv.uNuvole, 13);
     this.bianca = this.texture(); this.carica(this.bianca, new Uint8Array([255, 255, 255, 255]), 1, 1);
     this.vento = [];
@@ -1483,6 +1517,8 @@ class Vista {
     const uc = s.stormi || {dati: new Float32Array(96), n: 0};
     gl.uniform4fv(u.uU, uc.dati); gl.uniform1f(u.uNU, sp.has('uccelli') ? 0 : uc.n); gl.uniform4fv(u.uUBox, uc.box || [0, 0, 1, 1]);
     gl.uniform1f(u.uNotte, s.notte || 0); gl.uniform1f(u.uOmbre, s.ombre || 0);
+    const dentro = haImg && !!(s.vita && s.vita.interno) && !sp.has('fuochi');   /* 14/11 sera: un interno: la luce dei fuochi respira (vedi «LA LUCE DEI FUOCHI, DENTRO») */
+    gl.uniform1f(u.uDentro, dentro ? 1 : 0);
     const me = s.meteora || null;
     gl.uniform4fv(u.uMeteora, me ? me.da : [0,0,0,0]); gl.uniform1f(u.uMeteoraK, me ? me.k : 0);
     const oc = s.occhio || {x:0, z:0}; gl.uniform3f(u.uOcchio, oc.x || 0, 0, oc.z || 0);
@@ -1528,6 +1564,7 @@ class Vista {
         gl.uniform4fv(this.uv.uCropD, v0 ? this.cropProfondita(f0, c0v) : c0v);
         gl.uniform4fv(this.uv.uCieloM, f0.cTex && !sp.has('cielo') ? f0.cm : [0,0,0,0]); gl.uniform1f(this.uv.uCieloX, s.cieloX || 0);
         gl.uniform1f(this.uv.uHaNuvole, nuvoleCielo ? 1 : 0);
+        gl.uniform1f(this.uv.uDentro, dentro ? 1 : 0);
         gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
         gl.bindFramebuffer(gl.FRAMEBUFFER, null);
       }
