@@ -396,9 +396,9 @@ vec3 paesaggio(sampler2D img, sampler2D imgB, float vk, sampler2D dep, vec4 crop
          la neve e le nuvole dipinte (senza cielo che scorre): due venti opposti nella stessa finestra */
       float rgM = 0., rsM = 0.;
       if (uRaf.x >= 0.){ float rt = rafTau(uv), rc = rafCella(uv) * uRaf.z; rgM = rafEnv(rt) * rc; rsM = rafStrada(rt) * rc; }
-      /* 14/11 (Maurizio: «rendiamo più visibile il movimento della foschia»): scorre un quarto più svelta (era .05 e .06; la prima prova, una volta e mezza, per Maurizio era «troppo veloce»),
+      /* 14/11 (Maurizio: «rendiamo più visibile il movimento della foschia»): scorre un decimo più svelta (era .05 e .06; le prime prove, una volta e mezza e poi un quarto, per Maurizio erano troppo veloci),
          e da metà distanza in là i veli sono un po' più chiari e più staccati dal fondo, i filamenti più fitti */
-      float tva = uT * .062 + uTV * .075 + rsM * .3;   /* 9/11: era uT * (.05 + .06 × vento): vedi uTV */   /* ⚠ 5/11: una velocità sola per tutti i punti: moltiplicare il tempo per un valore diverso punto per punto, dopo qualche minuto, dava righe e puntini (G10) */      /* quanto scorre la trama (sue unità al secondo): un banco attraversa sé stesso in 12-25 s (5/11: più viva) */
+      float tva = uT * .055 + uTV * .066 + rsM * .3;   /* 9/11: era uT * (.05 + .06 × vento): vedi uTV */   /* ⚠ 5/11: una velocità sola per tutti i punti: moltiplicare il tempo per un valore diverso punto per punto, dopo qualche minuto, dava righe e puntini (G10) */      /* quanto scorre la trama (sue unità al secondo): un banco attraversa sé stesso in 12-25 s (5/11: più viva) */
       /* 5/11 (Maurizio: «quella sotto è ancora poco viva»): la nebbia vicina scorre più svelta (come dal vero: più è
          vicina, più strada fa sullo schermo) e ha banchi più grandi e più contrastati */
       float vicinaM = smoothstep(.1, .35, nB);
@@ -434,8 +434,9 @@ vec3 paesaggio(sampler2D img, sampler2D imgB, float vk, sampler2D dep, vec4 crop
       float lontana = (1. - smoothstep(.03, .075, dW.r)) * (1. - smoothstep(.02, .3, dW.g)) * (1. - dW.b) * step(.5, haDep) * min(1., uNebV);
       if (lontana > .01){
         vec2 ti = cropD.xy + p * cropD.zw;
-        float v1 = fbmP2(vec2(ti.x * 4. + tP(uT * .08 + uTV * .06), ti.y * 26. - tP(uT * .012) + 3.7));
-        float v2 = fbmP2(vec2(ti.x * 7. + tP(uT * .13 + uTV * .1) + 11.3, ti.y * 44. + tP(uT * .02)));
+        /* 14/11 sera (Maurizio: «rallenta ancora leggermente la foschia che si muove»): un ottavo più lenta (era .08 e .13) */
+        float v1 = fbmP2(vec2(ti.x * 4. + tP(uT * .07 + uTV * .053), ti.y * 26. - tP(uT * .012) + 3.7));
+        float v2 = fbmP2(vec2(ti.x * 7. + tP(uT * .115 + uTV * .088) + 11.3, ti.y * 44. + tP(uT * .02)));
         float vl = smoothstep(.42, .72, v1 * .65 + v2 * .35);
         float lW = dot(cW, vec3(.299, .587, .114)), lC = dot(c, vec3(.299, .587, .114));
         c *= 1. - lontana * (1. - vl) * .09 * smoothstep(1.02, 1.3, lC / max(lW, .02));
