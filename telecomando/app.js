@@ -9,7 +9,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
 const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 const euro = n => (n < .1 ? n.toFixed(3) : n.toFixed(2)).replace('.', ',') + ' $';
-const VERSIONE = '6.45';
+const VERSIONE = '6.46';
 /* 8/11 · l'app si aggiorna da sola (Maurizio: «vedo ancora il quadrato con la doppia finestra»: sul telefono restava la
    versione vecchia anche dopo averla chiusa). Quando torna in primo piano, e ogni 10 minuti, chiede al server quale
    app.js c'è adesso; se è un'altra, ricarica (mai mentre un lavoro AI è in corso) */
@@ -1429,10 +1429,12 @@ function chiediBozze(d){
     if (d.opzioni.every(x => (bozzeStato.fatte || {})[x.id])){ mostraBozze(d); return; }
   }
   const forn = [...new Set(d.opzioni.map(x => Ai.modello(bozzaModello(x, d)).fornitore))], manca = forn.filter(f => !imp.chiavi[f]);
-  const m = {fornitore: manca[0] || forn[0]}, ok = manca.length < forn.length, costo = costoBozze(d.opzioni.length, d);
+  /* 14/11 · le opzioni già fatte (stessa richiesta, chiave uguale) non si rifanno e non si pagano */
+  const giaFatte = bozzeStato && bozzeStato.chiave === d.chiave ? bozzeStato.fatte || {} : {};
+  const m = {fornitore: manca[0] || forn[0]}, ok = manca.length < forn.length, costo = costoBozze(d.opzioni.length, Object.assign({}, d, {opzioni: d.opzioni.filter(x => !giaFatte[x.id])}));
   apriFoglio(`<h3 class="foglio-titolo">Bozze · ${esc(d.titolo || 'paesaggio nuovo')}</h3>
     <p class="nota" style="margin-top:0">${esc(d.spiega || d.opzioni.length + ' opzioni, ferme e a bassa qualità: per ognuna la vista delle finestrelle e quella del TV. Scegli guardandole; poi creo davvero solo quella che ti piace.')}</p>
-    <ul class="membri">${d.opzioni.map(x => `<li><span><b>${esc(x.id)} · ${esc(x.nome)}</b><small>${x.notaIt ? esc(x.notaIt) : 'Finestrelle: ' + esc(x.centroIt || '') + '<br>TV: ' + esc(x.descEstIt || '')}${x.modello || d.modello ? '<br>' + esc(Ai.modello(bozzaModello(x, d)).nome) + (bozzaGrande(x, d) ? ' · 4K' : '') + (imp.chiavi[Ai.modello(bozzaModello(x, d)).fornitore] ? '' : ' · manca la chiave') : ''}</small></span></li>`).join('')}</ul>
+    <ul class="membri">${d.opzioni.map(x => `<li><span><b>${esc(x.id)} · ${esc(x.nome)}${giaFatte[x.id] ? ' · già fatta' : ''}</b><small>${x.notaIt ? esc(x.notaIt) : 'Finestrelle: ' + esc(x.centroIt || '') + '<br>TV: ' + esc(x.descEstIt || '')}${x.modello || d.modello ? '<br>' + esc(Ai.modello(bozzaModello(x, d)).nome) + (bozzaGrande(x, d) ? ' · 4K' : '') + (imp.chiavi[Ai.modello(bozzaModello(x, d)).fornitore] ? '' : ' · manca la chiave') : ''}</small></span></li>`).join('')}</ul>
     <button class="btn oro piena" style="margin-top:14px" data-fai="bozzeVia"${ok ? '' : ' disabled'}>${icona('pennello', 18)}Fai le bozze · ≈ ${euro(costo)}</button>
     ${ok ? '' : `<p class="nota">Manca la chiave ${m.fornitore === 'google' ? 'Google' : 'OpenAI'} nelle Impostazioni.</p>`}
     <p class="nota">${d.grande || d.opzioni.some(x => x.grande) ? 'In 4K ci vogliono alcuni minuti: tieni l\'app aperta e lo schermo acceso.' : 'Ci vogliono uno o due minuti.'} Le bozze restano: le riapri da questo foglio finché non scegli.</p>
