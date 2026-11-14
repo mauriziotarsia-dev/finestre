@@ -9,7 +9,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
 const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 const euro = n => (n < .1 ? n.toFixed(3) : n.toFixed(2)).replace('.', ',') + ' $';
-const VERSIONE = '6.48';
+const VERSIONE = '6.49';
 /* 8/11 · l'app si aggiorna da sola (Maurizio: «vedo ancora il quadrato con la doppia finestra»: sul telefono restava la
    versione vecchia anche dopo averla chiusa). Quando torna in primo piano, e ogni 10 minuti, chiede al server quale
    app.js c'è adesso; se è un'altra, ricarica (mai mentre un lavoro AI è in corso) */
@@ -1621,14 +1621,16 @@ async function rifaiOreVia(dd){
       aggiornaInLibreria(p);
       for (const vista of (d.soloAnimazioni ? [] : ['nord', 'est'])){
         const v = d[vista]; if (!v || !v.ore) continue;
-        const r0 = await fetch(v.base, {cache: 'no-store'}); if (!r0.ok) throw new Error('Non trovo l\'immagine di partenza (' + r0.status + ')');
-        const base = await r0.blob();
+        /* 14/11 · base «attuale»: si ritocca l'immagine che il paesaggio ha già a quell'ora (o.prompt: il ritocco, per intero) */
+        const prendi = async u => { const r0 = await fetch(u, {cache: 'no-store'}); if (!r0.ok) throw new Error('Non trovo l\'immagine di partenza (' + r0.status + ')'); return await r0.blob(); };
+        const fissa = v.base && v.base !== 'attuale' ? await prendi(v.base) : null;
         for (const ora of ['notte', 'giorno', 'alba', 'tramonto']){
           const o = v.ore[ora]; if (!o) continue;
           const k = (vista === 'est' ? 'est-' : '') + ora, eti = (vista === 'est' ? 'TV · ' : 'Finestrelle · ') + NOME_ORA[ora];
-          passo(k, 'ora', eti + ': luce e persone di quell\'ora…');
+          passo(k, 'ora', eti + (o.prompt ? ': ritocco…' : ': luce e persone di quell\'ora…'));
           try {
-            const r = await Ai.modifica({...opzImm(), prompt: promptOraPersone(o), foto: base, misura: 'tv',
+            const base = fissa || await prendi(p.immagini[k]);
+            const r = await Ai.modifica({...opzImm(), prompt: o.prompt ? conInPiu(o.prompt) : promptOraPersone(o), foto: base, misura: 'tv',
               bozza: b64 => { L.anteprime[k] = {url: 'data:image/png;base64,' + b64, bozza: true}; disegnaLavoro(); }});
             const jpg = await inJpeg(b64aBlob(r.b64, r.mime), latoImm());
             const u = vista === 'est' ? await caricaEst(casa, p, ora, jpg) : await caricaLuce(casa, p, ora, jpg);
