@@ -28,7 +28,7 @@
 <script src="../js/accesso.js?v=8"></script>
 <script src="../js/qrcode.js?v=1"></script>
 <script src="../js/vita.js?v=5"></script>
-<script src="../js/vista.js?v=5.50"></script>
+<script src="../js/vista.js?v=5.51"></script>
 <script src="../js/inseguitore.js?v=1"></script>
 <script src="../js/uccelli.js?v=10"></script>
 <script src="../js/bard.js?v=9"></script>
@@ -835,7 +835,9 @@ const _warn = console.warn.bind(console);
 console.warn = (...a) => { try { erroriRecenti.push('warn: ' + a.map(x => String(x && x.message || x)).join(' ').slice(0, 200)); if (erroriRecenti.length > 10) erroriRecenti.shift(); } catch(e) {} _warn(...a); };
 async function statoRemoto(d, schedaVideo){
   const f = fonteDi(scena);
-  const st = {chi: mio, quando: new Date().toISOString(), gl: schedaVideo(), schermo: {w: innerWidth, h: innerHeight, dpr: devicePixelRatio, visibile: document.visibilityState},
+  const mq = d => { try { return matchMedia(d).matches; } catch(e) { return null; } };
+  const st = {chi: mio, quando: new Date().toISOString(), gl: schedaVideo(), schermo: {w: innerWidth, h: innerHeight, dpr: devicePixelRatio, visibile: document.visibilityState,
+      vero: {w: screen.width, h: screen.height, bit: screen.colorDepth}, hdr: mq('(dynamic-range: high)'), gamma: mq('(color-gamut: rec2020)') ? 'rec2020' : mq('(color-gamut: p3)') ? 'p3' : 'srgb'},   /* 14/11: per confrontare da lontano come escono TV e finestrelle */
     tela: {w: c.width, h: c.height, css: c.style.cssText}, geomGL, scala, qualita, coperto, inCambio, scuro, scuroVerso, paesaggioInVista,
     fonteOk: vista.fonti[0].ok, fonteUrl: vista.fonti[0].url, inArrivo: vista.inArrivo, fonteAttesa: f,
     versione: ([...document.scripts].map(x => x.src).find(x => /vista\.js/.test(x)) || '').split('?')[1] || '',
@@ -860,13 +862,16 @@ async function fotoRemota(d){
   if (fotoInCorso || !ultimoParam) return; fotoInCorso = true;
   try {
     const n = Math.max(1, Math.min(40, +d.n || 1)), ogni = Math.max(40, Math.min(2000, +d.ogni || 200)), maxW = Math.max(160, Math.min(1920, +d.w || 960));
-    const k = Math.min(1, maxW / c.width), o = document.createElement('canvas'); o.width = Math.round(c.width * k); o.height = Math.round(c.height * k);
+    /* 14/11: d.ritaglio = [x, y, w, h] (frazioni del disegno): solo quel pezzo, a grandezza vera se ci sta in maxW (per guardare i pixel del 4K) */
+    const rt = Array.isArray(d.ritaglio) && d.ritaglio.length === 4 ? d.ritaglio.map(v => Math.max(0, Math.min(1, +v || 0))) : [0, 0, 1, 1];
+    const sx = Math.round(rt[0] * c.width), sy = Math.round(rt[1] * c.height), sw = Math.max(2, Math.min(c.width - sx, Math.round(rt[2] * c.width))), sh = Math.max(2, Math.min(c.height - sy, Math.round(rt[3] * c.height)));
+    const k = Math.min(1, maxW / sw), o = document.createElement('canvas'); o.width = Math.round(sw * k); o.height = Math.round(sh * k);
     const x = o.getContext('2d'), blobs = [];
     for (let i = 0; i < n; i++){
       if (i) await new Promise(r => setTimeout(r, ogni));
       if (!coperto && !bancoInCorso) vista.disegna(geomGL, ultimoParam);
-      x.fillStyle = '#000'; x.fillRect(0, 0, o.width, o.height); x.drawImage(c, 0, 0, o.width, o.height);
-      blobs.push(await new Promise(r => o.toBlob(r, 'image/jpeg', .85)));
+      x.fillStyle = '#000'; x.fillRect(0, 0, o.width, o.height); x.drawImage(c, sx, sy, sw, sh, 0, 0, o.width, o.height);
+      blobs.push(await new Promise(r => o.toBlob(r, 'image/jpeg', d.ritaglio ? .93 : .85)));
     }
     const su = (nome, corpo, tipo) => fetch(SUPABASE_URL + '/storage/v1/object/dmaster-media/finestre/banco/' + nome, {method: 'POST',
       headers: {apikey: SUPABASE_CHIAVE_PUBBLICA, Authorization: 'Bearer ' + SUPABASE_CHIAVE_PUBBLICA, 'Content-Type': tipo, 'x-upsert': 'true'}, body: corpo});
@@ -990,7 +995,8 @@ function giro(ora){
      Con la neve che cade e con la pioggia c'è meno (l'aria è piena d'altro), col vento forte si disperde */
   const nvTgt = ({alba: 1.7, giorno: 1.15, tramonto: 1.25, notte: 1.2}[o] || 1.2) * (1 - met.neve * .3 - met.pioggia * .2 - met.tempesta * .15) * (1 - Math.max(0, met.vento - .3) * .5);
   nebViva += ((dentro ? 0 : nvTgt) - nebViva) * k;
-  stormi.aggiorna(dt, (geom[0] && geom[0].aspetto) || .4, uccelli, pip);
+  /* 14/11: con le due finestrelle il cielo degli uccelli è largo quanto il panorama che vedono insieme (js/vista.js, campoUccelli) */
+  stormi.aggiorna(dt, ((geom[0] && geom[0].aspetto) || .4) * (vista.campoUccelli ? vista.campoUccelli(geomGL, margine).k : 1), uccelli, pip);
   const nTgt = o === 'notte' ? 1 : o === 'tramonto' ? .15 : 0;
   notte += (nTgt - notte) * k;
   const omTgt = dentro ? 0 : (o === 'notte' ? 0 : o === 'giorno' ? 1 : .5) * (1 - met.coperto) * (1 - met.nebbia);
@@ -1011,7 +1017,7 @@ function giro(ora){
   saleK = (scena.nebbiaSale && scena.acceso !== false && !dentro) ? Math.min(1, saleK + dt / 25) : Math.max(0, saleK - dt / 30);
   let sale = [0, 0];
   if (saleK > 0){ const l = saleK * saleK * (3 - 2 * saleK), cima = .52; sale = [cima * l - .02 + .012 * Math.sin(ora / 4000) * l, Math.min(1, saleK * 6)]; }
-  cieloX = (cieloX + dt * (.0023 + .0092 * met.vento)) % 1000;   /* 30/10: +10%, poi -5%; 11/11: +10% (Maurizio) */
+  cieloX = (cieloX + dt * (.00253 + .01012 * met.vento)) % 1000;   /* 30/10: +10%, poi -5%; 11/11: +10%; 14/11: ancora +10% (Maurizio) */
   /* i lampi del temporale: dal programma comune (js/bard.js), così TV e finestrelle lampeggiano insieme */
   if (scena.meteo === 'temporale' && scena.acceso !== false){
     const adesso = Date.now();

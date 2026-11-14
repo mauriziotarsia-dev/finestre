@@ -268,7 +268,7 @@ vec3 paesaggio(sampler2D img, sampler2D imgB, float vk, sampler2D dep, vec4 crop
     if (sky > .002 && mov > .75){
       float ph = uT / 26.;
       float f1 = fract(ph), f2 = fract(ph + .5);
-      vec2 dir = vec2(-.0132 - .022 * uVento, .00165);   /* 9/11: verso sinistra, come tutto il resto; 11/11: +10% (Maurizio) */
+      vec2 dir = vec2(-.01452 - .0242 * uVento, .001815);   /* 9/11: verso sinistra, come tutto il resto; 11/11: +10% (Maurizio); 14/11: ancora +10% */
       vec2 pa = p - dir * (f1 - .5), pb = p - dir * (f2 - .5);
       vec3 a = haR > .5 ? fotoG(fer, crop, pa, gx, gy) : fotoG(img, crop, pa, gx, gy), b = haR > .5 ? fotoG(fer, crop, pb, gx, gy) : fotoG(img, crop, pb, gx, gy);   /* ricolorato: le nuvole sono quelle dipinte di questa luce (nel fermo), non quelle del video */
       /* si prende solo cielo: un pezzo di monte o di castello spostato dentro il cielo darebbe il contorno doppio */
@@ -309,7 +309,9 @@ vec3 paesaggio(sampler2D img, sampler2D imgB, float vk, sampler2D dep, vec4 crop
          · l'ondeggiare intorno alla posizione: 2-5 px nella calma, fino a 4-11 col vento forte;
          · la spinta sottovento (verso dove vanno le nuvole): niente nella calma, fino a 10-24 px col vento forte,
            più forte quando passa una raffica e meno fra una e l'altra: le chiome si piegano e tornano */
-      float amp = (1.5 + 10. * n) * vt.b;   /* 14/11: era 10 + 16 n (alzato tre volte quando le immagini erano morbide) */
+      /* 14/11, mezz'ora dopo (Maurizio: «adesso però le chiome si muovono poco niente, bisogna riaumentare di qualcosina senza
+         esagerare»): +50% (era 1,5 + 10 n). Resta poco più di metà di prima; dove si muove (solo le chiome vere) non cambia */
+      float amp = (2.25 + 15. * n) * vt.b;   /* 14/11: era 10 + 16 n (alzato tre volte quando le immagini erano morbide) */
       vec2 osc = vec2((vt.r - .5) * 2.2, (vt.g - .5) * .8) * amp * (.45 + uVento * .55);
       float spinta = amp * uVento * uVento * 2.;
       float luccica = 0.;
@@ -1282,6 +1284,24 @@ class Vista {
     return [(1 - sw) * fx, (1 - sh) * fy, sw, sh];
   }
 
+  /* ⚠ 14/11 · GLI UCCELLI E LE DUE FINESTRELLE (Maurizio: «gli uccelli nelle finestrelle si trovano a volare nella stessa
+     posizione, dovrebbero essere sfalsati per la prospettiva»). Le due finestrelle guardano due strisce dello stesso
+     panorama (il trucco della prospettiva, 4/11), ma gli uccelli si disegnavano nello stesso punto di tutti e due i fori:
+     due copie dello stesso volo. Ora il cielo degli uccelli è largo quanto il panorama che le due finestrelle vedono
+     insieme, e ognuna ne mostra la sua striscia, la stessa del paesaggio: uno stormo che attraversa passa da una
+     finestrella all'altra, e nel pezzo in comune si vede in tutte e due, spostato come l'elemento cardine.
+     Torna {k, inizio}: k = quante finestre è largo il campo (1: un foro solo, il TV, le immagini verticali),
+     inizio[i] = dove comincia il foro i nel campo (0..1). Le strisce sono quelle vere del paesaggio (crop). */
+  campoUccelli(fori, margine = 1.04){
+    const f0 = this.fonti[0], uno = {k: 1, inizio: fori.map(() => 0)};
+    if (!f0 || !f0.ok || fori.length < 2 || fori.some(f => !f.striscia)) return uno;
+    const cr = fori.map(f => this.crop(f0, f.aspetto, margine, f0.fuoco, f.striscia, f0.fuoco)), w = cr[0][2];
+    if (!(w > 0) || cr.some(c => Math.abs(c[2] - w) > 1e-4)) return uno;
+    const x0 = Math.min(...cr.map(c => c[0])), x1 = Math.max(...cr.map(c => c[0] + c[2])), k = (x1 - x0) / w;
+    if (!(k > 1.001) || k > 4) return uno;
+    return {k, inizio: cr.map(c => (c[0] - x0) / (x1 - x0))};
+  }
+
   /* disegna: fori = [{x,y,w,h, map:[x,y,w,h], aspetto, lato}] in pixel del canvas */
   disegna(fori, s){
     const gl = this.gl, u = this.u;
@@ -1342,6 +1362,7 @@ class Vista {
     gl.uniform4fv(u.uMeteora, me ? me.da : [0,0,0,0]); gl.uniform1f(u.uMeteoraK, me ? me.k : 0);
     const oc = s.occhio || {x:0, z:0}; gl.uniform3f(u.uOcchio, oc.x || 0, 0, oc.z || 0);
     const marg = s.margine || 1.04;
+    const campoU = uc.n ? this.campoUccelli(fori, marg) : {k: 1};   /* 14/11: con due finestrelle, la striscia di ognuna nel cielo degli uccelli */
     const tempo = (s.nebbia || 0) + (s.pioggia || 0) + (s.neve || 0) > .005 || (s.coperto || 0) > .01 || (s.lampo || 0) > .001;
     const gocce = this.ist && ((s.pioggia || 0) > .01 || (s.neve || 0) > .01 || (!sp.has('vita') && (s.pulviscolo || 0) > .01));
     /* 9/11 · la vita del paesaggio a quest'ora (js/vita.js): luci delle case, fuochi lontani, lucciole */
@@ -1389,6 +1410,11 @@ class Vista {
       gl.uniform1f(u.uAspetto, foro.aspetto);
       gl.uniform2f(u.uPix, foro.w / foro.map[2], foro.h / foro.map[3]);   /* pixel della vista intera */
       gl.uniform1f(u.uLato, s.prospettiva ? foro.lato : 0);
+      if (campoU.k !== 1){   /* gli uccelli visti da questo foro: x del campo → x del foro */
+        const du = this.uccDati || (this.uccDati = new Float32Array(96)), i0 = campoU.inizio[i], k = campoU.k, b = uc.box || [0, 0, 1, 1];
+        du.set(uc.dati); for (let j = 0; j < uc.n; j++) du[j * 8] = (uc.dati[j * 8] - i0) * k;
+        gl.uniform4fv(u.uU, du); gl.uniform4f(u.uUBox, (b[0] - i0) * k, b[1], (b[2] - i0) * k, b[3]);
+      }
       const c0 = f0.ok ? this.crop(v0 ? {iw:f0.video[0].videoWidth || f0.iw, ih:f0.video[0].videoHeight || f0.ih} : f0, foro.aspetto, marg, v0 ? null : f0.fuoco, foro.striscia, f0.fuoco) : [0,0,1,1];
       const c1 = f1.ok ? this.crop(v1 ? {iw:f1.video[0].videoWidth || f1.iw, ih:f1.video[0].videoHeight || f1.ih} : f1, foro.aspetto, marg, v1 ? null : f1.fuoco, foro.striscia, f1.fuoco) : [0,0,1,1];
       gl.uniform4fv(u.uCrop0, c0); gl.uniform4fv(u.uCrop1, c1);
