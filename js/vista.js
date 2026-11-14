@@ -54,7 +54,8 @@ uniform float uNotteFinta, uLuce, uBuio, uQualita;
 uniform vec3 uColNebbia;
 uniform vec2 uSale;           /* 9/11 · nebbia che sale: x = fin dove è arrivata (0 in basso, 1 in alto), y = quanta */
 uniform sampler2D uMeteo;     /* nebbia e nuvole, calcolate a bassa risoluzione (r: banchi di nebbia, g: nuvole, b: velo) */
-uniform sampler2D uAlberiM;   /* 11/11 · g: dove sono le chiome (dall'immagine del giorno): solo lì si muove qualcosa */
+uniform sampler2D uAlberiM;   /* 11/11 · g: dove sono le chiome (dall'immagine del giorno): solo lì si muove qualcosa · 14/11 · b: dov'è la nebbia di giorno */
+uniform float uNebG;          /* 14/11: 1 = il blu di uAlberiM viene davvero dall'immagine del giorno (di notte la nebbiolina va lì) */
 uniform sampler2D uVentoT;    /* il vento sugli alberi, calcolato a un quarto di risoluzione (r, g: spostamento, b: raffica sugli alberi, a: ombra delle nuvole) */
 uniform vec4 uU[24];          /* gli uccelli (js/uccelli.js): per ognuno (x, y, grandezza, ali) (inclinazione, chiarezza, tipo, -) */
 uniform float uNU;            /* quanti uccelli */
@@ -376,7 +377,25 @@ vec3 paesaggio(sampler2D img, sampler2D imgB, float vk, sampler2D dep, vec4 crop
     float lm = dot(cbm, vec3(.299, .587, .114)), mxm = max(cbm.r, max(cbm.g, cbm.b));
     float satm = (mxm - min(cbm.r, min(cbm.g, cbm.b))) / max(mxm, .01), sogliaM = mix(.4, .1, uNotte) - mix(.2, .06, uNotte) * smoothstep(.05, .3, nB);   /* 8/11: di notte la nebbia è grigio-blu scura (~0,1–0,2) */   /* 5/11: la nebbia vicina, in ombra, è più scura (grigio-azzurro ~0,35): prima restava fuori */
     /* la nebbia è azzurrina o grigia (blu almeno quanto il rosso): la pietra chiara del castello, calda, resta ferma */
-    float neb = smoothstep(sogliaM - .06, sogliaM + .22, lm) * (1. - smoothstep(.1, .34, satm)) * smoothstep(-.05, .03, cbm.b - cbm.r) * (1. - smoothstep(.75, .95, nB)) * (haDep > .5 ? smoothstep(.05, .1, fotoL(dep, cropD, pS, 2.5).r) : 1. - sky) * uNebV;   /* cielo anche lui dalla profondità sfocata: sulle colline lontane quella nitida faceva fiocchi */   /* 5/11: anche la nebbia in primo piano (Maurizio: «sotto l'abbazia sembra immobile») */
+    /* ⚠ 14/11 sera · LA NEBBIOLINA DI NOTTE (controllo sugli schermi veri: di notte la nebbia delle valli e del fiume era
+       ferma, e i veli passavano invece sui campi chiari di luna). Nei dipinti notturni tutto è blu e molto colorato: la
+       nebbia ha saturazione 0,6 e la prova «poco colorata» la scartava, mentre i campi alla luna, i meno colorati,
+       passavano loro. E dal solo colore, di notte, la nebbia non si distingue: sono blu e chiari come lei anche la
+       roccia sotto il paese, i muri delle cascine, i campi lontani (provato: i veli finivano lì).
+       Ma il paesaggio è lo stesso a tutte le ore: di notte la nebbia sta dove sta di giorno. Dov'è di giorno lo dice
+       il blu della maschera delle chiome (mascheraAlberi, dall'immagine del giorno, con la stessa prova di qui).
+       Nient'altro sul colore della notte (provato anche «e in più blu»: toglie due macchioline e basta, e un dipinto
+       notturno con la nebbia grigia resterebbe fermo); che il punto sia abbastanza chiaro e non caldo (una finestra
+       accesa) lo guardano le prove di prima e di dopo, con le soglie della notte.
+       Senza l'immagine del giorno (uNebG 0) resta la prova del blu (oltre 0,10–0,16 di blu − rosso). Al tramonto e
+       all'alba niente cambia, e nemmeno con la notte finta (lì l'immagine è quella del giorno, scurita dopo) */
+    float notteV = smoothstep(.3, .9, uNotte) * (1. - uNotteFinta);
+    float coloreNeb = (1. - smoothstep(.1, .34, satm)) * smoothstep(-.05, .03, cbm.b - cbm.r);
+    if (notteV > .001){
+      float diNotte = uNebG > .5 ? texture2D(uAlberiM, clamp(cropD.xy + pS * cropD.zw, .0005, .9995)).b : smoothstep(.10, .16, cbm.b - cbm.r);
+      coloreNeb = mix(coloreNeb, diNotte, notteV);
+    }
+    float neb = smoothstep(sogliaM - .06, sogliaM + .22, lm) * coloreNeb * (1. - smoothstep(.75, .95, nB)) * (haDep > .5 ? smoothstep(.05, .1, fotoL(dep, cropD, pS, 2.5).r) : 1. - sky) * uNebV;   /* cielo anche lui dalla profondità sfocata: sulle colline lontane quella nitida faceva fiocchi */   /* 5/11: anche la nebbia in primo piano (Maurizio: «sotto l'abbazia sembra immobile») */
     /* ⚠ 10/11 (Maurizio, foto della TV: «sullo sfondo si vedono tutti questi puntini»): la nebbiolina arrivava fino alle
        colline più lontane (profondità 0,03-0,07) e alla pietra in ombra dell'abbazia (grigio-azzurra come la nebbia):
        lì il colore passa da «nebbia» a «non nebbia» a chiazze, e i veli facevano cavolfiori bianchi sopra i crinali e
@@ -439,8 +458,14 @@ vec3 paesaggio(sampler2D img, sampler2D imgB, float vk, sampler2D dep, vec4 crop
         float v2 = fbmP2(vec2(ti.x * 7. + tP(uT * .115 + uTV * .088) + 11.3, ti.y * 44. + tP(uT * .02)));
         float vl = smoothstep(.42, .72, v1 * .65 + v2 * .35);
         float lW = dot(cW, vec3(.299, .587, .114)), lC = dot(c, vec3(.299, .587, .114));
+        /* ⚠ 14/11 sera (controllo sugli schermi veri, foto a 4 s: le file di cipressi sul fianco del colle cambiavano più
+           della foschia dietro). La profondità sfocata non vede le sagome sottili davanti al lontano, e il velo, che
+           porta il colore chiaro della foschia, le schiariva. Una sagoma scura davanti alla foschia (meno di metà
+           della luce che ha intorno) non si vela: il velo le passa dietro. I crinali lontani, poco più scuri della
+           foschia (oltre 0,72), si velano come prima */
+        float davanti = smoothstep(.5, .72, lC / max(lW, .02));
         c *= 1. - lontana * (1. - vl) * .09 * smoothstep(1.02, 1.3, lC / max(lW, .02));
-        c = mix(c, cW * mix(1.12, 1.3, uNotte) + .03 * (1. - uNotte), lontana * vl * .6);
+        c = mix(c, cW * mix(1.12, 1.3, uNotte) + .03 * (1. - uNotte), lontana * vl * .6 * davanti);
       }
     }
 #endif
@@ -607,6 +632,11 @@ void main(){
         float r = length(f - pos) * 7.;
         float lum = .3 + .7 * h1(cel + 11.);
         float scint = .55 + .45 * sin(uT * (1.2 + 2.8 * h1(cel + 5.)) + h * 40.) * (.65 + .35 * sin(uT * .31 + h * 13.));
+        /* 14/11 sera · NON FATTO, per chi ci torna: le stelle che brillano si disegnano anche davanti alle nuvole del cielo
+           che scorre (visto nel controllo sugli schermi veri). Provato a spegnerle dove il cielo è chiaro: non va, il
+           cielo notturno dipinto schiarisce verso l'orizzonte (da 0,05 in alto a 0,26 in basso) e le nuvole in ombra hanno
+           la stessa luce e lo stesso blu del cielo accanto: con una soglia sparivano le stelle di mezzo cielo. Serve una
+           maschera delle nuvole fatta una volta per panorama (grana e bordi, come mascheraAlberi) */
         stelle += vec3(.86, .9, 1.) * exp(-r * r * 1.7) * lum * scint * uNotte * (1. - uCoperto) * smoothstep(.3, .8, sky);
       }
     }
@@ -1006,7 +1036,7 @@ class Vista {
     /* il programma principale: paesaggio, cielo, nebbia, lampo, luce */
     this.p = programma(VERT, FRAG, ['aPos']);
     this.fumoDati = new Float32Array(32); this.fumoForza = new Float32Array(8);
-    this.u = posizioni(this.p, ['uOcchio','uImg0b','uVmix','uImg0','uImg1','uDep0','uDep1','uMap','uCrop0','uCrop1','uCropD0','uCropD1','uUccelli','uCielo0','uCielo1','uCieloM0','uCieloM1','uCieloX','uFermo0','uFermo1','uHaFermo0','uHaFermo1','uRap0','uHaRap0','uVentoT','uAlberiM','uHaVento','uU','uNU','uUBox','uFumo','uFumoI','uNFumo','uFumoA','uNebV','uChiar','uNotte','uOmbre','uMeteora','uMeteoraK','uMix','uHaImg','uHaDep0','uHaDep1','uMovimento0','uMovimento1',
+    this.u = posizioni(this.p, ['uOcchio','uImg0b','uVmix','uImg0','uImg1','uDep0','uDep1','uMap','uCrop0','uCrop1','uCropD0','uCropD1','uUccelli','uCielo0','uCielo1','uCieloM0','uCieloM1','uCieloX','uFermo0','uFermo1','uHaFermo0','uHaFermo1','uRap0','uHaRap0','uVentoT','uAlberiM','uHaVento','uU','uNU','uUBox','uFumo','uFumoI','uNFumo','uFumoA','uNebV','uNebG','uChiar','uNotte','uOmbre','uMeteora','uMeteoraK','uMix','uHaImg','uHaDep0','uHaDep1','uMovimento0','uMovimento1',
       'uLato','uT','uTV','uRaf','uAspetto','uPix','uCoperto','uNebbia','uPioggia','uNeve','uTempesta','uVento','uLampo','uLampoX','uLampoS','uLampoB',
       'uNotteFinta','uLuce','uBuio','uQualita','uColNebbia','uMeteo','uSale']);
     gl.useProgram(this.p);
@@ -1191,6 +1221,7 @@ class Vista {
     if (pDep){ dimg = await pDep; if (dimg){ f.depTex = this.texture(); let dc = dimg; try { dc = mascheraCielo(dimg, this.internoInArrivo); } catch(e) { /* senza maschera: niente cielo che scorre, ma il resto va */ } this.carica(f.depTex, dc); this.mip(f.depTex); } }   /* 10/11: verde = maschera del cielo */
     const imA = pAlberi ? (await pAlberi) || im : im;   /* 8/11: di notte gli alberi si trovano sull'immagine del giorno */
     try { f.aTex = this.texture(); this.carica(f.aTex, mascheraAlberi(imA, dimg)); } catch(e) { f.aTex = null; }
+    f.nebG = !!f.aTex && !!alberi && (!pAlberi || imA !== im);   /* 14/11: il blu della maschera è la nebbia del GIORNO (non di quest'ora, se l'immagine del giorno non è arrivata) */
     f.dimg = dimg; await this.caricaFumi(f, comignoli, dimg);
     this.caricaVita(f, notte, dimg, imA);   /* luci delle case e prati delle lucciole: senza aspettare */
     /* il cielo che scorre (serve la profondità, per sapere dov'è il cielo). Il video resta per quello che
@@ -1363,6 +1394,7 @@ class Vista {
     lega(0, haImg ? (v0 ? f0.vtex : f0.tex) : null);
     lega(1, haImg && this.mix > 0 ? (v1 ? f1.vtex : f1.tex) : null);
     lega(2, f0.depTex); lega(3, f1.depTex); lega(4, haImg && f0.vk > 0 ? f0.vtexB : null); lega(5, null); lega(6, f0.cTex); lega(7, f1.cTex); if (this.unita >= 10){ lega(8, f0.fTex); lega(9, f1.fTex); } if (this.unita >= 13) lega(12, f0.rTex);
+    if (this.unita >= 12) lega(11, f0.aTex || this.bianca);   /* 14/11: serve anche alla nebbiolina di notte, non solo al vento */
     /* uniformi del programma principale (restano al programma anche quando si passa agli altri) */
     gl.useProgram(this.p);
     gl.uniform1f(u.uVmix, haImg && v0 ? f0.vk : 0);
@@ -1378,6 +1410,7 @@ class Vista {
     gl.uniform1f(u.uCieloX, s.cieloX || 0);
     gl.uniform2f(u.uChiar, this.chiarezza ? this.chiarezza[0] : .5, this.chiarezza ? this.chiarezza[1] : 0);
     gl.uniform1f(u.uNebV, s.movimento && !sp.has('nebbiolina') ? (s.nebViva == null ? 1 : s.nebViva) : 0);   /* 9/11: quanta, secondo l'ora e il tempo (finestra/index.html) */
+    gl.uniform1f(u.uNebG, f0.aTex && f0.nebG ? 1 : 0);   /* 14/11: la nebbia di giorno sta nel blu della maschera delle chiome */
     gl.uniform1f(u.uHaFermo0, haImg && v0 && f0.fTex ? 1 : 0); gl.uniform1f(u.uHaRap0, haImg && v0 && f0.fTex && f0.rTex && this.unita >= 13 ? 1 : 0); gl.uniform1f(u.uHaFermo1, haImg && v1 && f1.fTex ? 1 : 0);
     gl.uniform1f(u.uT, s.t); gl.uniform1f(u.uTV, tVento); gl.uniform3fv(u.uRaf, raf);
     for (const k2 of ['Coperto','Nebbia','Pioggia','Neve','Tempesta','Vento','Lampo','LampoX','LampoS','LampoB','NotteFinta','Luce','Buio','Qualita'])
@@ -1558,6 +1591,18 @@ function mascheraAlberi(img, dimg){
     const n = p ? p[i * 4] / 255 : (i / W / H);
     C[i] = F[i] * ss(.81 * ref, 1.47 * ref, S[i]) * ss(.02, -.035, L[i] - Lloc[i]) * (n > .08 ? 1 : 0);
   }
+  /* ⚠ 14/11 sera · blu = DOV'È LA NEBBIA (in questa immagine, che è quella del giorno): chiara, poco colorata, fredda,
+     la stessa prova che fa il disegno punto per punto (vedi «neb» in paesaggio()), qui per cella. Serve di notte: nel
+     dipinto notturno la nebbia non si riconosce dal colore, ma sta dove sta di giorno */
+  const Nb = new Float32Array(W * H);
+  for (let y = 0; y < H; y++) for (let xx = 0; xx < W; xx++){
+    let r = 0, g = 0, b = 0;
+    for (let dy = 0; dy < 3; dy++) for (let dx = 0; dx < 3; dx++){ const i = ((y * 3 + dy) * W3 + xx * 3 + dx) * 4; r += d[i]; g += d[i + 1]; b += d[i + 2]; }
+    r /= 2295; g /= 2295; b /= 2295;   /* 9 punti × 255 */
+    const mx = Math.max(r, g, b), sat = (mx - Math.min(r, g, b)) / Math.max(mx, .01), l = r * .299 + g * .587 + b * .114;
+    const n = p ? p[(y * W + xx) * 4] / 255 : .2, so = .4 - .2 * ss(.05, .3, n);   /* la nebbia vicina, in ombra, è più scura */
+    Nb[y * W + xx] = ss(so - .06, so + .22, l) * (1 - ss(.1, .34, sat)) * ss(-.05, .03, b - r);
+  }
   const o = new ImageData(W, H);
   for (let y = 0; y < H; y++) for (let xx = 0; xx < W; xx++){
     let g = 0, gw = 0, v = 0;
@@ -1565,7 +1610,7 @@ function mascheraAlberi(img, dimg){
       const m = C[yy * W + x2]; v = Math.max(v, m);
       if (Math.abs(dy) <= 1 && Math.abs(dx) <= 1){ const w = (2 - Math.abs(dy)) * (2 - Math.abs(dx)); g += m * w; gw += w; } }
     const k = (y * W + xx) * 4, core = Math.max(C[y * W + xx], g / gw * .8);
-    o.data[k] = o.data[k + 2] = Math.round(Math.min(1, v * 1.5) * 255); o.data[k + 1] = Math.round(Math.min(1, core * 1.3) * 255); o.data[k + 3] = 255;
+    o.data[k] = Math.round(Math.min(1, v * 1.5) * 255); o.data[k + 1] = Math.round(Math.min(1, core * 1.3) * 255); o.data[k + 2] = Math.round(Nb[y * W + xx] * 255); o.data[k + 3] = 255;
   }
   return o;
 }
