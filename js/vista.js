@@ -396,9 +396,9 @@ vec3 paesaggio(sampler2D img, sampler2D imgB, float vk, sampler2D dep, vec4 crop
          la neve e le nuvole dipinte (senza cielo che scorre): due venti opposti nella stessa finestra */
       float rgM = 0., rsM = 0.;
       if (uRaf.x >= 0.){ float rt = rafTau(uv), rc = rafCella(uv) * uRaf.z; rgM = rafEnv(rt) * rc; rsM = rafStrada(rt) * rc; }
-      /* 14/11 (Maurizio: «rendiamo più visibile il movimento della foschia»): scorre una volta e mezza più svelta (era .05 e .06),
+      /* 14/11 (Maurizio: «rendiamo più visibile il movimento della foschia»): scorre un quarto più svelta (era .05 e .06; la prima prova, una volta e mezza, per Maurizio era «troppo veloce»),
          e da metà distanza in là i veli sono un po' più chiari e più staccati dal fondo, i filamenti più fitti */
-      float tva = uT * .075 + uTV * .09 + rsM * .3;   /* 9/11: era uT * (.05 + .06 × vento): vedi uTV */   /* ⚠ 5/11: una velocità sola per tutti i punti: moltiplicare il tempo per un valore diverso punto per punto, dopo qualche minuto, dava righe e puntini (G10) */      /* quanto scorre la trama (sue unità al secondo): un banco attraversa sé stesso in 12-25 s (5/11: più viva) */
+      float tva = uT * .062 + uTV * .075 + rsM * .3;   /* 9/11: era uT * (.05 + .06 × vento): vedi uTV */   /* ⚠ 5/11: una velocità sola per tutti i punti: moltiplicare il tempo per un valore diverso punto per punto, dopo qualche minuto, dava righe e puntini (G10) */      /* quanto scorre la trama (sue unità al secondo): un banco attraversa sé stesso in 12-25 s (5/11: più viva) */
       /* 5/11 (Maurizio: «quella sotto è ancora poco viva»): la nebbia vicina scorre più svelta (come dal vero: più è
          vicina, più strada fa sullo schermo) e ha banchi più grandi e più contrastati */
       float vicinaM = smoothstep(.1, .35, nB);
