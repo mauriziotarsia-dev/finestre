@@ -259,7 +259,9 @@ def fermo_dalla_foto(rif, alta, zone, cielo, fx=0.5):
     if W < w * 1.4 or abs(W / H - w / h) > .03: return None, None          # non più grande del video, o altra forma
     piccola = cv2.resize(img, (w, h), interpolation=cv2.INTER_AREA)
     ferme = ((cv2.resize(zone, (w, h)) < .1) & (cv2.resize(cielo, (w, h)) < .5)).astype(np.uint8)
-    if ferme.mean() < .3: return None, None                                # quasi tutto si muove: meglio il video
+    # 14/11 · era .3: nell'abbazia (40% cielo, nebbia che si muove in tutte le valli) le parti ferme sono il 25% e il fermo
+    # tornava quello del video a 1080 proprio dove il 4K si vede (abbazia, cipressi, primo piano). Per allineare basta molto meno
+    if ferme.mean() < .12: return None, None                               # quasi tutto si muove: meglio il video
     ga = cv2.GaussianBlur(cv2.cvtColor(rif, cv2.COLOR_BGR2GRAY), (0, 0), 1.2).astype(np.float32) / 255
     gb = cv2.GaussianBlur(cv2.cvtColor(piccola, cv2.COLOR_BGR2GRAY), (0, 0), 1.2).astype(np.float32) / 255
     M = np.eye(2, 3, dtype=np.float32)
@@ -667,11 +669,16 @@ def metti_in_fila(pezzi, uscita):
     """13/11 notte · il giro lungo: più video da 10 s, ognuno con un movimento diverso, che partono e finiscono tutti
     sulla stessa immagine, messi uno dopo l'altro (ricodificati insieme: stessi fotogrammi al secondo e stessa misura)."""
     n, fps, w, h = leggi_info(pezzi[0])
+    # 14/11 · il deposito accetta file fino a 50 MB: due pezzi da 8 s a crf 12 facevano 55 MB e il caricamento
+    # dell'originale falliva dopo mezz'ora di lavoro, all'infinito. Tetto al flusso: ~40 MB qualunque sia la durata
+    durata = sum(i[0] / max(1, i[1]) for i in map(leggi_info, pezzi))
+    kbps = max(4000, int(40e6 * 8 / max(1, durata) / 1000))
     cmd = ['ffmpeg', '-v', 'error', '-y', '-threads', FF_THREADS]
     for x in pezzi: cmd += ['-i', x]
     filtro = ''.join(f'[{i}:v]fps={fps:.3f},scale={w}:{h}:flags=lanczos,setsar=1[v{i}];' for i in range(len(pezzi)))
     filtro += ''.join(f'[v{i}]' for i in range(len(pezzi))) + f'concat=n={len(pezzi)}:v=1:a=0[out]'
-    cmd += ['-filter_complex', filtro, '-map', '[out]', '-an', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '12', '-pix_fmt', 'yuv420p', uscita]
+    cmd += ['-filter_complex', filtro, '-map', '[out]', '-an', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '14',
+            '-maxrate', f'{kbps}k', '-bufsize', f'{kbps}k', '-pix_fmt', 'yuv420p', uscita]
     subprocess.run(cmd, check=True, creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
 
 
