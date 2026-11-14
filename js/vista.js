@@ -634,8 +634,26 @@ void main(){
          pavimento e tavoli: il caldo e chiaro dell'immagine) respira con la fiamma, a tutte le ore. Il respiro è un
          campo morbido (ogni torcia ha il suo, senza quadretti: il tremolio a cellette della notte, sui muri grandi,
          faceva un mosaico) calcolato nel passaggio del vento, che dentro non ha altro da portare in questo canale */
+      float lumD = dot(col, vec3(.299, .587, .114));
       float caldoD = smoothstep(.2, .55, col.r) * smoothstep(1.08, 1.34, col.r / max(col.g, .01)) * smoothstep(1.1, 1.5, col.g / max(col.b, .01));
-      col *= 1. + .2 * (dV / 127.) * caldoD;
+      /* il cuore delle fiamme (torce, candele, camino): chiaro e molto più rosso che blu. La luce delle finestre è chiara
+         uguale ma quasi senza colore (misurato sulla taverna: fiamme r-b da .35 a .58, finestre .03-.05, pavimento al sole .11) */
+      float fiammaD = smoothstep(.6, .8, col.r) * smoothstep(.22, .34, col.r - col.b);
+      /* 14/11 sera, più tardi (Maurizio: «Anima di più la taverna di giorno»): il respiro è più ampio (.3, era .2) e prende
+         anche le fiamme */
+      col *= 1. + (dV / 127.) * (.3 * caldoD * (1. - fiammaD) + .3 * fiammaD);
+      /* ⚠ LA LUCE DI FUORI, DENTRO («Anima di più la taverna di giorno»): quello che entra dalle finestre (i vetri, i
+         raggi sul muro, la chiazza sul pavimento: chiaro e quasi senza colore) non sta più fermo.
+         Nei raggi il pulviscolo scende piano, a banchi (tre strati di grana che scivolano verso il basso), e tutta la luce
+         di fuori cresce e cala lenta, come quando passano le nuvole. Di notte no */
+      float fuoriD = smoothstep(.42, .6, lumD) * (1. - smoothstep(.12, .24, col.r - col.b)) * (1. - smoothstep(.3, .9, uNotte));
+      if (fuoriD > .02){
+        vec2 qd = uv * vec2(uAspetto, 1.) * 16.;
+        float pulv = rumore(qd + vec2(uT * .08, -uT * .16)) * .5 + rumore(qd * 2.1 + vec2(-uT * .07, -uT * .27) + 7.3) * .3 + rumore(qd * 4.3 + vec2(uT * .12, -uT * .4) + 3.1) * .2;
+        float respiro = rumore(vec2(uT * .13, 5.7)) * .6 + rumore(vec2(uT * .31, 9.2)) * .4;
+        /* il pulviscolo sta nell'aria (raggi, chiazza sul pavimento), non sui vetri: i vetri, più chiari, seguono solo il respiro */
+        col *= 1. + fuoriD * (.55 * (pulv - .5) * (1. - smoothstep(.6, .72, lumD)) + .25 * (respiro - .5));
+      }
     } else {
       ombraV = clamp(-dV / 127., 0., 1.); nuvV = clamp(dV / 127., 0., 1.);
       if (uOmbre > .01) col *= 1. - ombraV * .17 * uOmbre * (1. - sky);
@@ -868,7 +886,7 @@ void main(){
     float n2 = mix(rumore(pq * 1.7 + vec2(h1(vec2(k2, 2.)), h1(vec2(k2, 8.))) * 53.), rumore(pq * 1.7 + vec2(h1(vec2(k2 + 1., 2.)), h1(vec2(k2 + 1., 8.))) * 53.), f2);
     float n3 = mix(rumore(pq * .7 + vec2(h1(vec2(k3, 3.)), h1(vec2(k3, 9.))) * 29.), rumore(pq * .7 + vec2(h1(vec2(k3 + 1., 3.)), h1(vec2(k3 + 1., 9.))) * 29.), f3);
     float n4 = mix(rumore(pq * 2.6 + vec2(h1(vec2(k4, 4.)), h1(vec2(k4, 5.))) * 41.), rumore(pq * 2.6 + vec2(h1(vec2(k4 + 1., 4.)), h1(vec2(k4 + 1., 5.))) * 41.), f4);
-    fuoco = clamp((n1 * .4 + n2 * .3 + n3 * .15 + n4 * .15 - .5) * 2.6, -1., 1.);
+    fuoco = clamp((n1 * .4 + n2 * .3 + n3 * .16 + n4 * .14 - .5) * 2.7, -1., 1.);
   }
 #endif
   /* ⚠ 4/11 (Maurizio: «sugli alberi che si muovono è troppo evidente il loop, ogni tot secondi si capisce che
