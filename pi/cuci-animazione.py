@@ -192,6 +192,16 @@ def analizza(percorso, n, fps, w, h, cielo):
         nb, etich, stat, _ = cv2.connectedComponentsWithStats(pers, 8)
         tieni = np.zeros(nb, np.uint8); tieni[1:] = stat[1:, cv2.CC_STAT_AREA] >= max(10, L.shape[1] * L.shape[2] // 3000)
         pers = tieni[etich].astype(np.float32)
+        # ⚠ 15/11 (Maurizio, finestrelle: «quando beve e solleva il bicchiere, la base del bicchiere rimane visibile ferma
+        # sul tavolo»): quello che la persona tocca e sposta (il boccale, la scodella) per un po' non c'è più, ma la forma
+        # di quel punto cambia poco nel resto del video: restava fuori dal video pieno, e il fermo ci lasciava il boccale.
+        # Si aggiunge, vicino alle persone, ogni punto che almeno per un ventesimo del video è molto diverso dal solito
+        lontano = np.percentile(np.abs(L - np.median(L, 0)), 95, axis=0)
+        # solo attorno alle persone vere (macchie grandi: l'uomo al tavolo, a questa grandezza, è più di 500 punti), non
+        # attorno ai puntini di polvere nei raggi o alle fiamme, che si porterebbero dietro muri e raggi interi
+        grandi = np.zeros(nb, np.uint8); grandi[1:] = stat[1:, cv2.CC_STAT_AREA] >= max(60, L.shape[1] * L.shape[2] // 600)
+        semi = grandi[etich].astype(np.uint8)
+        pers = np.maximum(pers, ((lontano > 18) & (cv2.dilate(semi, np.ones((21, 21), np.uint8)) > 0)).astype(np.float32))
         pers = cv2.morphologyEx(pers, cv2.MORPH_CLOSE, np.ones((7, 7), np.uint8))   # una persona intera, non a pezzi
         pers = cv2.dilate(pers, np.ones((5, 5), np.uint8))                          # il margine per braccia e testa
         fiam = (vivo > max(18., soglia * 2.6)).astype(np.float32)
@@ -319,6 +329,40 @@ def fermo_dalla_foto(rif, alta, zone, cielo, fx=0.5):
     return grande, lut
 
 
+_DIS = []
+
+
+def _flusso(a, b):
+    """Come si spostano i punti da a a b (a mezza risoluzione, poi riportato alla misura piena)."""
+    if not _DIS: _DIS.append(cv2.DISOpticalFlow_create(cv2.DISOPTICAL_FLOW_PRESET_MEDIUM))
+    h, w = a.shape[:2]
+    g = [cv2.cvtColor(cv2.resize(x, (w // 2, h // 2), interpolation=cv2.INTER_AREA), cv2.COLOR_BGR2GRAY) for x in (a, b)]
+    return cv2.resize(_DIS[0].calc(g[0], g[1], None), (w, h)) * 2
+
+
+def _tramezzo(a, b, t):
+    """15/11 · il fotogramma a una frazione t (0…1) della strada fra la posa di a e quella di b, seguendo il movimento
+    (braccia e testa si spostano invece di sfumare una nell'altra): float32"""
+    f01, f10 = _flusso(a, b), _flusso(b, a)
+    ft0 = -(1 - t) * t * f01 + t * t * f10
+    ft1 = (1 - t) ** 2 * f01 - t * (1 - t) * f10
+    h, w = a.shape[:2]; gx, gy = np.meshgrid(np.arange(w, dtype=np.float32), np.arange(h, dtype=np.float32))
+    wa = cv2.remap(a, gx + ft0[..., 0], gy + ft0[..., 1], cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
+    wb = cv2.remap(b, gx + ft1[..., 0], gy + ft1[..., 1], cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
+    return wa.astype(np.float32) * (1 - t) + wb.astype(np.float32) * t
+
+
+def giunte_dei_pezzi(n, fps):
+    """15/11 · dove l'originale è fatto di più pezzi messi in fila (metti_in_fila: pezzi lunghi uguale, un numero intero
+    di secondi, sfumati per SFUMA_PEZZI): i fotogrammi [inizio, fine) di ogni sfumata. Vuoto se non torna."""
+    D = n / fps
+    for k in (2, 3, 4):
+        Lp = (D + (k - 1) * SFUMA_PEZZI) / k
+        if 4 <= Lp <= 12 and abs(Lp - round(Lp)) < .08:
+            return [(int(round(i * (Lp - SFUMA_PEZZI) * fps)), int(round((i * (Lp - SFUMA_PEZZI) + SFUMA_PEZZI) * fps))) for i in range(1, k)]
+    return []
+
+
 def cuci(entrata, uscita, profondita=None, immagine=None, fuoco_x=0.5, larghezza=None, veloce=False, fermo=None, maschera=None, alta=None, sfuma=None, fx_video=None):
     n, fps, w, h = leggi_info(entrata)
     primo = next(fotogrammi(entrata))
@@ -347,27 +391,53 @@ def cuci(entrata, uscita, profondita=None, immagine=None, fuoco_x=0.5, larghezza
     # video non è esattamente nella posa dell'inizio) appariva doppia, due pose sovrapposte: proprio il momento da cui si
     # capisce il loop. Dove c'è video pieno si passa invece in un quinto di secondo, nell'istante del tratto in cui la
     # fine somiglia di più all'inizio; il resto sfuma come prima
-    firma = info.pop('_firma', None); j0 = None
-    if firma is not None and firma.shape[1] and c >= 8:
+    # ⚠ 15/11 (Maurizio, finestrelle: «si vede il loop benissimo sull'uomo in due frammenti»): il passaggio in un quinto
+    # di secondo era uno scatto, e a metà video ce n'era un altro, la sfumata fra i due pezzi dell'AI (l'uomo per mezzo
+    # secondo doppio). Ora, dove c'è video pieno, in tutti e due i punti la posa di prima va verso quella di dopo seguendo
+    # il movimento (_tramezzo): al giro in un terzo di secondo, fra fine e inizio che scorrono tutti e due; a metà, dalla
+    # posa dell'ultimo fotogramma intero del primo pezzo a quella del primo intero del secondo
+    MEZZO = 8
+    firma = info.pop('_firma', None); j0 = None; giunte = []
+    if firma is not None and firma.shape[1] and c >= 2 * MEZZO + 2:
         dif = np.array([float(np.abs(firma[j].astype(np.float32) - firma[lung + j].astype(np.float32)).mean()) for j in range(c)])
         dif = np.convolve(np.pad(dif, 2, mode='edge'), np.ones(5) / 5, 'valid')
-        j0 = 3 + int(np.argmin(dif[3:c - 3]))
+        j0 = MEZZO // 2 + 1 + int(np.argmin(dif[MEZZO // 2 + 1:c - MEZZO // 2 - 1]))
         info['giro_persone'] = {'secondo': round(j0 / fps, 2), 'scarto': round(float(dif[j0]), 1), 'scarto_medio': round(float(dif.mean()), 1)}
         Wf = forte[..., None].astype(np.float32)
-    scritti = 0; testa = []
+        giunte = [(g0 - 2, g1 + 1) for g0, g1 in giunte_dei_pezzi(n, fps) if g0 - 2 > c and g1 + 1 < lung]
+        if giunte: info['giunte_persone'] = [round(g0 / fps, 2) for g0, _ in giunte]
+    scritti = 0; testa = []; tenuti = []
+
+    def scrivi(x):
+        nonlocal scritti
+        if lut is not None: x = cv2.LUT(x, lut)                   # i colori del video come la foto (fermo dalla foto)
+        if len(testa) < 4: testa.append(x)
+        ff.stdin.write(x.tobytes()); scritti += 1
+
     for j in range(lung):
         a = next(inizio)
         if j < c:
             b = next(fine); t = (j + .5) / c; t = t * t * (3 - 2 * t)
             if j0 is not None:
-                tf = float(np.clip((j - j0 + 2.5) / 5, 0, 1)); tf = tf * tf * (3 - 2 * tf)
+                tf = 1. if j >= j0 + MEZZO // 2 else 0.
                 t = t * (1 - Wf) + tf * Wf
             # ⚠ 14/11: arrotondato, non troncato. Troncando, il tratto sfumato (il primo secondo e mezzo del giro) veniva
             # quasi un livello più scuro del resto: al giro del loop la nebbia e il fuoco facevano un piccolo scatto
-            a = np.clip(b.astype(np.float32) * (1 - t) + a.astype(np.float32) * t + .5, 0, 255).astype(np.uint8)
-        if lut is not None: a = cv2.LUT(a, lut)                   # i colori del video come la foto (fermo dalla foto)
-        if j < 4: testa.append(a)
-        ff.stdin.write(a.tobytes()); scritti += 1
+            x = b.astype(np.float32) * (1 - t) + a.astype(np.float32) * t
+            if j0 is not None and j0 - MEZZO // 2 <= j < j0 + MEZZO // 2:
+                tm = (j - (j0 - MEZZO // 2) + .5) / MEZZO; tm = tm * tm * (3 - 2 * tm)
+                x = x * (1 - Wf) + _tramezzo(b, a, tm) * Wf
+            a = np.clip(x + .5, 0, 255).astype(np.uint8)
+        g = next((gg for gg in giunte if gg[0] <= j <= gg[1]), None)
+        if g is None: scrivi(a); continue
+        tenuti.append(a)                                          # la giunta fra due pezzi: si tiene finché arriva la posa d'arrivo
+        if j < g[1]: continue
+        A, B = tenuti[0], tenuti[-1]; m = len(tenuti) - 1
+        scrivi(A)
+        for k in range(1, m):
+            tm = k / m; tm = tm * tm * (3 - 2 * tm)
+            scrivi(np.clip(tenuti[k].astype(np.float32) * (1 - Wf) + _tramezzo(A, B, tm) * Wf + .5, 0, 255).astype(np.uint8))
+        scrivi(B); tenuti = []
     # i primi fotogrammi di nuovo in coda: così anche quelli intermedi dell'ultimo tratto guardano
     # all'inizio del giro (poi si taglia al numero giusto: il giro dura esattamente lung / fps secondi)
     try:
@@ -651,6 +721,15 @@ def _cart_e_io(casa, forza, chi):
     return cart, f'zz-cucitore-{forza}-' + (re.sub(r'[^a-z0-9-]+', '-', chi.lower()).strip('-') or 'pc') + '.png'
 
 
+def _priorita_bassa():
+    """15/11 · per il cucitore che aiuta mentre disegna le finestre: dopo di loro (Windows: «inferiore al normale»)."""
+    try: os.nice(10)
+    except Exception:
+        try:
+            import ctypes; ctypes.windll.kernel32.SetPriorityClass(ctypes.windll.kernel32.GetCurrentProcess(), 0x4000)
+        except Exception: pass
+
+
 def giro_casa(casa, larghezza=None, veloce=False, forza=1, chi='pc'):
     """Un giro: cuce le animazioni nuove. Possono girare più apparecchi insieme (mini PC, laptop, Raspberry):
     lo fa il più potente acceso, subito.
@@ -704,11 +783,17 @@ def giro_casa(casa, larghezza=None, veloce=False, forza=1, chi='pc'):
             base, _, parte = nome.rpartition('_')
             if not re.fullmatch(r'(est-)?anim-(giorno|alba|tramonto|notte)\.mp4', parte): continue
             originale = f'{base}_{parte[:-4]}-originale.mp4'
-            # 14/11 notte: gli interni cuciti prima di «DENTRO: LE PERSONE E LE FIAMME» si rifanno una volta (segno v3)
+            # 14/11 notte: gli interni cuciti prima di «DENTRO: LE PERSONE E LE FIAMME» si rifanno una volta (segno v3);
+            # 15/11: e di nuovo con il boccale dentro la zona piena e i passaggi che seguono il movimento (segno v4)
             dentro = 'interno' in (base.split('@', 1)[1].split('.') if '@' in base else [])
-            if originale not in nomi or f'{base}_{parte[:-4]}-' + ('v3' if dentro else 'v2') + '.png' in nomi: continue
+            if originale not in nomi or f'{base}_{parte[:-4]}-' + ('v4' if dentro else 'v2') + '.png' in nomi: continue
             _SOSPESI[0] += 1                                   # c'è un video da ricucire
-            if piu_forte: break
+            # 15/11 (Maurizio aspettava la taverna: mezz'ora a video sull'Ally, uno dopo l'altro): se il più forte è già
+            # occupato con una ricucitura, il meno forte prende la successiva invece di aspettare; a priorità bassa, perché
+            # intanto disegna le sue finestre
+            occupato = any(n.endswith('-incorso.png') and _eta_agg(f) < 3 for n, f in file.items())
+            if piu_forte and not occupato: break
+            if piu_forte: _priorita_bassa()
             segno = f'{base}_{parte[:-4]}-incorso.png'
             if segno in file:
                 if _eta_agg(file[segno]) < 3: continue
@@ -725,7 +810,8 @@ def giro_casa(casa, larghezza=None, veloce=False, forza=1, chi='pc'):
                 fatti += _cuci_uno(cart, nomi, nome, base, parte, originale, larghezza, veloce, ricuci=True)
             except Exception as ex:
                 print('  ricucitura non riuscita:', ex, file=sys.stderr, flush=True)
-                try: _rinfresca(cart, f'{base}_{parte[:-4]}-v2.png'); _rinfresca(cart, f'{base}_{parte[:-4]}-v3.png')   # non riprovarla all'infinito
+                try:                                                                                                  # non riprovarla all'infinito
+                    for v in ('v2', 'v3', 'v4'): _rinfresca(cart, f'{base}_{parte[:-4]}-{v}.png')
                 except Exception: pass
             finally:
                 vivo.set(); _libera(cart, segno)
@@ -1010,7 +1096,7 @@ def _cuci_uno(cart, nomi, nome, base, parte, originale, larghezza, veloce, ricuc
             for pn in pezzi_n: _libera(cart, pn)                          # i pezzi sono dentro l'originale lungo
             try:
                 _rinfresca(cart, f'{base}_{parte[:-4]}-v2.png')          # cucita con il fermo dalla foto (o provato): non si rifà
-                if SENZA_CIELO: _rinfresca(cart, f'{base}_{parte[:-4]}-v3.png')   # un interno, con persone e fiamme vive
+                if SENZA_CIELO: _rinfresca(cart, f'{base}_{parte[:-4]}-v4.png')   # un interno, con persone e fiamme vive (15/11)
             except Exception: pass
             print('  fatto:', info, flush=True)
             return 1
