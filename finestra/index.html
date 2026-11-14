@@ -28,7 +28,7 @@
 <script src="../js/accesso.js?v=8"></script>
 <script src="../js/qrcode.js?v=1"></script>
 <script src="../js/vita.js?v=5"></script>
-<script src="../js/vista.js?v=5.57"></script>
+<script src="../js/vista.js?v=5.58"></script>
 <script src="../js/inseguitore.js?v=1"></script>
 <script src="../js/uccelli.js?v=10"></script>
 <script src="../js/bard.js?v=9"></script>
@@ -342,6 +342,10 @@ function paesaggioDi(s){ return s.yt ? 'yt:' + s.yt + ':' + (s.t || 0) : s.immag
 
 let avvisatoPronta = null, paesaggioInVista = null, inCambio = false, attesa = null, scuroVerso = 1, scuro = 1, assettoVideo = null;
 function applica(nuova, salva = true){
+  /* ⚠ 14/11 sera: il riassunto che lo stato manda fuori ({acceso, paesaggio, ora, meteo, yt, haImmagini}) NON è una scena:
+     rimandato indietro come scena (un controllo da lontano l'ha fatto, per «rimettere la scena di prima») toglieva le
+     immagini e lasciava gli schermi neri finché il telefono non ne mandava una vera. Non si applica */
+  if (nuova && nuova !== scena && 'haImmagini' in nuova && !nuova.immagini && !nuova.yt) return;   /* (all'avvio la pagina applica la sua: quella passa sempre) */
   scena = Object.assign({}, PREDEFINITA, nuova);
   if (paesaggioInVista === null) saleK = scena.nebbiaSale ? 1 : 0;   /* appena aperta (anteprima nell'app, pagina dal vivo): la nebbia è già dov'è sugli schermi */
   if (salva){ scrivi('finestre-scena', scena); salvaInRete(); }
@@ -1005,6 +1009,12 @@ function giro(ora){
   /* 9/11: lo schermo che rallenta (stanotte 44–48 Hz verso le 4 sul G10, disegno 0,4 ms) non è colpa del disegno: da solo
      non porta la scala sotto 0,8 (era finita a 0,5 e per risalire servivano ore) */
   if (!assesta) fluido = dt * 1000 < passo * 1.07 ? fluido + dt : 0;
+  /* ⚠ 14/11 sera · A SCHERMO VUOTO NON SI IMPARA NIENTE. Senza un paesaggio in vista (nessuna immagine, o YouTube) il
+     disegno non costa niente: i minuti «fluidi» non dicono quanto regge lo schermo. È successo: schermi rimasti neri per
+     tre quarti d'ora (una scena senza immagini mandata per errore da un controllo da lontano), e in quel nero il TV ha
+     «imparato» di reggere il 100% e le finestrelle il 60% (ne reggono 90% e 50%): al ritorno del paesaggio sarebbero
+     ripartiti i salti. A schermo vuoto: niente salite, niente prove, e il tempo di una prova non scorre */
+  if (!(vista.fonti[0] && vista.fonti[0].ok) || scena.yt){ fluido = 0; cambioTettoDa = ora; if (provaSu || ora - ultimaSalita < 300000) ultimaSalita = ora; }
   /* il tetto salvato può risalire: una volta per avvio e per tempo, dopo 10 minuti fluidi al tetto, un passo in più
      (già segnato come fallito una volta: se non regge si torna giù in pochi secondi e non si riprova) */
   if (!scalaFissa && !provaSu && tetto < 1 && scala >= tetto - .001 && fluido > 8 && !riprovati[chiaveTetto] && ora - cambioTettoDa > 600000 && ora - ultimoCalo > 600000 && tetti[chiaveTetto]){
