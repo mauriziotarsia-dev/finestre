@@ -56,12 +56,9 @@ uniform vec2 uSale;           /* 9/11 · nebbia che sale: x = fin dove è arriva
 uniform sampler2D uMeteo;     /* nebbia e nuvole, calcolate a bassa risoluzione (r: banchi di nebbia, g: nuvole, b: velo) */
 uniform sampler2D uAlberiM;   /* 11/11 · g: dove sono le chiome (dall'immagine del giorno): solo lì si muove qualcosa · 14/11 · b: dov'è la nebbia di giorno */
 uniform float uNebG;          /* 14/11: 1 = il blu di uAlberiM viene davvero dall'immagine del giorno (di notte la nebbiolina va lì) */
-#ifndef SENZA_NUVOLE
-uniform sampler2D uNuvole;    /* 14/11 sera · le nuvole del cielo che scorre (r: 0 sgombro … 1 nuvola; vedi mascheraNuvole): lì dietro le stelle non si vedono */
-uniform float uHaNuvole;
-vec2 gCieloPP; float gCieloPeso;   /* dove cade il punto nel cielo che scorre e quanto se ne vede: li scrive paesaggio() */
-#endif
-uniform sampler2D uVentoT;    /* il vento sugli alberi, calcolato a un quarto di risoluzione (r, g: spostamento, b: raffica sugli alberi, a: ombra delle nuvole) */
+uniform float uHaNuvole;      /* 14/11 sera · 1 = di notte, nel quarto canale del vento (uVentoT.a) al posto dell'ombra delle nuvole c'è quanta nuvola del cielo che scorre sta in questo punto (vedi VENTO_FRAG e mascheraNuvole): lì dietro le stelle non si vedono */
+uniform sampler2D uVentoT;    /* il vento sugli alberi, calcolato a un quarto di risoluzione (r, g: spostamento, b: raffica sugli alberi, a: ombra delle nuvole; di notte, con uHaNuvole, quanta nuvola del cielo che scorre) */
+float gVentoA;                /* 14/11 sera · il quarto canale del vento in questo punto: lo scrive paesaggio() nell'unica lettura di uVentoT, lo usa main() (ombre di giorno, nuvole per le stelle di notte) */
 uniform vec4 uU[24];          /* gli uccelli (js/uccelli.js): per ognuno (x, y, grandezza, ali) (inclinazione, chiarezza, tipo, -) */
 uniform float uNU;            /* quanti uccelli */
 uniform vec4 uUBox;           /* dove sono, tutti insieme (x0, y0, x1, y1 nella vista): fuori da lì non si calcola niente */
@@ -185,9 +182,6 @@ float fogliame(vec3 c){
 
 /* un'immagine del paesaggio, già col suo movimento */
 vec3 paesaggio(sampler2D img, sampler2D imgB, float vk, sampler2D dep, vec4 crop, vec4 cropD, float haDep, float mov, sampler2D cie, vec4 cm, sampler2D fer, float haF, sampler2D rap, float haR, vec2 uv, out float n, out float sky){
-#ifndef SENZA_NUVOLE
-  gCieloPP = vec2(0.); gCieloPeso = 0.;
-#endif
   n = prof(dep, cropD, uv, haDep);
   /* prospettiva: le cose vicine si spostano di più fra una finestra e l'altra */
   vec2 p = uv; p.x += uLato * .012 * (n - .35);
@@ -265,9 +259,6 @@ vec3 paesaggio(sampler2D img, sampler2D imgB, float vk, sampler2D dep, vec4 crop
       vec3 cs = texture2D(cie, vec2(fract(pp.x), clamp(pp.y, .002, .998))).rgb;
 #endif
       c = mix(c, cs, sky * (1. - smoothstep(.8, 1., pp.y)));
-#ifndef SENZA_NUVOLE
-      gCieloPP = vec2(fract(pp.x), clamp(pp.y, .002, .998)); gCieloPeso = sky * (1. - smoothstep(.8, 1., pp.y));   /* 14/11 sera: per le stelle (dietro le nuvole non si vedono) */
-#endif
     }
   }
   if (mov > .25){   /* 1 = nuvole e alberi (immagine ferma), .5 = solo alberi (video: le nuvole le ha già) */
@@ -302,7 +293,7 @@ vec3 paesaggio(sampler2D img, sampler2D imgB, float vk, sampler2D dep, vec4 crop
        spostamento cresce con la vicinanza, come succede davvero, ed è circa un terzo di prima */
     float vicino = smoothstep(.06, .30, n);
     vec2 dSp = vec2(0.);   /* di quanto si è spostato quello che si vede qui (chiome al vento): la nebbiolina lo segue */
-    vec4 vt = uHaVento > .5 ? texture2D(uVentoT, vec2(vUv.x, 1. - vUv.y)) : vec4(.5, .5, 0., 0.);
+    vec4 vt = uHaVento > .5 ? texture2D(uVentoT, vec2(vUv.x, 1. - vUv.y)) : vec4(.5, .5, 0., 0.); gVentoA = vt.a;
     if (vicino > .01 && vt.b > .01){
       /* ⚠ 8/11 (Maurizio: «di notte gli alberi sono immobili»): di notte il verde non c'è più, è tutto blu scuro e
          fogliame() non trovava niente. Dove sono le chiome lo sa già il vento (vt.b, dalla maschera fatta sull'immagine
@@ -603,12 +594,9 @@ float fumo(vec2 uv){
 void main(){
   vec2 uv = uMap.xy + vUv * uMap.zw;
   vec3 col = vec3(0.); float n = .5, sky = 0., alfa = 1.;
-  float l0 = 0.; vec3 stelle = vec3(0.);
+  float l0 = 0.; vec3 stelle = vec3(0.); gVentoA = 0.;
   if (uHaImg > .5){
     float n0, s0; vec3 c0 = paesaggio(uImg0, uImg0b, uVmix, uDep0, uCrop0, uCropD0, uHaDep0, uMovimento0, uCielo0, uCieloM0, uFermo0, uHaFermo0, uRap0, uHaRap0, uv, n0, s0);
-#ifndef SENZA_NUVOLE
-    vec2 ppN = gCieloPP; float pesoN = gCieloPeso;   /* il cielo del paesaggio che c'è (quello che sta uscendo, nel cambio, non conta) */
-#endif
     if (uMix > .001){
       float n1, s1; vec3 c1 = paesaggio(uImg1, uImg1, 0., uDep1, uCrop1, uCropD1, uHaDep1, uMovimento1, uCielo1, uCieloM1, uFermo1, uHaFermo1, uRap0, 0., uv, n1, s1);
       col = mix(c0, c1, uMix); n = mix(n0, n1, uMix); sky = mix(s0, s1, uMix);
@@ -616,7 +604,14 @@ void main(){
     float scP = max(1., uPix.y / 1000.);
     stelle = vec3(0.);
     /* ombre delle nuvole: di giorno scorrono sul paesaggio insieme al cielo panoramico (calcolate col vento) */
-    if (uOmbre > .01 && uHaVento > .5){ float om = texture2D(uVentoT, vec2(vUv.x, 1. - vUv.y)).a; col *= 1. - om * .17 * uOmbre * (1. - sky); }
+    /* ⚠ 14/11 sera: il quarto canale del vento serve a due cose: di giorno è l'ombra delle nuvole, di notte (uHaNuvole)
+       è quanta nuvola del cielo che scorre c'è qui, per le stelle. Non si rilegge: è quello della lettura che paesaggio()
+       fa già per gli alberi (gVentoA). Così le stelle dietro le nuvole non costano niente al disegno principale, che anzi
+       ha una lettura in meno di prima (le ombre ne avevano una loro): la prima versione (5.59) ne aveva una in più a ogni
+       punto, anche di giorno, e sul TV bastava a far cadere il 90% di risoluzione (misurato: con quel pezzo il 90% cadeva
+       in due minuti, senza ha tenuto sette minuti senza una caduta) */
+    float canaleV = gVentoA;
+    if (uOmbre > .01 && uHaNuvole < .5) col *= 1. - canaleV * .17 * uOmbre * (1. - sky);
     /* fuochi, lanterne e finestre accese tremolano come fiamme, di notte e un po' al tramonto */
     if (uNotte > .5){
       float caldo = smoothstep(.33, .6, col.r) * smoothstep(1.12, 1.4, col.r / max(col.g, .01)) * smoothstep(1.15, 1.6, col.g / max(col.b, .01)) * (1. - sky);
@@ -638,12 +633,10 @@ void main(){
       }
     }
     /* ⚠ 14/11 sera · DIETRO LE NUVOLE LE STELLE NON SI VEDONO: quanta nuvola del cielo che scorre c'è in questo punto
-       (maschera fatta una volta per panorama, vedi mascheraNuvole; verso l'orizzonte, dove torna il cielo dipinto, vale
-       quanto il panorama si vede). Vale anche per la stella cadente, che dietro una nuvola si vede appena */
-    float nuv = 0.;
-#ifndef SENZA_NUVOLE
-    if (uHaNuvole > .5 && sky > .3 && pesoN > .01 && (uNotte > .01 || uMeteoraK > 0.)) nuv = smoothstep(.1, .55, texture2D(uNuvole, ppN).r * pesoN);
-#endif
+       (maschera fatta una volta per panorama, vedi mascheraNuvole; la porta qui il passaggio del vento, vedi VENTO_FRAG;
+       verso l'orizzonte, dove torna il cielo dipinto, vale quanto il panorama si vede). Vale anche per la stella
+       cadente, che dietro una nuvola si vede appena */
+    float nuv = uHaNuvole > .5 ? smoothstep(.1, .55, canaleV) : 0.;
     /* stelle che brillano (ognuna col suo ritmo) e, ogni tanto, una stella cadente */
     if (uNotte > .01 && sky > .3){
       vec2 pp = uv * uPix / (7. * scP), cel = floor(pp), f = fract(pp);
@@ -786,8 +779,8 @@ const VENTO_FRAG = `
 precision highp float;
 varying vec2 vUv;
 uniform vec4 uMap, uCropD, uCieloM;
-uniform float uT, uCieloX, uVento;
-uniform sampler2D uAlberi, uCielo;
+uniform float uT, uCieloX, uVento, uHaNuvole;
+uniform sampler2D uAlberi, uCielo, uNuvole;   /* uNuvole: le nuvole del cielo che scorre (r: 0 sgombro … 1 nuvola), vedi mascheraNuvole */
 float h1(vec2 p){ vec3 p3 = fract(vec3(p.xyx) * .1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
 float rumore(vec2 p){ vec2 i = floor(p), f = fract(p); f = f*f*(3.-2.*f);
   return mix(mix(h1(i), h1(i+vec2(1,0)), f.x), mix(h1(i+vec2(0,1)), h1(i+vec2(1,1)), f.x), f.y); }
@@ -807,6 +800,14 @@ void main(){
     vec2 s = vec2((ti.x - .5) * z * 1.8 + uCieloX * 8., z * 1.3 + uCieloX * 1.5);
     float nn = rumore(s) * .62 + rumore(s * 2.3 + vec2(5.3, 1.7)) * .38;
     ombra = smoothstep(.56, .78, nn) * smoothstep(.02, .2, g);
+  }
+  /* ⚠ 14/11 sera · di notte le ombre delle nuvole non ci sono: nello stesso canale va quanta nuvola del cielo che scorre
+     sta in questo punto, per le stelle del disegno principale (lì dietro non si vedono). Stessa mappa del cielo che usa
+     paesaggio(); verso l'orizzonte, dove il panorama sfuma nel cielo dipinto, sfuma anche lei. Fatto qui, a un quarto di
+     risoluzione, perché nel disegno principale una lettura in più a ogni punto pesava anche di giorno */
+  if (uHaNuvole > .5 && uCieloM.x > 0.){
+    vec2 pp = vec2(ti.x * uCieloM.z / (uCieloM.y * uCieloM.x) + uCieloX, ti.y / uCieloM.x);
+    ombra = texture2D(uNuvole, vec2(fract(pp.x), clamp(pp.y, .002, .998))).r * (1. - smoothstep(.8, 1., pp.y));
   }
   /* ⚠ 4/11 (Maurizio: «sugli alberi che si muovono è troppo evidente il loop, ogni tot secondi si capisce che
      ricomincia»): le raffiche erano un'onda regolare, una ogni 7,4 secondi esatti, quasi quanto il giro del video
@@ -1037,16 +1038,15 @@ class Vista {
     try { const di = gl.getExtension('WEBGL_debug_renderer_info'); this.scheda = di ? gl.getParameter(di.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER); } catch(e) { this.scheda = '?'; }
     const ql = new URLSearchParams(location.search).get('leggero');
     this.leggero = ql != null ? ql === '1' : /V3D|VideoCore|Broadcom/i.test(this.scheda || '');
-    /* 14/11 sera · «senza nuvole»: il disegno compilato senza le stelle dietro le nuvole (come prima della 5.59). Serve a
-       misurare su uno schermo vero quanto pesa quel pezzo (da lontano: prova {senzaNuvole: true} e ricarica), e a toglierlo
-       se su qualche apparecchio desse fastidio */
+    /* 14/11 sera · «senza nuvole»: le stelle tornano a vedersi anche davanti alle nuvole, come prima della 5.59 (da
+       lontano: prova {senzaNuvole: true} e ricarica). È servito a misurare sul TV quanto pesava la prima versione
+       (una lettura in più a ogni punto: faceva cadere il 90%); resta per toglierle se su qualche apparecchio dessero fastidio */
     try { this.senzaNuvole = localStorage.getItem('fin-senza-nuvole') === '1'; } catch(e) { this.senzaNuvole = false; }
     /* con WebGL2 i programmi passano alla lingua GLSL 3: servono le letture col livello di dettaglio esplicito */
     const in3 = (src, vert) => '#version 300 es\n' + (vert ? src.replace(/\battribute /g, 'in ').replace(/\bvarying /g, 'out ')
       : src.replace(/\bvarying /g, 'in ').replace(/gl_FragColor/g, 'fragColor').replace(/(precision \w+ float;)/, '$1\nout vec4 fragColor;')).replace(/texture2D\(/g, 'texture(');
     const sh = (tipo, src) => { if (this.gl2) src = in3(src.trim(), tipo === gl.VERTEX_SHADER);
       if (this.leggero) src = /^#version[^\n]*\n/.test(src) ? src.replace(/^(#version[^\n]*\n)/, '$1#define LEGGERO\n') : '#define LEGGERO\n' + src;
-      if (this.senzaNuvole) src = /^#version[^\n]*\n/.test(src) ? src.replace(/^(#version[^\n]*\n)/, '$1#define SENZA_NUVOLE\n') : '#define SENZA_NUVOLE\n' + src;
       const s = gl.createShader(tipo); gl.shaderSource(s, src); gl.compileShader(s);
       if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s)); return s; };
     const programma = (v, f, attr) => { const p = gl.createProgram();
@@ -1057,19 +1057,19 @@ class Vista {
     /* il programma principale: paesaggio, cielo, nebbia, lampo, luce */
     this.p = programma(VERT, FRAG, ['aPos']);
     this.fumoDati = new Float32Array(32); this.fumoForza = new Float32Array(8);
-    this.u = posizioni(this.p, ['uOcchio','uImg0b','uVmix','uImg0','uImg1','uDep0','uDep1','uMap','uCrop0','uCrop1','uCropD0','uCropD1','uUccelli','uCielo0','uCielo1','uCieloM0','uCieloM1','uCieloX','uFermo0','uFermo1','uHaFermo0','uHaFermo1','uRap0','uHaRap0','uVentoT','uAlberiM','uHaVento','uU','uNU','uUBox','uFumo','uFumoI','uNFumo','uFumoA','uNebV','uNebG','uNuvole','uHaNuvole','uChiar','uNotte','uOmbre','uMeteora','uMeteoraK','uMix','uHaImg','uHaDep0','uHaDep1','uMovimento0','uMovimento1',
+    this.u = posizioni(this.p, ['uOcchio','uImg0b','uVmix','uImg0','uImg1','uDep0','uDep1','uMap','uCrop0','uCrop1','uCropD0','uCropD1','uUccelli','uCielo0','uCielo1','uCieloM0','uCieloM1','uCieloX','uFermo0','uFermo1','uHaFermo0','uHaFermo1','uRap0','uHaRap0','uVentoT','uAlberiM','uHaVento','uU','uNU','uUBox','uFumo','uFumoI','uNFumo','uFumoA','uNebV','uNebG','uHaNuvole','uChiar','uNotte','uOmbre','uMeteora','uMeteoraK','uMix','uHaImg','uHaDep0','uHaDep1','uMovimento0','uMovimento1',
       'uLato','uT','uTV','uRaf','uAspetto','uPix','uCoperto','uNebbia','uPioggia','uNeve','uTempesta','uVento','uLampo','uLampoX','uLampoS','uLampoB',
       'uNotteFinta','uLuce','uBuio','uQualita','uColNebbia','uMeteo','uSale']);
     gl.useProgram(this.p);
-    gl.uniform1i(this.u.uImg0, 0); gl.uniform1i(this.u.uImg1, 1); gl.uniform1i(this.u.uDep0, 2); gl.uniform1i(this.u.uDep1, 3); gl.uniform1i(this.u.uImg0b, 4); gl.uniform1i(this.u.uMeteo, 5); gl.uniform1i(this.u.uCielo0, 6); gl.uniform1i(this.u.uCielo1, 7); gl.uniform1i(this.u.uFermo0, 8); gl.uniform1i(this.u.uFermo1, 9); gl.uniform1i(this.u.uVentoT, 10); if (this.u.uAlberiM) gl.uniform1i(this.u.uAlberiM, 11); if (this.u.uRap0) gl.uniform1i(this.u.uRap0, 12); if (this.u.uNuvole) gl.uniform1i(this.u.uNuvole, 13);
+    gl.uniform1i(this.u.uImg0, 0); gl.uniform1i(this.u.uImg1, 1); gl.uniform1i(this.u.uDep0, 2); gl.uniform1i(this.u.uDep1, 3); gl.uniform1i(this.u.uImg0b, 4); gl.uniform1i(this.u.uMeteo, 5); gl.uniform1i(this.u.uCielo0, 6); gl.uniform1i(this.u.uCielo1, 7); gl.uniform1i(this.u.uFermo0, 8); gl.uniform1i(this.u.uFermo1, 9); gl.uniform1i(this.u.uVentoT, 10); if (this.u.uAlberiM) gl.uniform1i(this.u.uAlberiM, 11); if (this.u.uRap0) gl.uniform1i(this.u.uRap0, 12);
     this.unita = gl.getParameter(gl.MAX_TEXTURE_IMAGE_UNITS) || 8;   /* il fermo vuole 10 unità (il Raspberry 4 ne ha 16) */
     this.maxTex = gl.getParameter(gl.MAX_TEXTURE_SIZE) || 4096;       /* Raspberry 4 e telefoni vecchi: 4096; il G10 16384 */
     /* nebbia e nuvole a bassa risoluzione */
     this.pm = programma(VERT, METEO_FRAG, ['aPos']);
     this.um = posizioni(this.pm, ['uMap','uT','uTV','uRaf','uVento']);
     this.pv = programma(VERT, VENTO_FRAG, ['aPos']);
-    this.uv = posizioni(this.pv, ['uMap','uT','uCropD','uCieloM','uCieloX','uAlberi','uCielo','uVento']);
-    gl.useProgram(this.pv); gl.uniform1i(this.uv.uAlberi, 11); gl.uniform1i(this.uv.uCielo, 6);
+    this.uv = posizioni(this.pv, ['uMap','uT','uCropD','uCieloM','uCieloX','uAlberi','uCielo','uVento','uNuvole','uHaNuvole']);
+    gl.useProgram(this.pv); gl.uniform1i(this.uv.uAlberi, 11); gl.uniform1i(this.uv.uCielo, 6); if (this.uv.uNuvole) gl.uniform1i(this.uv.uNuvole, 13);
     this.bianca = this.texture(); this.carica(this.bianca, new Uint8Array([255, 255, 255, 255]), 1, 1);
     this.vento = [];
     /* gocce e fiocchi */
@@ -1419,7 +1419,9 @@ class Vista {
     lega(1, haImg && this.mix > 0 ? (v1 ? f1.vtex : f1.tex) : null);
     lega(2, f0.depTex); lega(3, f1.depTex); lega(4, haImg && f0.vk > 0 ? f0.vtexB : null); lega(5, null); lega(6, f0.cTex); lega(7, f1.cTex); if (this.unita >= 10){ lega(8, f0.fTex); lega(9, f1.fTex); } if (this.unita >= 13) lega(12, f0.rTex);
     if (this.unita >= 12) lega(11, f0.aTex || this.bianca);   /* 14/11: serve anche alla nebbiolina di notte, non solo al vento */
-    if (this.unita >= 14) lega(13, f0.nTex);   /* 14/11 sera: le nuvole del cielo che scorre, per le stelle */
+    if (this.unita >= 14) lega(13, f0.nTex);   /* 14/11 sera: le nuvole del cielo che scorre, per le stelle (le legge il passaggio del vento) */
+    /* di notte il passaggio del vento porta al disegno, al posto dell'ombra delle nuvole, quanta nuvola c'è in ogni punto */
+    const nuvoleNotte = haImg && !!f0.cTex && !!f0.nTex && this.unita >= 14 && !this.senzaNuvole && !sp.has('cielo') && (s.notte || 0) > .5;
     /* uniformi del programma principale (restano al programma anche quando si passa agli altri) */
     gl.useProgram(this.p);
     gl.uniform1f(u.uVmix, haImg && v0 ? f0.vk : 0);
@@ -1436,7 +1438,6 @@ class Vista {
     gl.uniform2f(u.uChiar, this.chiarezza ? this.chiarezza[0] : .5, this.chiarezza ? this.chiarezza[1] : 0);
     gl.uniform1f(u.uNebV, s.movimento && !sp.has('nebbiolina') ? (s.nebViva == null ? 1 : s.nebViva) : 0);   /* 9/11: quanta, secondo l'ora e il tempo (finestra/index.html) */
     gl.uniform1f(u.uNebG, f0.aTex && f0.nebG ? 1 : 0);   /* 14/11: la nebbia di giorno sta nel blu della maschera delle chiome */
-    gl.uniform1f(u.uHaNuvole, haImg && f0.cTex && f0.nTex && this.unita >= 14 ? 1 : 0);
     gl.uniform1f(u.uHaFermo0, haImg && v0 && f0.fTex ? 1 : 0); gl.uniform1f(u.uHaRap0, haImg && v0 && f0.fTex && f0.rTex && this.unita >= 13 ? 1 : 0); gl.uniform1f(u.uHaFermo1, haImg && v1 && f1.fTex ? 1 : 0);
     gl.uniform1f(u.uT, s.t); gl.uniform1f(u.uTV, tVento); gl.uniform3fv(u.uRaf, raf);
     for (const k2 of ['Coperto','Nebbia','Pioggia','Neve','Tempesta','Vento','Lampo','LampoX','LampoS','LampoB','NotteFinta','Luce','Buio','Qualita'])
@@ -1483,16 +1484,21 @@ class Vista {
         lega(5, null); lega(10, null);
         gl.bindFramebuffer(gl.FRAMEBUFFER, m.fb); gl.disable(gl.SCISSOR_TEST); gl.viewport(0, 0, m.w, m.h);
         lega(11, f0.aTex || this.bianca); lega(6, f0.cTex);
+        /* 14/11 sera: anche la 13, ogni volta. bufferMeteo, quando crea l'immagine del vento (al primo disegno e a ogni cambio di
+           grandezza), la lascia legata all'unità attiva in quel momento, che è l'ultima legata qui sopra: se resta la 13, questo
+           passaggio leggerebbe l'immagine su cui sta disegnando e il disegno verrebbe rifiutato (per un fotogramma niente vento). */
+        if (this.unita >= 14) lega(13, f0.nTex);
         gl.useProgram(this.pv);
         gl.uniform4fv(this.uv.uMap, foro.map); gl.uniform1f(this.uv.uT, s.t); gl.uniform1f(this.uv.uVento, Math.max(0, Math.min(1, s.vento || 0)));
         gl.uniform4fv(this.uv.uCropD, v0 ? this.cropProfondita(f0, c0v) : c0v);
         gl.uniform4fv(this.uv.uCieloM, f0.cTex && !sp.has('cielo') ? f0.cm : [0,0,0,0]); gl.uniform1f(this.uv.uCieloX, s.cieloX || 0);
+        gl.uniform1f(this.uv.uHaNuvole, nuvoleNotte ? 1 : 0);
         gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
         gl.bindFramebuffer(gl.FRAMEBUFFER, null);
       }
       /* 2. il paesaggio col suo tempo */
       gl.useProgram(this.p);
-      lega(5, tm); if (this.unita >= 12) lega(10, tv); gl.uniform1f(u.uHaVento, tv ? 1 : 0);
+      lega(5, tm); if (this.unita >= 12) lega(10, tv); gl.uniform1f(u.uHaVento, tv ? 1 : 0); gl.uniform1f(u.uHaNuvole, tv && nuvoleNotte ? 1 : 0);
       gl.enable(gl.SCISSOR_TEST);
       gl.viewport(foro.x, y, foro.w, foro.h); gl.scissor(foro.x, y, foro.w, foro.h);
       gl.uniform4fv(u.uMap, foro.map);
