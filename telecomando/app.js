@@ -9,7 +9,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
 const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 const euro = n => (n < .1 ? n.toFixed(3) : n.toFixed(2)).replace('.', ',') + ' $';
-const VERSIONE = '6.55';
+const VERSIONE = '6.56';
 /* 8/11 · l'app si aggiorna da sola (Maurizio: «vedo ancora il quadrato con la doppia finestra»: sul telefono restava la
    versione vecchia anche dopo averla chiusa). Quando torna in primo piano, e ogni 10 minuti, chiede al server quale
    app.js c'è adesso; se è un'altra, ricarica (mai mentre un lavoro AI è in corso) */
@@ -499,6 +499,7 @@ function scenaAnteprima(sc){
   return Object.assign({}, sc, {immagini: im});
 }
 function postaAnteprima(m){
+  if (siFrame && siPronto && !(m.tipo === 'tv' && siChi !== 'tv') && m.tipo !== 'fori') siFrame.contentWindow.postMessage(m, '*');   /* a tutto schermo: le immagini piene */
   if (m.tipo === 'scena'){ fermiAnteprima(); m = Object.assign({}, m, {scena: scenaAnteprima(m.scena)}); }
   if (anteprimaFrame && anteprimaPronta && m.tipo !== 'tv') anteprimaFrame.contentWindow.postMessage(m, '*');
   if (anteprimaTvFrame && anteprimaTvPronta && m.tipo !== 'fori') anteprimaTvFrame.contentWindow.postMessage(m, '*');
@@ -535,6 +536,58 @@ function forieAnteprima(){
   const muro = asp * .45, tot = 2 * asp + muro;
   return {aspetto: tot, fori:[{x:0, y:0, w:asp / tot, h:1}, {x:(asp + muro) / tot, y:0, w:asp / tot, h:1}], modo:'doppia'};
 }
+/* 14/11 · Maurizio: «possiamo mettere la possibilità con un tasto di vedere full screen il paesaggio o le finestrelle
+   sullo smartphone dall'app direttamente?». Lo stesso motore degli schermi a tutto schermo, con le immagini piene (non le
+   copie piccole dell'anteprima): il TV o le due finestrelle con il muro in mezzo; segue la scena come l'anteprima
+   (ora, tempo, lampi). Un tocco mostra o nasconde i comandi. */
+let siFrame = null, siPronto = false, siChi = 'tv', siTimer = 0;
+function foriSchermoIntero(){
+  const a = assettoOPredefinito(), f = a.finestre.sinistra, sch = schermoDi('sinistra'), asp = (f.w * sch.w) / (f.h * sch.h);
+  if (a.n === 1) return {aspetto: asp, fori: [{x: 0, y: 0, w: 1, h: 1}], modo: 'doppia'};
+  const muro = asp * .45, tot = 2 * asp + muro;
+  return {aspetto: tot, fori: [{x: 0, y: 0, w: asp / tot, h: 1}, {x: (asp + muro) / tot, y: 0, w: asp / tot, h: 1}], modo: 'doppia'};
+}
+function mostraComandiSi(){
+  const o = $('#schermoIntero'); if (!o) return;
+  o.classList.add('comandi'); clearTimeout(siTimer); siTimer = setTimeout(() => o.classList.remove('comandi'), 3500);
+}
+function apriSchermoIntero(chi){
+  siChi = chi === 'finestrelle' ? 'finestrelle' : 'tv';
+  let o = $('#schermoIntero');
+  if (!o){
+    o = document.createElement('div'); o.id = 'schermoIntero';
+    o.innerHTML = `<div class="si-quadro"><iframe id="siFrame" title="A tutto schermo" allow="autoplay"></iframe></div>
+      <div class="si-barra">
+        <button class="si-scelta" data-fai="schermoIntero" data-v="tv">${icona('tv', 18)}<span>TV</span></button>
+        <button class="si-scelta" data-fai="schermoIntero" data-v="finestrelle">${icona('bifora', 18)}<span>Finestrelle</span></button>
+        <button class="si-chiudi" data-fai="chiudiSchermoIntero" aria-label="Chiudi">${icona('chiudi', 20)}</button>
+      </div>`;
+    o.addEventListener('click', e => { if (!e.target.closest('[data-fai]')) mostraComandiSi(); });
+    document.body.appendChild(o);
+  }
+  o.querySelectorAll('.si-scelta').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.v === siChi)));
+  const fa = siChi === 'tv' ? {aspetto: 16 / 9} : foriSchermoIntero();
+  o.style.setProperty('--asp', String(fa.aspetto));
+  siPronto = false; siFrame = o.querySelector('#siFrame');
+  siFrame.onload = () => {
+    siPronto = true;
+    siFrame.contentWindow.postMessage({tipo: 'scena', scena}, '*');
+    if (siChi === 'tv' && ultimoTv) siFrame.contentWindow.postMessage({tipo: 'tv', tv: ultimoTv}, '*');
+    if (siChi !== 'tv') siFrame.contentWindow.postMessage({tipo: 'fori', fori: fa.fori, modo: fa.modo}, '*');
+  };
+  siFrame.src = '../finestra/?anteprima=1' + (siChi === 'tv' ? '&vista=est' : '') + '&t=' + Date.now().toString(36);
+  o.classList.add('aperto'); document.body.classList.add('si-aperto'); mostraComandiSi();
+  /* dove si può (Android, computer) davvero a tutto schermo, e il TV in orizzontale; sull'iPhone basta il riquadro */
+  try { if (!document.fullscreenElement && o.requestFullscreen) o.requestFullscreen({navigationUI: 'hide'}).then(() => {
+    try { if (siChi === 'tv') screen.orientation.lock('landscape').catch(() => {}); } catch(e) {} }).catch(() => {}); } catch(e) {}
+}
+function chiudiSchermoIntero(){
+  const o = $('#schermoIntero'); if (!o) return;
+  o.classList.remove('aperto'); document.body.classList.remove('si-aperto');
+  if (siFrame){ siFrame.src = 'about:blank'; } siPronto = false;
+  try { if (document.fullscreenElement) document.exitFullscreen().catch(() => {}); } catch(e) {}
+  try { screen.orientation.unlock(); } catch(e) {}
+}
 function impaginaAnteprima(){
   const box = $('#anteprima'); if (!box) return;
   const fa = forieAnteprima();
@@ -563,6 +616,7 @@ function disegnaFinestre(){
         <figure class="anteprima tv" id="anteprimaTv"><div class="fermo" style="inset:0"></div><iframe id="anteprimaTvFrame" title="Anteprima del TV" src="../finestra/?anteprima=1&vista=est"></iframe></figure>
         <figure class="anteprima" id="anteprima"><iframe id="anteprimaFrame" title="Anteprima delle finestrelle" src="../finestra/?anteprima=1"></iframe></figure>
         <div class="eroe-testo"><b id="nomeInOnda">—</b><small id="sottoInOnda"></small></div>
+        <button class="eroe-intero" data-fai="schermoIntero" data-v="tv" aria-label="Guarda a tutto schermo">${icona('schermo', 16)}<span>Tutto schermo</span></button>
       </div>
       <div class="rapide in-riga">
         <button class="btn" data-fai="accendi" id="btnAccendi">${icona('accensione', 20)}<span>Accese</span></button>
@@ -2614,6 +2668,8 @@ const AZIONI = {
     postaAnteprima({tipo: 'effetto', effetto: d});
     if (suonoQui()){ if (v === 'tuono') lettore.tuono(6, .4); if (v === 'raffica' && lettore.raffica) lettore.raffica(); if (v === 'stormo') lettore.colpoVita('stormo'); }
   },
+  schermoIntero: (v) => apriSchermoIntero(v),
+  chiudiSchermoIntero: () => chiudiSchermoIntero(),
   lampo: () => { if (canale.manda('lampo')) avviso('Lampo!'); postaAnteprima({tipo:'lampo'}); if (suonoQui()) lettore.tuono(); },
   vaiPaesaggi: () => vai('paesaggi'), vaiCrea: () => { chiudiFoglio(); vai('crea'); }, vaiImp: () => vai('impostazioni'),
   aggiungiPaesaggio: () => apriAggiungiPaesaggio(),

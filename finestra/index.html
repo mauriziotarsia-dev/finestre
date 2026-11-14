@@ -847,7 +847,7 @@ async function statoRemoto(d, schedaVideo){
       out.errGL = g.getError(); out.persa = g.isContextLost(); return out; } catch(e) { return 'errore ' + e.message; } })(),
     scheda: vista.scheda, leggero: vista.leggero,
     vita: (() => { const f = vista.fonti[0], v = vista.vita; return {ora: oraVista, k: Math.round(progressoOra(oraVista || 'giorno', performance.now() - oraDa) * 100) / 100, luci: (f.luci || []).length, accese: v && v.luci ? v.luci.filter(x => x.k > .5).length : 0, fuochi: (f.fuochi || []).length, fuochiAccesi: v && v.fuochi ? v.fuochi.filter(x => x.k > .5).length : 0, lucciole: v ? v.lucciole.length : 0, pipistrelli: stormi.u.filter(b => b.pip).length, pip: Math.round(pip * 100) / 100, pulviscolo: Math.round(pulviscolo * 100) / 100}; })(),
-    fps: Math.round(fpsMisurati), hzSchermo: Math.round(1000 / intervalloSchermo), schermoVero: {w: Math.round(screen.width * devicePixelRatio), h: Math.round(screen.height * devicePixelRatio)}, msDisegno, giri: (() => { const n = Math.min(giroN, 900), a = Array.from(giriRecenti.slice(0, n)).filter(x => x > 0).sort((x, y) => x - y); const q = f => Math.round(a[Math.floor((a.length - 1) * f)] * 10) / 10; return {n: a.length, mediana: q(.5), p95: q(.95), p99: q(.99), max: q(1), sopra25: a.filter(x => x > 25).length, sopra50: a.filter(x => x > 50).length, sopra100: a.filter(x => x > 100).length}; })(), cali: cali.slice(), cadute: Math.round(cadute * 1000) / 10, bard: bard ? {qui: bard.qui, muto: bard.muto, attivo: bard.attivo, tempo: bard.stato.tempo, registrazioni: Object.keys(bard.stato.registrazioni || {}), suona: Object.fromEntries(Object.entries(bard.strati).map(([k, v]) => [k, v.chiave + ' @' + (v.g ? Math.round(v.g.gain.value * 100) / 100 : '?')])), ctx: bard.ctx ? bard.ctx.state : null} : null, attesaSalitaS: attesaSalita / 1000, tetto, oraS: Math.round(performance.now() / 1000), errori: erroriRecenti.slice(), ultimoParam: ultimoParam ? {buio: ultimoParam.buio, luce: ultimoParam.luce, trasparente: ultimoParam.trasparente} : null};
+    fps: Math.round(fpsMisurati), hzSchermo: Math.round(1000 / intervalloSchermo), schermoVero: {w: Math.round(screen.width * devicePixelRatio), h: Math.round(screen.height * devicePixelRatio)}, msDisegno, giri: (() => { const n = Math.min(giroN, 900), a = Array.from(giriRecenti.slice(0, n)).filter(x => x > 0).sort((x, y) => x - y); const q = f => Math.round(a[Math.floor((a.length - 1) * f)] * 10) / 10; return {n: a.length, mediana: q(.5), p95: q(.95), p99: q(.99), max: q(1), sopra25: a.filter(x => x > 25).length, sopra50: a.filter(x => x > 50).length, sopra100: a.filter(x => x > 100).length}; })(), cali: cali.slice(), cadute: Math.round(cadute * 1000) / 10, bard: bard ? {qui: bard.qui, muto: bard.muto, attivo: bard.attivo, tempo: bard.stato.tempo, registrazioni: Object.keys(bard.stato.registrazioni || {}), suona: Object.fromEntries(Object.entries(bard.strati).map(([k, v]) => [k, v.chiave + ' @' + (v.g ? Math.round(v.g.gain.value * 100) / 100 : '?')])), ctx: bard.ctx ? bard.ctx.state : null} : null, attesaSalitaS: attesaSalita / 1000, tetto, limiteHz, oraS: Math.round(performance.now() / 1000), errori: erroriRecenti.slice(), ultimoParam: ultimoParam ? {buio: ultimoParam.buio, luce: ultimoParam.luce, trasparente: ultimoParam.trasparente} : null};
   await fetch(SUPABASE_URL + '/storage/v1/object/dmaster-media/finestre/banco/stato-' + mio + '.json', {method: 'POST',
     headers: {apikey: SUPABASE_CHIAVE_PUBBLICA, Authorization: 'Bearer ' + SUPABASE_CHIAVE_PUBBLICA, 'Content-Type': 'image/png', 'x-upsert': 'true'}, body: JSON.stringify(st)});
 }
@@ -888,6 +888,24 @@ const avvioGiro = performance.now();
 const scalaMin = tv ? .5 : .3;
 let quieteDa = -1e9, cadute = 0, ultimaSalita = -1e9, attesaSalita = 90000, tetto = 1; const falliti = {};   /* tetto: la scala più alta che si riprova; un livello fallito 3 volte non si riprova più (fino a ricarica) */   /* cadute: quota di immagini saltate negli ultimi secondi */
 const giriRecenti = new Float32Array(900); let giroN = 0; const cali = [];   /* per lo «stato» da lontano: durata degli ultimi giri e quando la scala è scesa */   /* nei primi 15 secondi (immagini e video che arrivano, schermo che si assesta) non si giudica la fatica */
+/* 14/11 · LO SCHERMO A 30 Hz. La ROG Ally manda il 4K al TV a 30 Hz: ogni giro dura 33 ms anche col disegno
+   leggerissimo (0,2 ms). La pagina lo prendeva per fatica e scendeva a metà risoluzione: sul TV il 4K non si vedeva
+   (Maurizio: «vedi anche a quanti fps girano le scene»). Se anche al pavimento della scala i giri restano regolari
+   attorno ai 33 ms, è lo schermo: si punta ai suoi Hz e si risale. Si ricorda per la volta dopo; se lo schermo torna
+   più veloce (60 Hz), si dimentica. */
+let limiteHz = +leggi('fin-limite-hz', 0) || 0, ultimoControllo = 0;
+function controllaSchermo(ora){
+  if (ora - ultimoControllo < 2000 || scalaFissa) return; ultimoControllo = ora;
+  if (limiteHz && intervalloSchermo < 1000 / limiteHz * .75){ limiteHz = 0; scrivi('fin-limite-hz', 0); return; }
+  const n = Math.min(giroN, 120); if (n < 120 || limiteHz) return;
+  const a = []; for (let i = 1; i <= n; i++) a.push(giriRecenti[(giroN - i) % 900]); a.sort((x, y) => x - y);
+  const med = a[n >> 1], p90 = a[Math.floor(n * .9)];
+  if (med > 26 && med < 45 && p90 < med * 1.12 && scala <= scalaMin + .001 && ora - ultimoCalo > 8000 && msDisegno < 8){
+    limiteHz = Math.round(1000 / med); scrivi('fin-limite-hz', limiteHz);
+    cali.push({t: Math.round(ora / 1000), da: scala, perche: 'schermo a ' + limiteHz + ' Hz: si risale'}); if (cali.length > 20) cali.shift();
+    tetto = 1; for (const k of Object.keys(falliti)) delete falliti[k]; attesaSalita = 20000; lentoR = 0; cadute = 0; ultimoCalo = ora - 1e6;
+  }
+}
 function giro(ora){
   /* quanto spesso lo schermo chiede un'immagine (60 Hz, 50, 30 se è un 4K su HDMI vecchio…): non si può
      andare più veloci di lui, e andare al suo passo non vuol dire faticare */
@@ -895,7 +913,7 @@ function giro(ora){
   ultimoRaf = ora;
   /* fluidità: quante immagini al secondo (60, 50, 30… scelto dal telefono o dall'indirizzo dello schermo).
      Si salta un giro quando non è ancora il momento: meno lavoro, ventola più tranquilla */
-  const obiettivo = Math.min(60, Math.max(15, fpsUrl || scena.fps || 60)), passo = 1000 / obiettivo;   /* (uno schermo a 30 Hz: fluidità 30 dal telefono) */
+  const obiettivo = Math.min(60, Math.max(15, fpsUrl || scena.fps || 60), limiteHz || 99), passo = 1000 / obiettivo;   /* (uno schermo a 30 Hz: fluidità 30 dal telefono) */
   if (obiettivo < 59){
     if (ora < prossimo - 2){ requestAnimationFrame(giro); return; }
     prossimo = ora - prossimo > passo ? ora + passo : prossimo + passo;
@@ -903,6 +921,7 @@ function giro(ora){
   const dt = Math.min(.1, (ora - prima) / 1000); prima = ora;
   if (dt > 0) fpsMisurati = fpsMisurati * .97 + (1 / dt) * .03;
   giriRecenti[giroN++ % 900] = ora - (giro.ultimo || ora); giro.ultimo = ora;
+  controllaSchermo(ora);
   /* se il computer fa fatica: prima abbassa la risoluzione del disegno (fino a metà), poi toglie gli strati di gocce più fini */
   /* ⚠ 30/10: si guarda il passo medio, non i singoli giri: sul Raspberry i giri erano metà veloci e metà lenti
      (il peggio: va a scatti) e la vecchia regola non scendeva mai */

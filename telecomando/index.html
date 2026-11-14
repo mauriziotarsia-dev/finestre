@@ -448,6 +448,18 @@ body.principale .testa .torna{display:none}
 @media (max-width:380px){ .rapide.in-riga .btn{font-size:11px} .rapide.in-riga .btn .ic{width:17px;height:17px} }
 @media (max-width: 400px){ .testa h1{font-size:19px;letter-spacing:.14em} .testa p{font-size:16.5px} }
 @media (prefers-reduced-motion: reduce){ *{animation:none!important;transition:none!important} }
+/* 14/11 · a tutto schermo sul telefono: il TV o le finestrelle col motore vero, le immagini piene */
+.eroe-intero{position:absolute;left:8px;top:8px;z-index:3;display:flex;align-items:center;gap:5px;padding:5px 10px 5px 8px;border-radius:999px;border:1px solid var(--filo-forte);background:rgba(6,8,12,.68);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);color:var(--oro);font:500 10px var(--display);letter-spacing:.1em;text-transform:uppercase;cursor:pointer}
+#schermoIntero{position:fixed;inset:0;z-index:1000;background:#000;display:none}
+#schermoIntero.aperto{display:block}
+#schermoIntero .si-quadro{position:absolute;inset:0;margin:auto;aspect-ratio:var(--asp);width:min(100vw, calc(100dvh * var(--asp)));height:auto;max-height:100dvh}
+#schermoIntero iframe{position:absolute;inset:0;width:100%;height:100%;border:0;pointer-events:none;background:#000}
+#schermoIntero .si-barra{position:absolute;left:50%;top:max(12px, env(safe-area-inset-top));transform:translateX(-50%);display:flex;gap:4px;padding:5px;border-radius:999px;background:rgba(6,8,12,.76);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);border:1px solid var(--bordo);opacity:0;pointer-events:none;transition:opacity .3s}
+#schermoIntero.comandi .si-barra{opacity:1;pointer-events:auto}
+#schermoIntero .si-barra button{display:flex;align-items:center;gap:6px;min-height:40px;padding:0 13px;border-radius:999px;border:1px solid transparent;background:none;color:var(--crema);font:500 11px var(--display);letter-spacing:.1em;text-transform:uppercase;cursor:pointer}
+#schermoIntero .si-barra button[aria-pressed="true"]{border-color:var(--filo-forte);background:rgba(212,175,55,.12);color:var(--oro)}
+#schermoIntero .si-barra .si-chiudi{padding:0 10px}
+body.si-aperto{overflow:hidden}
 </style>
 </head>
 <body>
@@ -468,6 +480,6 @@ body.principale .testa .torna{display:none}
 <script src="../js/foto-online.js?v=2.1.0"></script>
 <script src="../js/profondita.js?v=2.1.0"></script>
 <script src="../js/bard.js?v=9"></script>
-<script src="app.js?v=6.55"></script>
+<script src="app.js?v=6.56"></script>
 </body>
 </html>
