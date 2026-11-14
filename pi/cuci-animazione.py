@@ -54,7 +54,7 @@ Serve: Python 3 con opencv e numpy, e ffmpeg; per l'ingrandimento anche realesrg
   Raspberry:  sudo apt install python3-opencv ffmpeg
   Windows:    winget install Python.Python.3.12 Gyan.FFmpeg  poi  pip install opencv-python numpy realesrgan-ncnn-py
 """
-import argparse, collections, gzip, hashlib, json, os, re, subprocess, sys, tempfile, threading, time, urllib.error, urllib.parse, urllib.request
+import argparse, base64, collections, gzip, hashlib, json, os, re, socket, ssl, struct, subprocess, sys, tempfile, threading, time, urllib.error, urllib.parse, urllib.request
 import numpy as np
 import cv2
 
@@ -593,6 +593,12 @@ def _rinfresca(cart, nome):
     _chiedi('POST', f'/storage/v1/object/{DEPOSITO}/{cart}/' + urllib.parse.quote(nome), corpo, 'image/png', {'x-upsert': 'true'})
 
 
+def _cart_e_io(casa, forza, chi):
+    """La cartella dei paesaggi e il nome del segno di presenza di questo apparecchio."""
+    cart = _libreria() if ACCESSO and ACCESSO.get('casa') else 'finestre/' + cartella_di(casa)
+    return cart, f'zz-cucitore-{forza}-' + (re.sub(r'[^a-z0-9-]+', '-', chi.lower()).strip('-') or 'pc') + '.png'
+
+
 def giro_casa(casa, larghezza=None, veloce=False, forza=1, chi='pc'):
     """Un giro: cuce le animazioni nuove. Possono girare più apparecchi insieme (mini PC, laptop, Raspberry):
     lo fa il più potente acceso, subito.
@@ -603,8 +609,7 @@ def giro_casa(casa, larghezza=None, veloce=False, forza=1, chi='pc'):
       · il lavoro si prende con un segno «…_anim-giorno-incorso.png» che solo uno riesce a creare e che chi
         lavora rinfresca ogni 30 secondi: se non si rinfresca da 3 minuti, chi lavorava si è spento e si riprende.
     (Maurizio, 30/10: «il fallback non può essere dopo così tanti minuti»: niente più attese fisse.)"""
-    cart = _libreria() if ACCESSO and ACCESSO.get('casa') else 'finestre/' + cartella_di(casa)
-    io = f'zz-cucitore-{forza}-' + (re.sub(r'[^a-z0-9-]+', '-', chi.lower()).strip('-') or 'pc') + '.png'
+    cart, io = _cart_e_io(casa, forza, chi)
     try: _rinfresca(cart, io)
     except Exception as e: print('presenza non segnata:', e, file=sys.stderr, flush=True)
     riposo = _RIPOSO.setdefault(cart, {'firma': None, 'quando': 0.0})
@@ -684,6 +689,150 @@ def giro_casa(casa, larghezza=None, veloce=False, forza=1, chi='pc'):
     riposo['firma'] = firma if not fatti and not _SOSPESI[0] else None
     riposo['quando'] = time.time()
     return fatti
+
+
+# ── LA SPINTA (14/11 sera) ───────────────────────────────────────────────────────────────────────────────
+# Maurizio: «Il cucitore non serve così frequentemente. Facciamolo push». Il cucitore non chiede più di continuo se c'è
+# lavoro: glielo dice chi lo porta. Il telefono, pochi secondi dopo aver caricato un video o un'immagine, manda l'evento
+# «cuci» su un canale tutto del cucitore (cucitore-<casa>: il traffico della stanza qui non arriva); un filo resta in
+# ascolto su quel canale e sveglia il giro. Poi:
+#   · finché c'è lavoro in corso o in sospeso, i giri restano ogni 20 secondi, come prima;
+#   · a riposo, col canale su, si dorme: un giro leggero ogni 10 minuti, per sicurezza (una spinta persa, un file
+#     arrivato da un'altra strada) e per l'aggiornamento da GitHub;
+#   · se il canale non c'è (rete, stanza privata), un giro leggero al minuto.
+# Chiamati tutti insieme, ognuno si fa vedere subito e i meno forti aspettano qualche secondo: così il più forte
+# acceso prende il lavoro per primo, come prima.
+# Il websocket è fatto con la sola libreria di Python: sui computer di Maurizio non serve installare niente.
+SVEGLIA = threading.Event()
+_SPINTA = {'viva': 0.0, 'ultima': 0.0}        # quando il canale ha risposto l'ultima volta, quando è arrivata l'ultima spinta
+
+
+def _ws_apri(url, timeout=20):
+    """Apre il websocket (wss). Torna (socket, quello che è già arrivato dopo la stretta di mano)."""
+    u = urllib.parse.urlsplit(url); host = u.hostname; porta = u.port or 443
+    proxy = os.environ.get('HTTPS_PROXY') or os.environ.get('https_proxy')
+    if proxy:
+        pu = urllib.parse.urlsplit(proxy)
+        s = socket.create_connection((pu.hostname, pu.port or 8080), timeout=timeout)
+        auth = ''
+        if pu.username:
+            auth = 'Proxy-Authorization: Basic ' + base64.b64encode((urllib.parse.unquote(pu.username) + ':' + urllib.parse.unquote(pu.password or '')).encode()).decode() + '\r\n'
+        s.sendall(f'CONNECT {host}:{porta} HTTP/1.1\r\nHost: {host}:{porta}\r\n{auth}\r\n'.encode())
+        r = b''
+        while b'\r\n\r\n' not in r:
+            c = s.recv(4096)
+            if not c: raise OSError('proxy chiuso')
+            r += c
+        if b' 200' not in r.split(b'\r\n', 1)[0]: raise OSError('proxy: ' + r[:80].decode('latin1'))
+    else:
+        s = socket.create_connection((host, porta), timeout=timeout)
+    s = ssl.create_default_context().wrap_socket(s, server_hostname=host)
+    chiave = base64.b64encode(os.urandom(16)).decode()
+    percorso = (u.path or '/') + ('?' + u.query if u.query else '')
+    s.sendall((f'GET {percorso} HTTP/1.1\r\nHost: {host}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n'
+               f'Sec-WebSocket-Key: {chiave}\r\nSec-WebSocket-Version: 13\r\n\r\n').encode())
+    r = b''
+    while b'\r\n\r\n' not in r:
+        c = s.recv(4096)
+        if not c: raise OSError('chiuso durante la stretta di mano')
+        r += c
+    testa, _, resto = r.partition(b'\r\n\r\n')
+    if b' 101' not in testa.split(b'\r\n', 1)[0]: raise OSError('niente websocket: ' + testa[:120].decode('latin1'))
+    return s, bytearray(resto)
+
+
+def _ws_manda(s, dati, op=1):
+    d = dati if isinstance(dati, (bytes, bytearray)) else dati.encode(); n = len(d); m = os.urandom(4)
+    lung = bytes([0x80 | n]) if n < 126 else (bytes([0x80 | 126]) + struct.pack('>H', n) if n < 65536 else bytes([0x80 | 127]) + struct.pack('>Q', n))
+    s.sendall(bytes([0x80 | op]) + lung + m + bytes(b ^ m[i % 4] for i, b in enumerate(d)))
+
+
+def _ws_messaggi(buf, parz):
+    """Toglie da buf i messaggi interi già arrivati e li dà come (tipo, dati): 1 testo, 8 chiusura, 9 ping, 10 pong.
+    I messaggi spezzati in più pezzi si ricompongono (parz tiene i pezzi fra una chiamata e l'altra)."""
+    fuori = []
+    while True:
+        if len(buf) < 2: break
+        b0, b1 = buf[0], buf[1]; n = b1 & 0x7f; i = 2
+        if n == 126:
+            if len(buf) < 4: break
+            n = struct.unpack('>H', bytes(buf[2:4]))[0]; i = 4
+        elif n == 127:
+            if len(buf) < 10: break
+            n = struct.unpack('>Q', bytes(buf[2:10]))[0]; i = 10
+        masc = None
+        if b1 & 0x80:
+            if len(buf) < i + 4: break
+            masc = bytes(buf[i:i + 4]); i += 4
+        if len(buf) < i + n: break
+        d = bytes(buf[i:i + n]); del buf[:i + n]
+        if masc: d = bytes(b ^ masc[k % 4] for k, b in enumerate(d))
+        op, fine = b0 & 0x0f, b0 & 0x80
+        if op >= 8: fuori.append((op, d)); continue          # messaggi di servizio: mai spezzati
+        if op != 0: parz[:] = [op, bytearray()]
+        if not parz: continue                                 # un seguito senza inizio: si butta
+        parz[1] += d
+        if fine: fuori.append((parz[0], bytes(parz[1]))); parz[:] = []
+    return fuori
+
+
+def ascolta_spinte(casa):
+    """Il filo che resta in ascolto sul canale del cucitore: all'evento «cuci» sveglia il giro. Se il canale cade si
+    riapre da solo (dopo 5 secondi, poi sempre più di rado, al massimo ogni 2 minuti)."""
+    tema = 'realtime:cucitore-' + casa
+    url = 'wss://' + URL.split('//', 1)[1] + '/realtime/v1/websocket?apikey=' + CHIAVE_PUBBLICA + '&vsn=1.0.0'
+    pausa = 5
+    while True:
+        s = None
+        try:
+            s, buf = _ws_apri(url); s.settimeout(2)
+            _ws_manda(s, json.dumps({'topic': tema, 'event': 'phx_join', 'ref': '1', 'join_ref': '1', 'payload': {'config': {
+                'broadcast': {'ack': False, 'self': False}, 'presence': {'key': ''}, 'postgres_changes': [], 'private': False}}}))
+            n = 1; battito = sentito = time.time(); parz = []
+            while True:
+                if time.time() - battito > 25:
+                    n += 1; battito = time.time()
+                    _ws_manda(s, json.dumps({'topic': 'phoenix', 'event': 'heartbeat', 'payload': {}, 'ref': str(n)}))
+                if time.time() - sentito > 70: raise OSError('il canale tace')
+                try: c = s.recv(65536)
+                except (socket.timeout, TimeoutError): c = None
+                if c == b'': raise OSError('canale chiuso')
+                if c: buf += c
+                for op, d in _ws_messaggi(buf, parz):
+                    if op == 9: _ws_manda(s, d, 10)
+                    elif op == 8: raise OSError('canale chiuso dal servizio')
+                    elif op == 1:
+                        m = json.loads(d); ev = m.get('event'); corpo = m.get('payload') or {}
+                        sentito = time.time()
+                        if ev == 'phx_reply':
+                            if corpo.get('status') != 'ok': raise OSError('canale: ' + json.dumps(corpo)[:120])
+                            if not _SPINTA['viva']: print('spinta: in ascolto sul canale del cucitore', flush=True)
+                            _SPINTA['viva'] = time.time(); pausa = 5
+                        elif ev in ('phx_error', 'phx_close'): raise OSError('canale: ' + ev)
+                        elif ev == 'broadcast' and corpo.get('event') == 'cuci':
+                            _SPINTA['ultima'] = time.time(); SVEGLIA.set()
+        except Exception as e:
+            print('spinta: canale giù (' + str(e)[:100] + '), riprovo fra', pausa, 's', file=sys.stderr, flush=True)
+        finally:
+            try:
+                if s: s.close()
+            except Exception: pass
+        _SPINTA['viva'] = 0.0
+        time.sleep(pausa); pausa = min(120, pausa * 2)
+
+
+def _aspetta(fatti, casa, forza, chi):
+    """Fra un giro e l'altro (vedi «LA SPINTA»): 20 secondi se c'è lavoro in corso o in sospeso; altrimenti si dorme
+    finché qualcuno chiama (col canale su: al massimo 10 minuti; senza: un minuto)."""
+    if fatti or _SOSPESI[0]: attesa = 20
+    elif time.time() - _SPINTA['viva'] < 60: attesa = 600
+    else: attesa = 60
+    if not SVEGLIA.wait(attesa): return
+    SVEGLIA.clear()
+    # chiamati tutti insieme: ci si fa vedere subito, poi i meno forti aspettano, così il più forte prende il lavoro per primo
+    try: _rinfresca(*_cart_e_io(casa, forza, chi))
+    except Exception: pass
+    time.sleep(2 + 4 * max(0, 3 - forza))
 
 
 URL_CUCITORE = 'https://mauriziotarsia-dev.github.io/finestre/pi/cuci-animazione.py'
@@ -854,13 +1003,16 @@ def main():
     if o.casa:
         try: avvia_radar(o.chi)
         except Exception as e: print('radar non avviato:', e, file=sys.stderr, flush=True)
+    if o.casa and not o.una and not ACCESSO:                   # la spinta: solo sul canale del link (la stanza privata resta al giro leggero al minuto)
+        threading.Thread(target=ascolta_spinte, args=(o.casa,), daemon=True).start()
     if o.casa and o.pieno:
         while True:
             if not o.una: aggiornati()
-            try: giro_casa(o.casa, o.larghezza, veloce=o.veloce, forza=o.forza, chi=o.chi)
+            fatti = 0
+            try: fatti = giro_casa(o.casa, o.larghezza, veloce=o.veloce, forza=o.forza, chi=o.chi)
             except Exception as e: print('giro non riuscito:', e, file=sys.stderr, flush=True)
             if o.una: break
-            time.sleep(20)
+            _aspetta(fatti, o.casa, o.forza, o.chi)
         return
     if o.casa:
         # sul Raspberry che intanto disegna le finestre: priorità bassa e pochi processori, le finestre prima di tutto
@@ -872,10 +1024,11 @@ def main():
         cv2.setNumThreads(2); global FF_THREADS; FF_THREADS = '2'
         while True:
             if not o.una: aggiornati()
-            try: giro_casa(o.casa, o.larghezza, veloce=o.veloce, forza=o.forza, chi=o.chi)
+            fatti = 0
+            try: fatti = giro_casa(o.casa, o.larghezza, veloce=o.veloce, forza=o.forza, chi=o.chi)
             except Exception as e: print('giro non riuscito:', e, file=sys.stderr, flush=True)
             if o.una: break
-            time.sleep(20)
+            _aspetta(fatti, o.casa, o.forza, o.chi)
         return
     if not (o.entrata and o.uscita): a.error('servono entrata e uscita (oppure --casa)')
     print(json.dumps(cuci(o.entrata, o.uscita, o.profondita, o.immagine, o.fuoco, o.larghezza, o.veloce, o.fermo, o.maschera), indent=1))

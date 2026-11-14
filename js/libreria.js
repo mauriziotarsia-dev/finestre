@@ -113,6 +113,17 @@ function filtraLibreria(elenco, testo, tipo){
   });
 }
 
+/* ⚠ 14/11 sera · LA SPINTA AL CUCITORE (Maurizio: «Il cucitore non serve così frequentemente. Facciamolo push»). Il
+   cucitore non chiede più di continuo a Supabase se c'è lavoro (da due computer erano 1,7 GB al giorno di traffico: il
+   piano gratuito ne dà 5 al mese): glielo dice chi carica. Pochi secondi dopo l'ultimo video o immagine caricati in
+   libreria parte l'evento «cuci» sul canale «cucitore-<casa>», e il cucitore (pi/cuci-animazione.py), che lo ascolta, si
+   sveglia. La pagina mette in mandaAlCucitore la funzione che manda l'evento (telecomando/app.js). */
+let mandaAlCucitore = null, _avvisoCucitore = 0;
+function avvisaCucitore(nome){
+  if (!/\.(mp4|jpg)$/.test(nome || '') || /_(est-)?mini-/.test(nome)) return;   /* solo quello che il cucitore lavora: video e immagini grandi */
+  clearTimeout(_avvisoCucitore);
+  _avvisoCucitore = setTimeout(() => { try { if (mandaAlCucitore) mandaAlCucitore(); } catch(e) {} }, 5000);
+}
 async function carica(casa, p, parte, blob, est){
   const cartella = await cartellaDi(casa);
   /* (il deposito accetta solo immagini e video: il piccolo elenco dei comignoli viaggia come «image/png»; chi lo legge
@@ -123,12 +134,14 @@ async function carica(casa, p, parte, blob, est){
     await Accesso.carica(CASA_PRIVATA, nome, blob, tipo);
     { const fl = p.file || (p.file = []); if (!fl.includes(nome)) fl.push(nome); }
     Accesso._firme.delete(CASA_PRIVATA + '/' + nome);
+    avvisaCucitore(nome);
     return (await Accesso.firma(CASA_PRIVATA, [nome]))[nome];
   }
   const {error} = await clientDeposito().storage.from(DEPOSITO)
     .upload('finestre/' + cartella + '/' + nome, blob, {upsert:true, contentType:tipo, cacheControl:'31536000'});
   if (error) throw new Error('Caricamento non riuscito: ' + error.message);
   { const fl = p.file || (p.file = []); if (!fl.includes(nome)) fl.push(nome); }
+  avvisaCucitore(nome);
   return urlPubblico('finestre/' + cartella + '/' + nome);
 }
 /* 11/11 · ogni luce ha anche una copia piccola (lato lungo 1280 px, ~150 KB) per il telefono: le carte della libreria,

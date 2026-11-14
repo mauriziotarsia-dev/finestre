@@ -9,7 +9,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
 const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 const euro = n => (n < .1 ? n.toFixed(3) : n.toFixed(2)).replace('.', ',') + ' $';
-const VERSIONE = '6.56';
+const VERSIONE = '6.57';
 /* 8/11 · l'app si aggiorna da sola (Maurizio: «vedo ancora il quadrato con la doppia finestra»: sul telefono restava la
    versione vecchia anche dopo averla chiusa). Quando torna in primo piano, e ogni 10 minuti, chiede al server quale
    app.js c'è adesso; se è un'altra, ricarica (mai mentre un lavoro AI è in corso) */
@@ -163,6 +163,14 @@ const canale = {
   const mandaDavvero = canale.manda.bind(canale);
   canale.manda = (evento, dati) => { if (evento !== 'chi' && comandaDM() && !(/^bard/.test(evento) && !inSerata()) && !/^console/.test(evento)){ avvisoInMano(); return false; } return mandaDavvero(evento, dati); };
 }
+/* 14/11 sera · la spinta al cucitore (js/libreria.js, avvisaCucitore): l'evento «cuci» su un canale tutto suo,
+   «cucitore-<casa>» (così il cucitore non riceve il resto del traffico della stanza), mandato per la via semplice (una
+   richiesta, senza restare collegati). Se non parte, il cucitore se ne accorge da solo al suo giro di sicurezza (ogni
+   10 minuti) */
+mandaAlCucitore = (giro = 0) => { if (!casa) return;
+  fetch(SUPABASE_URL + '/realtime/v1/api/broadcast', {method: 'POST', headers: {apikey: SUPABASE_CHIAVE_PUBBLICA, Authorization: 'Bearer ' + SUPABASE_CHIAVE_PUBBLICA, 'Content-Type': 'application/json'},
+    body: JSON.stringify({messages: [{topic: 'cucitore-' + casa, event: 'cuci', payload: {da: 'telefono'}, private: false}]})})
+    .then(r => { if (!r.ok) throw new Error(r.status); }).catch(() => { if (giro < 3) setTimeout(() => mandaAlCucitore(giro + 1), 8000); }); };
 let ultimoAvvisoInMano = 0;
 function avvisoInMano(){ if (Date.now() - ultimoAvvisoInMano > 2500){ ultimoAvvisoInMano = Date.now(); avviso('Le finestre sono in mano a DMaster', true); } }
 function aggiornaComando(){
