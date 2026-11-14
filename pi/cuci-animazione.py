@@ -556,8 +556,14 @@ def _eta_agg(f):
     return _eta_minuti({'created_at': f.get('updated_at') or f.get('created_at')})
 
 
+try: VERSIONE_CUCITORE = hashlib.sha1(open(os.path.abspath(__file__), 'rb').read()).hexdigest()[:8]
+except Exception: VERSIONE_CUCITORE = '?'
+
+
 def _rinfresca(cart, nome):
-    _chiedi('POST', f'/storage/v1/object/{DEPOSITO}/{cart}/' + urllib.parse.quote(nome), PUNTO_PNG, 'image/png', {'x-upsert': 'true'})
+    # 14/11 · nel segno di presenza anche la versione del cucitore (in coda al PNG): si vede da lontano chi è aggiornato
+    corpo = PUNTO_PNG + (b'#v=' + VERSIONE_CUCITORE.encode() if nome.startswith('zz-cucitore-') else b'')
+    _chiedi('POST', f'/storage/v1/object/{DEPOSITO}/{cart}/' + urllib.parse.quote(nome), corpo, 'image/png', {'x-upsert': 'true'})
 
 
 def giro_casa(casa, larghezza=None, veloce=False, forza=1, chi='pc'):
