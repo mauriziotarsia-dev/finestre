@@ -54,7 +54,7 @@ Serve: Python 3 con opencv e numpy, e ffmpeg; per l'ingrandimento anche realesrg
   Raspberry:  sudo apt install python3-opencv ffmpeg
   Windows:    winget install Python.Python.3.12 Gyan.FFmpeg  poi  pip install opencv-python numpy realesrgan-ncnn-py
 """
-import argparse, collections, hashlib, json, os, re, subprocess, sys, tempfile, threading, time, urllib.error, urllib.parse, urllib.request
+import argparse, collections, gzip, hashlib, json, os, re, subprocess, sys, tempfile, threading, time, urllib.error, urllib.parse, urllib.request
 import numpy as np
 import cv2
 
@@ -406,13 +406,13 @@ def ingrandisci_foto(cart, file, nomi, piu_forte, forza, chi, io):
         if m.group(2) and f'{base}_{pre}anim-{m.group(2)}-originale.mp4' not in nomi: continue   # fermo del telefono: arriva quello cucito
         quando = file[nome].get('updated_at') or ''
         if visti.get(nome) == quando: continue                                 # già guardata: è grande abbastanza
-        if piu_forte and _eta_agg(file[nome]) < 2: continue
+        if piu_forte and _eta_agg(file[nome]) < 2: _SOSPESI[0] += 1; continue  # la lascia al più forte: si riguarda al prossimo giro
         if not ingranditore(): return fatti
         segno = f'{base}_{parte}-incorso.png'
         if segno in file:
-            if _eta_agg(file[segno]) < 3: continue
+            if _eta_agg(file[segno]) < 3: _SOSPESI[0] += 1; continue
             _libera(cart, segno)
-        if not _prenota(cart, segno, chi): continue
+        if not _prenota(cart, segno, chi): _SOSPESI[0] += 1; continue
         try:
             with tempfile.TemporaryDirectory() as d:
                 e = os.path.join(d, 'e.jpg'); _scarica(cart, nome, e)
@@ -500,9 +500,36 @@ def _scarica(cart, nome, dest):
 def _chiedi(metodo, percorso, corpo=None, tipo='application/json', extra=None):
     h = {'apikey': CHIAVE_PUBBLICA, 'Authorization': 'Bearer ' + _gettone()}
     if corpo is not None: h['Content-Type'] = tipo
+    # 14/11 sera · gli elenchi viaggiano compressi (113 KB → 19 KB): il traffico in uscita da Supabase è contato
+    if '/object/list/' in percorso or percorso.startswith('/rest/'): h['Accept-Encoding'] = 'gzip'
     h.update(extra or {})
     r = urllib.request.Request(URL + percorso, data=corpo, method=metodo, headers=h)
-    with urllib.request.urlopen(r, timeout=300) as x: return x.read()
+    with urllib.request.urlopen(r, timeout=300) as x:
+        d = x.read()
+        return gzip.decompress(d) if (x.headers.get('Content-Encoding') or '').lower() == 'gzip' else d
+
+
+def _elenco(cart):
+    return json.loads(_chiedi('POST', f'/storage/v1/object/list/{DEPOSITO}', json.dumps({'prefix': cart, 'limit': 1000}).encode()))
+
+
+def _recenti(cart, quanti=8):
+    """I file toccati per ultimi (nome e ora), senza i segni di presenza dei cucitori, che si rinfrescano a ogni giro:
+    se questa lista è uguale a quella di prima, nella cartella non è cambiato niente. Pesa meno di 1 KB."""
+    r = json.loads(_chiedi('POST', f'/storage/v1/object/list/{DEPOSITO}',
+                           json.dumps({'prefix': cart, 'limit': quanti, 'sortBy': {'column': 'updated_at', 'order': 'desc'}}).encode()))
+    return [(f['name'], f.get('updated_at')) for f in r if not f['name'].startswith('zz-cucitore-')]
+
+
+# ⚠ 14/11 sera · IL GIRO LEGGERO. Il giro chiedeva a Supabase l'elenco intero della cartella due volte ogni 20 secondi,
+# da ogni computer acceso: 113 KB a risposta, con Ally e G10 accesi 1,7 GB al giorno di traffico, quando il piano
+# gratuito ne dà 5 al mese (è arrivata a Maurizio la mail di Supabase). Ora, se all'ultimo giro non c'era niente da fare
+# né niente in sospeso, si chiedono solo i file toccati per ultimi (_recenti): se sono gli stessi di prima non è cambiato
+# niente e il giro finisce lì. L'elenco intero si rifà quando qualcosa cambia, quando c'è lavoro in sospeso (un video
+# lasciato al più forte, uno che un altro sta cucendo) e comunque ogni 10 minuti. Il lavoro nuovo parte come prima,
+# entro 20 secondi.
+_RIPOSO = {}        # per cartella: {'firma': i file recenti all'ultimo giro intero senza niente da fare, 'quando': quando}
+_SOSPESI = [0]      # quante cose l'ultimo giro intero ha lasciato in sospeso (ad altri, o a dopo)
 
 
 _LIBRERIA = None
@@ -580,7 +607,13 @@ def giro_casa(casa, larghezza=None, veloce=False, forza=1, chi='pc'):
     io = f'zz-cucitore-{forza}-' + (re.sub(r'[^a-z0-9-]+', '-', chi.lower()).strip('-') or 'pc') + '.png'
     try: _rinfresca(cart, io)
     except Exception as e: print('presenza non segnata:', e, file=sys.stderr, flush=True)
-    elenco = json.loads(_chiedi('POST', f'/storage/v1/object/list/{DEPOSITO}', json.dumps({'prefix': cart, 'limit': 1000}).encode()))
+    riposo = _RIPOSO.setdefault(cart, {'firma': None, 'quando': 0.0})
+    try: firma = _recenti(cart)
+    except Exception: firma = None
+    if firma is not None and firma == riposo['firma'] and time.time() - riposo['quando'] < 600: return 0   # niente di nuovo (vedi «IL GIRO LEGGERO»)
+    _SOSPESI[0] = 0
+    quando_elenco = time.time()
+    elenco = _elenco(cart)
     file = {f['name']: f for f in elenco}
     nomi = list(file)
     piu_forte = any(n != io and (m := re.match(r'zz-cucitore-(\d+)-', n)) and int(m.group(1)) > forza and _eta_agg(f) < 1.5
@@ -591,6 +624,7 @@ def giro_casa(casa, larghezza=None, veloce=False, forza=1, chi='pc'):
         if not re.fullmatch(r'(est-)?anim-(giorno|alba|tramonto|notte)\.mp4', parte): continue   # est-: la vista del TV
         originale = f'{base}_{parte[:-4]}-originale.mp4'      # il file dell'AI resta qui, intatto (la libreria lo ignora)
         if originale in nomi: continue                         # già cucita
+        _SOSPESI[0] += 1                                       # c'è un video da cucire: finché c'è, i giri restano interi
         if piu_forte and _eta_minuti(file[nome]) < 2: continue  # c'è uno più forte acceso: tocca a lui
         segno = f'{base}_{parte[:-4]}-incorso.png'
         if segno in file:
@@ -614,6 +648,7 @@ def giro_casa(casa, larghezza=None, veloce=False, forza=1, chi='pc'):
             if not re.fullmatch(r'(est-)?anim-(giorno|alba|tramonto|notte)\.mp4', parte): continue
             originale = f'{base}_{parte[:-4]}-originale.mp4'
             if originale not in nomi or f'{base}_{parte[:-4]}-v2.png' in nomi: continue
+            _SOSPESI[0] += 1                                   # c'è un video da ricucire
             if piu_forte: break
             segno = f'{base}_{parte[:-4]}-incorso.png'
             if segno in file:
@@ -638,11 +673,16 @@ def giro_casa(casa, larghezza=None, veloce=False, forza=1, chi='pc'):
             break
     if not fatti:                                              # le animazioni prima di tutto; poi, se c'è tempo, le foto
         try:
-            elenco = json.loads(_chiedi('POST', f'/storage/v1/object/list/{DEPOSITO}', json.dumps({'prefix': cart, 'limit': 1000}).encode()))
-            file = {f['name']: f for f in elenco}
+            if time.time() - quando_elenco > 30:               # una cucitura provata e non riuscita ha preso tempo: l'elenco si rifà
+                elenco = _elenco(cart)
+                file = {f['name']: f for f in elenco}
             fatti += ingrandisci_foto(cart, file, list(file), piu_forte, forza, chi, io)
         except Exception as e:
+            _SOSPESI[0] += 1
             print('ingrandimento non riuscito:', e, file=sys.stderr, flush=True)
+    # a riposo solo se questo giro intero non ha fatto niente e non ha lasciato niente in sospeso
+    riposo['firma'] = firma if not fatti and not _SOSPESI[0] else None
+    riposo['quando'] = time.time()
     return fatti
 
 
