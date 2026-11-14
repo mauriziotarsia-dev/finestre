@@ -193,6 +193,27 @@ vec3 paesaggio(sampler2D img, sampler2D imgB, float vk, sampler2D dep, vec4 crop
      chi si avvicina alla finestra vede un po' più di paesaggio */
   p.x += uOcchio.x * .065 * (1. - .7 * n);
   p = .5 + (p - .5) * (1. + uOcchio.z * .07);
+  /* ⚠ 15/11 · FIAMME CHE DANZANO (Maurizio, finestrelle della taverna: «il fuoco delle torce è troppo poco reale»). Nel
+     video dell'AI le torce quasi non si muovono, e nelle ore senza video sono dipinte. Dentro, dove l'immagine è una
+     fiamma (chiara e molto più rossa che blu, guardata un po' sfocata, così si prende anche il bordo) il punto si legge
+     un poco più in là: lingue che salgono e ondeggiano, svelte, ognuna per conto suo. Il bordo caldo del muro attorno
+     ondeggia appena (il tremolio dell'aria calda). Solo coordinate: le letture vere vengono dopo, fuori da ogni «if» */
+  if (uDentro > .5 && uDentro < 1.5){
+    /* la punta si muove, la base no: conta quanto c'è fiamma SOTTO il punto e non sopra (la cima delle lingue e delle
+       torce); dentro la cera delle candele (fiamma sopra e sotto) e alla base, appoggiata alla torcia, poco o niente */
+    vec2 dF = vec2(0., .012);
+    vec3 bF = haF > .5 ? fotoL(fer, crop, p, 2.5) : fotoL(img, crop, p, 2.5);
+    vec3 bS = haF > .5 ? fotoL(fer, crop, p + dF, 2.5) : fotoL(img, crop, p + dF, 2.5);
+    vec3 bA = haF > .5 ? fotoL(fer, crop, p - dF, 2.5) : fotoL(img, crop, p - dF, 2.5);
+    vec3 fF = vec3(max(bF.r, max(bF.g, bF.b)), max(bS.r, max(bS.g, bS.b)), max(bA.r, max(bA.g, bA.b)));
+    vec3 rF = vec3(bF.r - bF.b, bS.r - bS.b, bA.r - bA.b);
+    vec3 mm = smoothstep(.45, .7, fF) * smoothstep(.16, .32, rF);
+    float mF = mm.x * clamp((mm.y - mm.z) * 2. + .2, 0., 1.);
+    vec2 qF = p * vec2(uAspetto, 1.) * 70.;
+    float sw = rumore(vec2(qF.y * .8 + uT * 2.3, qF.x * .5 - uT * .7)) * .65 + rumore(vec2(qF.y * 2.1 + uT * 5.1, qF.x * 1.7 + 3.3)) * .35 - .5;
+    float su = rumore(vec2(qF.x * 1.4 + 1.7, qF.y * 1.2 + uT * 4.2)) * .6 + rumore(vec2(qF.x * 3.1 - 2.2, qF.y * 2.6 + uT * 7.9)) * .4 - .5;
+    p += mF * vec2(sw * .0075 / uAspetto, su * .0085);
+  }
   vec3 c = foto(img, crop, p);
   /* ⚠ 5/11 · il passaggio al giro del video sfuma SOLO il video (prima si sfumava verso un secondo paesaggio disegnato
      senza vento e senza nebbiolina: a ogni giro i cipressi tornavano dritti e i veli sparivano, «si vede il loop») */
