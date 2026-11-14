@@ -56,6 +56,9 @@ uniform vec2 uSale;           /* 9/11 · nebbia che sale: x = fin dove è arriva
 uniform sampler2D uMeteo;     /* nebbia e nuvole, calcolate a bassa risoluzione (r: banchi di nebbia, g: nuvole, b: velo) */
 uniform sampler2D uAlberiM;   /* 11/11 · g: dove sono le chiome (dall'immagine del giorno): solo lì si muove qualcosa · 14/11 · b: dov'è la nebbia di giorno */
 uniform float uNebG;          /* 14/11: 1 = il blu di uAlberiM viene davvero dall'immagine del giorno (di notte la nebbiolina va lì) */
+uniform sampler2D uNuvole;    /* 14/11 sera · le nuvole del cielo che scorre (r: 0 sgombro … 1 nuvola; vedi mascheraNuvole): lì dietro le stelle non si vedono */
+uniform float uHaNuvole;
+vec2 gCieloPP; float gCieloPeso;   /* dove cade il punto nel cielo che scorre e quanto se ne vede: li scrive paesaggio() */
 uniform sampler2D uVentoT;    /* il vento sugli alberi, calcolato a un quarto di risoluzione (r, g: spostamento, b: raffica sugli alberi, a: ombra delle nuvole) */
 uniform vec4 uU[24];          /* gli uccelli (js/uccelli.js): per ognuno (x, y, grandezza, ali) (inclinazione, chiarezza, tipo, -) */
 uniform float uNU;            /* quanti uccelli */
@@ -180,6 +183,7 @@ float fogliame(vec3 c){
 
 /* un'immagine del paesaggio, già col suo movimento */
 vec3 paesaggio(sampler2D img, sampler2D imgB, float vk, sampler2D dep, vec4 crop, vec4 cropD, float haDep, float mov, sampler2D cie, vec4 cm, sampler2D fer, float haF, sampler2D rap, float haR, vec2 uv, out float n, out float sky){
+  gCieloPP = vec2(0.); gCieloPeso = 0.;
   n = prof(dep, cropD, uv, haDep);
   /* prospettiva: le cose vicine si spostano di più fra una finestra e l'altra */
   vec2 p = uv; p.x += uLato * .012 * (n - .35);
@@ -257,6 +261,7 @@ vec3 paesaggio(sampler2D img, sampler2D imgB, float vk, sampler2D dep, vec4 crop
       vec3 cs = texture2D(cie, vec2(fract(pp.x), clamp(pp.y, .002, .998))).rgb;
 #endif
       c = mix(c, cs, sky * (1. - smoothstep(.8, 1., pp.y)));
+      gCieloPP = vec2(fract(pp.x), clamp(pp.y, .002, .998)); gCieloPeso = sky * (1. - smoothstep(.8, 1., pp.y));   /* 14/11 sera: per le stelle (dietro le nuvole non si vedono) */
     }
   }
   if (mov > .25){   /* 1 = nuvole e alberi (immagine ferma), .5 = solo alberi (video: le nuvole le ha già) */
@@ -595,6 +600,7 @@ void main(){
   float l0 = 0.; vec3 stelle = vec3(0.);
   if (uHaImg > .5){
     float n0, s0; vec3 c0 = paesaggio(uImg0, uImg0b, uVmix, uDep0, uCrop0, uCropD0, uHaDep0, uMovimento0, uCielo0, uCieloM0, uFermo0, uHaFermo0, uRap0, uHaRap0, uv, n0, s0);
+    vec2 ppN = gCieloPP; float pesoN = gCieloPeso;   /* il cielo del paesaggio che c'è (quello che sta uscendo, nel cambio, non conta) */
     if (uMix > .001){
       float n1, s1; vec3 c1 = paesaggio(uImg1, uImg1, 0., uDep1, uCrop1, uCropD1, uHaDep1, uMovimento1, uCielo1, uCieloM1, uFermo1, uHaFermo1, uRap0, 0., uv, n1, s1);
       col = mix(c0, c1, uMix); n = mix(n0, n1, uMix); sky = mix(s0, s1, uMix);
@@ -623,6 +629,11 @@ void main(){
         col = mix(col, cf, fm * .45);   /* 11/11: un po' più trasparente (era .5) */
       }
     }
+    /* ⚠ 14/11 sera · DIETRO LE NUVOLE LE STELLE NON SI VEDONO: quanta nuvola del cielo che scorre c'è in questo punto
+       (maschera fatta una volta per panorama, vedi mascheraNuvole; verso l'orizzonte, dove torna il cielo dipinto, vale
+       quanto il panorama si vede). Vale anche per la stella cadente, che dietro una nuvola si vede appena */
+    float nuv = 0.;
+    if (uHaNuvole > .5 && sky > .3 && pesoN > .01 && (uNotte > .01 || uMeteoraK > 0.)) nuv = smoothstep(.1, .55, texture2D(uNuvole, ppN).r * pesoN);
     /* stelle che brillano (ognuna col suo ritmo) e, ogni tanto, una stella cadente */
     if (uNotte > .01 && sky > .3){
       vec2 pp = uv * uPix / (7. * scP), cel = floor(pp), f = fract(pp);
@@ -632,19 +643,14 @@ void main(){
         float r = length(f - pos) * 7.;
         float lum = .3 + .7 * h1(cel + 11.);
         float scint = .55 + .45 * sin(uT * (1.2 + 2.8 * h1(cel + 5.)) + h * 40.) * (.65 + .35 * sin(uT * .31 + h * 13.));
-        /* 14/11 sera · NON FATTO, per chi ci torna: le stelle che brillano si disegnano anche davanti alle nuvole del cielo
-           che scorre (visto nel controllo sugli schermi veri). Provato a spegnerle dove il cielo è chiaro: non va, il
-           cielo notturno dipinto schiarisce verso l'orizzonte (da 0,05 in alto a 0,26 in basso) e le nuvole in ombra hanno
-           la stessa luce e lo stesso blu del cielo accanto: con una soglia sparivano le stelle di mezzo cielo. Serve una
-           maschera delle nuvole fatta una volta per panorama (grana e bordi, come mascheraAlberi) */
-        stelle += vec3(.86, .9, 1.) * exp(-r * r * 1.7) * lum * scint * uNotte * (1. - uCoperto) * smoothstep(.3, .8, sky);
+        stelle += vec3(.86, .9, 1.) * exp(-r * r * 1.7) * lum * scint * uNotte * (1. - uCoperto) * smoothstep(.3, .8, sky) * (1. - nuv);
       }
     }
     if (uMeteoraK > 0. && sky > .3){
       vec2 A = uMeteora.xy * uPix, B = uMeteora.zw * uPix, P = uv * uPix;
       vec2 testa = mix(A, B, uMeteoraK), coda = mix(A, B, max(0., uMeteoraK - .3));
       float dd = segmento(P, coda, testa), lungo = clamp(dot(P - coda, testa - coda) / max(1., dot(testa - coda, testa - coda)), 0., 1.);
-      stelle += vec3(.95, .97, 1.) * exp(-dd * dd / (.5 * scP * scP + .25)) * lungo * lungo * sin(3.14159 * uMeteoraK) * 1.6 * smoothstep(.3, .8, sky) * uNotte * (1. - uCoperto * .7);   /* 9/11: dietro le nuvole si vede appena */
+      stelle += vec3(.95, .97, 1.) * exp(-dd * dd / (.5 * scP * scP + .25)) * lungo * lungo * sin(3.14159 * uMeteoraK) * 1.6 * smoothstep(.3, .8, sky) * uNotte * (1. - uCoperto * .7) * (1. - .85 * nuv);   /* 9/11: dietro le nuvole si vede appena */
     }
     float l = dot(col, vec3(.299, .587, .114)); l0 = l;
     /* notte finta (quando manca l'immagine della notte): luna, blu, poco colore */
@@ -1036,11 +1042,11 @@ class Vista {
     /* il programma principale: paesaggio, cielo, nebbia, lampo, luce */
     this.p = programma(VERT, FRAG, ['aPos']);
     this.fumoDati = new Float32Array(32); this.fumoForza = new Float32Array(8);
-    this.u = posizioni(this.p, ['uOcchio','uImg0b','uVmix','uImg0','uImg1','uDep0','uDep1','uMap','uCrop0','uCrop1','uCropD0','uCropD1','uUccelli','uCielo0','uCielo1','uCieloM0','uCieloM1','uCieloX','uFermo0','uFermo1','uHaFermo0','uHaFermo1','uRap0','uHaRap0','uVentoT','uAlberiM','uHaVento','uU','uNU','uUBox','uFumo','uFumoI','uNFumo','uFumoA','uNebV','uNebG','uChiar','uNotte','uOmbre','uMeteora','uMeteoraK','uMix','uHaImg','uHaDep0','uHaDep1','uMovimento0','uMovimento1',
+    this.u = posizioni(this.p, ['uOcchio','uImg0b','uVmix','uImg0','uImg1','uDep0','uDep1','uMap','uCrop0','uCrop1','uCropD0','uCropD1','uUccelli','uCielo0','uCielo1','uCieloM0','uCieloM1','uCieloX','uFermo0','uFermo1','uHaFermo0','uHaFermo1','uRap0','uHaRap0','uVentoT','uAlberiM','uHaVento','uU','uNU','uUBox','uFumo','uFumoI','uNFumo','uFumoA','uNebV','uNebG','uNuvole','uHaNuvole','uChiar','uNotte','uOmbre','uMeteora','uMeteoraK','uMix','uHaImg','uHaDep0','uHaDep1','uMovimento0','uMovimento1',
       'uLato','uT','uTV','uRaf','uAspetto','uPix','uCoperto','uNebbia','uPioggia','uNeve','uTempesta','uVento','uLampo','uLampoX','uLampoS','uLampoB',
       'uNotteFinta','uLuce','uBuio','uQualita','uColNebbia','uMeteo','uSale']);
     gl.useProgram(this.p);
-    gl.uniform1i(this.u.uImg0, 0); gl.uniform1i(this.u.uImg1, 1); gl.uniform1i(this.u.uDep0, 2); gl.uniform1i(this.u.uDep1, 3); gl.uniform1i(this.u.uImg0b, 4); gl.uniform1i(this.u.uMeteo, 5); gl.uniform1i(this.u.uCielo0, 6); gl.uniform1i(this.u.uCielo1, 7); gl.uniform1i(this.u.uFermo0, 8); gl.uniform1i(this.u.uFermo1, 9); gl.uniform1i(this.u.uVentoT, 10); if (this.u.uAlberiM) gl.uniform1i(this.u.uAlberiM, 11); if (this.u.uRap0) gl.uniform1i(this.u.uRap0, 12);
+    gl.uniform1i(this.u.uImg0, 0); gl.uniform1i(this.u.uImg1, 1); gl.uniform1i(this.u.uDep0, 2); gl.uniform1i(this.u.uDep1, 3); gl.uniform1i(this.u.uImg0b, 4); gl.uniform1i(this.u.uMeteo, 5); gl.uniform1i(this.u.uCielo0, 6); gl.uniform1i(this.u.uCielo1, 7); gl.uniform1i(this.u.uFermo0, 8); gl.uniform1i(this.u.uFermo1, 9); gl.uniform1i(this.u.uVentoT, 10); if (this.u.uAlberiM) gl.uniform1i(this.u.uAlberiM, 11); if (this.u.uRap0) gl.uniform1i(this.u.uRap0, 12); if (this.u.uNuvole) gl.uniform1i(this.u.uNuvole, 13);
     this.unita = gl.getParameter(gl.MAX_TEXTURE_IMAGE_UNITS) || 8;   /* il fermo vuole 10 unità (il Raspberry 4 ne ha 16) */
     this.maxTex = gl.getParameter(gl.MAX_TEXTURE_SIZE) || 4096;       /* Raspberry 4 e telefoni vecchi: 4096; il G10 16384 */
     /* nebbia e nuvole a bassa risoluzione */
@@ -1109,7 +1115,7 @@ class Vista {
   fonteVuota(){ return {fumi:[], fuochi:[], luci:[], prati:[], fumiUrl:null, dimg:null, img:null, tex:null, dep:null, depTex:null, video:null, cTex:null, cm:[0,0,0,0], fTex:null, iw:1, ih:1, url:null, ok:false}; }
 
   /* nuova immagine (o video in loop), con la sua profondità; sfuma da quella di prima in `dur` secondi */
-  async mostra({url, profondita = null, video = null, fuoco = null, cielo = null, fermo = null, maschera = null, comignoli = null, alberi = null, ricolora = false, notte = null, interno = false}, dur = 0){
+  async mostra({url, profondita = null, video = null, fuoco = null, cielo = null, fermo = null, maschera = null, comignoli = null, alberi = null, ricolora = false, notte = null, interno = false, stelle = false}, dur = 0){
     if (this.fonti[0].ok && this.fonti[0].url === url + '|' + (video || '')){
       this.fonti[0].fuoco = fuoco;
       if ((comignoli || null) !== (this.fonti[0].fumiUrl || null)) this.caricaFumi(this.fonti[0], comignoli, this.fonti[0].dimg);   /* spostati dal telefono */
@@ -1120,7 +1126,7 @@ class Vista {
     if (this.inArrivo === chiave) return;
     this.inArrivo = chiave;
     this.internoInArrivo = !!interno;   /* 13/11: un interno (la taverna) non ha cielo: la maschera del cielo resta vuota */
-    try { await this._mostra(chiave, url, profondita, video, dur, fuoco, cielo, fermo, maschera, comignoli, alberi, ricolora && !!video, notte); } finally { if (this.inArrivo === chiave) this.inArrivo = null; }
+    try { await this._mostra(chiave, url, profondita, video, dur, fuoco, cielo, fermo, maschera, comignoli, alberi, ricolora && !!video, notte, stelle); } finally { if (this.inArrivo === chiave) this.inArrivo = null; }
   }
   /* dove sale il fumo: i punti dell'AI (o messi a mano dal telefono), con la profondità di ciascuno per la prospettiva */
   async caricaFumi(f, url, dimg){
@@ -1205,7 +1211,7 @@ class Vista {
     gl.disable(gl.BLEND); gl.disableVertexAttribArray(1); gl.disableVertexAttribArray(2);
     gl.useProgram(this.p); this.quad();
   }
-  async _mostra(chiave, url, profondita, video, dur, fuoco, cielo, fermo, maschera, comignoli = null, alberi = null, ricolora = false, notte = null){
+  async _mostra(chiave, url, profondita, video, dur, fuoco, cielo, fermo, maschera, comignoli = null, alberi = null, ricolora = false, notte = null, stelle = false){
     const f = this.fonteVuota(); f.url = chiave; f.fuoco = fuoco;
     /* 8/11: tutti i file partono insieme (prima uno dopo l'altro: immagine, profondità, cielo, video, fermo…
        e nell'app si restava al nero per molti secondi); poi si montano nello stesso ordine di prima */
@@ -1229,7 +1235,10 @@ class Vista {
     if (pCielo && dimg){
       try {
         const ci = await pCielo, oriz = ci ? orizzonte(dimg) : 0;
-        if (ci && oriz > .05){ f.cTex = this.texture(); this.carica(f.cTex, this.entro(ci)); this.mip(f.cTex); f.cm = [oriz, ci.naturalWidth / ci.naturalHeight, f.iw / f.ih, 0]; }
+        if (ci && oriz > .05){ f.cTex = this.texture(); this.carica(f.cTex, this.entro(ci)); this.mip(f.cTex); f.cm = [oriz, ci.naturalWidth / ci.naturalHeight, f.iw / f.ih, 0];
+          /* 14/11 sera: dove sono le nuvole di questo cielo, per le stelle (solo se a questa luce le stelle si possono
+             vedere: lo dice la pagina; il calcolo costa un decimo di secondo). Se non riesce, le stelle restano come prima */
+          if (stelle && this.unita >= 14){ try { const nu = await mascheraNuvole(ci); f.nTex = this.texture(); this.carica(f.nTex, nu); f.nuvole = nu.tempi; } catch(e2) { f.nTex = null; } } }
       } catch(e) { /* nessun cielo panoramico per questo paesaggio */ }
     }
     if (pVideo){ f.video = await pVideo; if (f.video) f.vtex = this.texture(); }
@@ -1277,9 +1286,9 @@ class Vista {
   }
   togli(){ for (const f of this.fonti) this.libera(f); this.fonti = [this.fonteVuota(), this.fonteVuota()]; this.mix = 0; }
   libera(f){ const gl = this.gl; if (!f) return;
-    for (const t of [f.tex, f.depTex, f.vtex, f.vtexB, f.cTex, f.fTex, f.aTex, f.rTex]) if (t) gl.deleteTexture(t);
+    for (const t of [f.tex, f.depTex, f.vtex, f.vtexB, f.cTex, f.fTex, f.aTex, f.rTex, f.nTex]) if (t) gl.deleteTexture(t);
     if (f.video) f.video.forEach(v => { v.pause(); v.removeAttribute('src'); v.load(); });
-    f.tex = f.depTex = f.vtex = f.vtexB = f.cTex = f.fTex = f.aTex = f.rTex = null; f.ok = false; }
+    f.tex = f.depTex = f.vtex = f.vtexB = f.cTex = f.fTex = f.aTex = f.rTex = f.nTex = null; f.ok = false; }
   get urlInVista(){ return this.fonti[0].ok ? this.fonti[0].url : null; }
 
   /* (il video è già tagliato sull'inquadratura scelta quando è stato creato: lì il fuoco non serve)
@@ -1395,6 +1404,7 @@ class Vista {
     lega(1, haImg && this.mix > 0 ? (v1 ? f1.vtex : f1.tex) : null);
     lega(2, f0.depTex); lega(3, f1.depTex); lega(4, haImg && f0.vk > 0 ? f0.vtexB : null); lega(5, null); lega(6, f0.cTex); lega(7, f1.cTex); if (this.unita >= 10){ lega(8, f0.fTex); lega(9, f1.fTex); } if (this.unita >= 13) lega(12, f0.rTex);
     if (this.unita >= 12) lega(11, f0.aTex || this.bianca);   /* 14/11: serve anche alla nebbiolina di notte, non solo al vento */
+    if (this.unita >= 14) lega(13, f0.nTex);   /* 14/11 sera: le nuvole del cielo che scorre, per le stelle */
     /* uniformi del programma principale (restano al programma anche quando si passa agli altri) */
     gl.useProgram(this.p);
     gl.uniform1f(u.uVmix, haImg && v0 ? f0.vk : 0);
@@ -1411,6 +1421,7 @@ class Vista {
     gl.uniform2f(u.uChiar, this.chiarezza ? this.chiarezza[0] : .5, this.chiarezza ? this.chiarezza[1] : 0);
     gl.uniform1f(u.uNebV, s.movimento && !sp.has('nebbiolina') ? (s.nebViva == null ? 1 : s.nebViva) : 0);   /* 9/11: quanta, secondo l'ora e il tempo (finestra/index.html) */
     gl.uniform1f(u.uNebG, f0.aTex && f0.nebG ? 1 : 0);   /* 14/11: la nebbia di giorno sta nel blu della maschera delle chiome */
+    gl.uniform1f(u.uHaNuvole, haImg && f0.cTex && f0.nTex && this.unita >= 14 ? 1 : 0);
     gl.uniform1f(u.uHaFermo0, haImg && v0 && f0.fTex ? 1 : 0); gl.uniform1f(u.uHaRap0, haImg && v0 && f0.fTex && f0.rTex && this.unita >= 13 ? 1 : 0); gl.uniform1f(u.uHaFermo1, haImg && v1 && f1.fTex ? 1 : 0);
     gl.uniform1f(u.uT, s.t); gl.uniform1f(u.uTV, tVento); gl.uniform3fv(u.uRaf, raf);
     for (const k2 of ['Coperto','Nebbia','Pioggia','Neve','Tempesta','Vento','Lampo','LampoX','LampoS','LampoB','NotteFinta','Luce','Buio','Qualita'])
@@ -1713,6 +1724,122 @@ function mascheraCieloDa(d, W, H){
   return m;
 }
 function sfoca1(a, r){ const n = a.length, o = new Float32Array(n); for (let i = 0; i < n; i++){ let s = 0, k = 0; for (let j = Math.max(0, i - r); j <= Math.min(n - 1, i + r); j++){ s += a[j]; k++; } o[i] = s / k; } return o; }
+/* ⚠ 14/11 sera · LE NUVOLE DEL CIELO CHE SCORRE, per le stelle (Maurizio: «sì», alla domanda se sistemare le stelle che
+   brillano anche davanti alle nuvole). Le stelle del disegno stanno ferme sullo schermo e brillavano dappertutto nel
+   cielo, anche sopra le nuvole del panorama che scorre. Dal colore del punto non si capisce se è nuvola: il cielo
+   notturno dipinto schiarisce verso l'orizzonte (luce da 0,05 in alto a 0,26 in basso) e il fianco in ombra di una
+   nuvola ha la stessa luce e lo stesso blu del cielo accanto (una soglia sulla luce spegneva le stelle di mezzo cielo).
+   Qui le nuvole si trovano una volta per panorama, a 512 punti di larghezza:
+   1. via le stelle dipinte (apertura 3×3: minimo poi massimo);
+   2. la grana (deviazione della luce su 5×5): le nuvole hanno luce e ombra fitte, il cielo sgombro è liscio;
+   3. il cielo sgombro riga per riga (cambia solo con l'altezza): la mediana dei punti lisci e più blu della riga,
+      lisciata in altezza;
+   4. nuvola = grana, oppure più chiara o meno blu del cielo sgombro della sua riga, oppure più scura; e sotto una
+      cresta chiara c'è il corpo in ombra della nuvola (liscio e scuro come il cielo: da solo non si riconosce);
+   5. si chiudono i vuoti (massimo poi minimo, 7×7), si tolgono i granelli (3×3), bordo morbido;
+   6. i buchi piccoli chiusi dentro una nuvola diventano nuvola.
+   Ai lati il panorama si avvolge (si ripete), in alto e in basso no. Provato sui cieli di notte dei tre paesaggi (le
+   nuvole coperte, i tratti sgombri puliti) e su quelli di giorno e del tramonto (più largo, ma dalla parte giusta:
+   serve alla notte finta, che usa il cielo del giorno). Torna 0 = cielo sgombro … 1 = nuvola */
+async function mascheraNuvole(img){
+  const iw = img.naturalWidth || img.width, ih = img.naturalHeight || img.height;
+  const W = 512, H = Math.max(8, Math.round(W * ih / iw)), t0 = performance.now();
+  const c = document.createElement('canvas'); c.width = W; c.height = H;
+  const x = c.getContext('2d', {willReadFrequently:true}); x.imageSmoothingEnabled = true; x.imageSmoothingQuality = 'high';
+  /* la riduzione la fa il browser per conto suo, fuori dal giro del disegno (un panorama è 4000 × 2000 punti: ridurlo qui
+     fermava tutto per un momento); se non può, a metà per volta (ridotta di colpo l'immagine si riempie di grana finta,
+     vedi mascheraAlberi, e qui la grana conta) */
+  let piccola = null;
+  try { if (window.createImageBitmap) piccola = await createImageBitmap(img, {resizeWidth: W, resizeHeight: H, resizeQuality: 'high'}); } catch(e) { piccola = null; }
+  if (piccola && piccola.width === W){ x.drawImage(piccola, 0, 0, W, H); if (piccola.close) piccola.close(); }
+  else {
+    let src = img, sw = iw, sh = ih;
+    while (sw > W * 2 && sh > H * 2){
+      const m = document.createElement('canvas'); m.width = Math.round(sw / 2); m.height = Math.round(sh / 2);
+      const mx = m.getContext('2d'); mx.imageSmoothingEnabled = true; mx.imageSmoothingQuality = 'high'; mx.drawImage(src, 0, 0, m.width, m.height);
+      src = m; sw = m.width; sh = m.height;
+    }
+    x.drawImage(src, 0, 0, W, H);
+  }
+  const t1 = performance.now(), im = x.getImageData(0, 0, W, H), m = mascheraNuvoleDa(im.data, W, H);
+  let tot = 0;
+  for (let i = 0; i < W * H; i++){ const v = Math.round(m[i] * 255); im.data[i * 4] = im.data[i * 4 + 1] = im.data[i * 4 + 2] = v; im.data[i * 4 + 3] = 255; tot += m[i]; }
+  im.tempi = {riduzione: Math.round(t1 - t0), calcolo: Math.round(performance.now() - t1), nuvole: Math.round(tot / (W * H) * 100)};   /* per lo stato: quanto è costato su questo apparecchio, e quanta parte del cielo è nuvola */
+  return im;
+}
+/* il calcolo, su RGBA: a parte, per provarlo fuori dal browser (confrontato punto per punto con la versione di prova) */
+function mascheraNuvoleDa(d, W, H){
+  const N = W * H, ss = (a, b, v) => { const t = Math.max(0, Math.min(1, (v - a) / (b - a))); return t * t * (3 - 2 * t); };
+  /* massimo o minimo su un quadrato di lato 2r+1 (prima le righe, avvolgendo ai lati; poi le colonne, col bordo ripetuto).
+     Scritti per esteso, senza conti inutili nel giro stretto: tutto il calcolo deve stare in poche decine di millisecondi
+     (si fa a ogni cambio di cielo, mentre il paesaggio di prima è ancora in vista) */
+  const estremo = (src, r, mas) => { const t = new Float32Array(N), o = new Float32Array(N), riga = new Float32Array(W + 2 * r), n = 2 * r;
+    for (let y = 0; y < H; y++){ const b0 = y * W;
+      riga.set(src.subarray(b0, b0 + W), r); for (let k = 0; k < r; k++){ riga[k] = src[b0 + W - r + k]; riga[W + r + k] = src[b0 + k]; }
+      if (mas) for (let xx = 0; xx < W; xx++){ let v = riga[xx]; for (let k = 1; k <= n; k++){ const u = riga[xx + k]; if (u > v) v = u; } t[b0 + xx] = v; }
+      else for (let xx = 0; xx < W; xx++){ let v = riga[xx]; for (let k = 1; k <= n; k++){ const u = riga[xx + k]; if (u < v) v = u; } t[b0 + xx] = v; } }
+    for (let y = 0; y < H; y++){ const y0 = Math.max(0, y - r), y1 = Math.min(H - 1, y + r), b0 = y * W;
+      if (mas) for (let xx = 0; xx < W; xx++){ let v = t[y0 * W + xx]; for (let yy = y0 + 1; yy <= y1; yy++){ const u = t[yy * W + xx]; if (u > v) v = u; } o[b0 + xx] = v; }
+      else for (let xx = 0; xx < W; xx++){ let v = t[y0 * W + xx]; for (let yy = y0 + 1; yy <= y1; yy++){ const u = t[yy * W + xx]; if (u < v) v = u; } o[b0 + xx] = v; } }
+    return o; };
+  /* media pesata separabile (pesi w, raggio r): la media semplice e la sfocatura a campana */
+  const pesata = (src, w) => { const n = w.length, r = (n - 1) / 2, t = new Float32Array(N), o = new Float32Array(N), riga = new Float32Array(W + 2 * r), ry = new Int32Array(n); let tot = 0; for (const v of w) tot += v;
+    for (let y = 0; y < H; y++){ const b0 = y * W;
+      riga.set(src.subarray(b0, b0 + W), r); for (let k = 0; k < r; k++){ riga[k] = src[b0 + W - r + k]; riga[W + r + k] = src[b0 + k]; }
+      for (let xx = 0; xx < W; xx++){ let a = 0; for (let k = 0; k < n; k++) a += w[k] * riga[xx + k]; t[b0 + xx] = a / tot; } }
+    for (let y = 0; y < H; y++){ const b0 = y * W; for (let k = 0; k < n; k++) ry[k] = Math.min(H - 1, Math.max(0, y + k - r)) * W;
+      for (let xx = 0; xx < W; xx++){ let a = 0; for (let k = 0; k < n; k++) a += w[k] * t[ry[k] + xx]; o[b0 + xx] = a / tot; } }
+    return o; };
+  const campana = (sigma, r) => { const w = []; for (let k = -r; k <= r; k++) w.push(Math.exp(-k * k / (2 * sigma * sigma))); return w; };
+  const mediana = a => { a.sort(); const n = a.length; return n % 2 ? a[(n - 1) / 2] : (a[n / 2 - 1] + a[n / 2]) / 2; };   /* (su numeri tipizzati: l'ordinamento è già numerico, e svelto) */
+  /* 1. via le stelle dipinte */
+  const can = [0, 1, 2].map(k => { const a = new Float32Array(N); for (let i = 0; i < N; i++) a[i] = d[i * 4 + k] / 255; return estremo(estremo(a, 1, false), 1, true); });
+  const R = can[0], G = can[1], B = can[2], L = new Float32Array(N), L2 = new Float32Array(N), sat = new Float32Array(N);
+  for (let i = 0; i < N; i++){ const l = R[i] * .299 + G[i] * .587 + B[i] * .114; L[i] = l; L2[i] = l * l; const mx = Math.max(R[i], G[i], B[i]); sat[i] = (mx - Math.min(R[i], G[i], B[i])) / Math.max(mx, .01); }
+  /* 2. la grana */
+  const mu = pesata(L, [1, 1, 1, 1, 1]), mu2 = pesata(L2, [1, 1, 1, 1, 1]), gr = new Float32Array(N);
+  for (let i = 0; i < N; i++) gr[i] = Math.sqrt(Math.max(0, mu2[i] - mu[i] * mu[i])) / Math.max(mu[i], .1);
+  /* 3. il cielo sgombro, riga per riga */
+  const bg = [new Float32Array(H), new Float32Array(H), new Float32Array(H)], idx = new Int32Array(W), val = new Float32Array(W);
+  for (let y = 0; y < H; y++){
+    const b0 = y * W, gT = gr.slice(b0, b0 + W).sort()[Math.floor(W * .35)], sT = sat.slice(b0, b0 + W).sort()[Math.floor(W * .6)];
+    let n = 0; for (let xx = 0; xx < W; xx++) if (gr[b0 + xx] < gT && sat[b0 + xx] >= sT) idx[n++] = b0 + xx;
+    if (n < W * .05){ n = 0; for (let xx = 0; xx < W; xx++) if (gr[b0 + xx] < gT) idx[n++] = b0 + xx; }
+    if (n < 8){ n = 0; for (let xx = 0; xx < W; xx++) idx[n++] = b0 + xx; }
+    for (let k = 0; k < 3; k++){ const c = can[k], v = val.subarray(0, n); for (let j = 0; j < n; j++) v[j] = c[idx[j]]; bg[k][y] = mediana(v); }
+  }
+  for (let k = 0; k < 3; k++){ const a = bg[k], t = new Float32Array(H), v = new Float32Array(9);
+    for (let y = 0; y < H; y++){ for (let j = -4; j <= 4; j++) v[j + 4] = a[Math.min(H - 1, Math.max(0, y + j))]; t[y] = mediana(v); }
+    for (let y = 0; y < H; y++){ let su = 0; for (let j = -7; j <= 7; j++) su += t[Math.min(H - 1, Math.max(0, y + j))]; a[y] = su / 15; } }
+  /* 4. il punteggio: grana, più chiara o meno blu del cielo sgombro della riga, più scura */
+  const m = new Float32Array(N), chiara = new Float32Array(N);
+  for (let y = 0; y < H; y++){
+    const Lb = bg[0][y] * .299 + bg[1][y] * .587 + bg[2][y] * .114, rbb = bg[0][y] / Math.max(bg[2][y], .02);
+    for (let xx = 0; xx < W; xx++){ const i = y * W + xx, dL = (L[i] - Lb) / Math.max(Lb, .04), rb = R[i] / Math.max(B[i], .02);
+      const ch = Math.max(ss(.18, .45, dL), ss(.04, .12, rb - rbb)); chiara[i] = ch;
+      m[i] = Math.max(ss(.05, .11, gr[i]), ch, ss(.12, .3, -dL)); }
+  }
+  /* 4b. sotto la cresta chiara, il corpo in ombra della nuvola (12 punti, sfumando) */
+  const NS = 12;
+  for (let y = 0; y < H; y++) for (let xx = 0; xx < W; xx++){ let g = 0; for (let k = 0; k <= NS; k++){ const v = chiara[Math.max(0, y - k) * W + xx] * (1 - .5 * k / NS); if (v > g) g = v; } const i = y * W + xx; if (g * .9 > m[i]) m[i] = g * .9; }
+  /* 5. chiusura 7×7, apertura 3×3, bordo morbido */
+  let q = estremo(estremo(m, 3, true), 3, false);
+  q = estremo(estremo(q, 1, false), 1, true);
+  q = pesata(q, campana(1.5, 6)); for (let i = 0; i < N; i++) q[i] = ss(.3, .65, q[i]);
+  /* 6. i buchi: pezzi di «non nuvola» piccoli (meno dello 0,6% del cielo), chiusi dentro una nuvola */
+  const lab = new Uint8Array(N), coda = new Int32Array(N), buchi = new Float32Array(N);
+  for (let s0 = 0; s0 < N; s0++){ if (q[s0] >= .5 || lab[s0]) continue;
+    let a = 0, fine = 0; coda[fine++] = s0; lab[s0] = 1;
+    while (a < fine){ const i = coda[a++], y = (i / W) | 0, xx = i - y * W;
+      let j = y * W + (xx + 1) % W; if (!lab[j] && q[j] < .5){ lab[j] = 1; coda[fine++] = j; }
+      j = y * W + (xx + W - 1) % W; if (!lab[j] && q[j] < .5){ lab[j] = 1; coda[fine++] = j; }
+      if (y > 0){ j = i - W; if (!lab[j] && q[j] < .5){ lab[j] = 1; coda[fine++] = j; } }
+      if (y < H - 1){ j = i + W; if (!lab[j] && q[j] < .5){ lab[j] = 1; coda[fine++] = j; } } }
+    if (fine < .006 * N) for (let k = 0; k < fine; k++) buchi[coda[k]] = 1; }
+  const sb = pesata(buchi, campana(1, 4));
+  for (let i = 0; i < N; i++){ q[i] = Math.min(1, Math.max(q[i], sb[i] * 1.6)); if (buchi[i]) q[i] = 1; }
+  return q;
+}
 function orizzonte(dimg){
   const W = 48, H = Math.max(8, Math.round(W * dimg.naturalHeight / dimg.naturalWidth));
   const c = document.createElement('canvas'); c.width = W; c.height = H;
