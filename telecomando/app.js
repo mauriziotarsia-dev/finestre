@@ -9,7 +9,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
 const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 const euro = n => (n < .1 ? n.toFixed(3) : n.toFixed(2)).replace('.', ',') + ' $';
-const VERSIONE = '6.53';
+const VERSIONE = '6.54';
 /* 8/11 · l'app si aggiorna da sola (Maurizio: «vedo ancora il quadrato con la doppia finestra»: sul telefono restava la
    versione vecchia anche dopo averla chiusa). Quando torna in primo piano, e ogni 10 minuti, chiede al server quale
    app.js c'è adesso; se è un'altra, ricarica (mai mentre un lavoro AI è in corso) */
@@ -1580,7 +1580,43 @@ const costoAnimOre = d => { const mv = MODELLI_VIDEO.find(v => v.id === imp.vide
   return mv.euroSecondo * secondiRifai(d) * contaRifai(d).anim; };
 const costoRifaiOre = d => { const una = Ai.costoDi(d.modello || imp.modello, d.qualita || imp.qualita, !!d.grande);
   return (d.soloAnimazioni ? 0 : una * contaRifai(d).imm) + (MODELLI_VIDEO.length && d.animazioni !== false ? costoAnimOre(d) : 0); };
+/* 14/11 · Maurizio: «non possiamo fare sia abbazia che taverna insieme?». Più rifacimenti con un solo «Avvia», uno dopo
+   l'altro (il telefono fa un lavoro alla volta): rifaiOre: {chiave, titolo?, perche?, coda: [d1, d2, …]}. Quello con le
+   immagini da guardare va per ultimo: le sue anteprime e il tasto delle animazioni restano nel foglio */
+function chiediCodaOre(q){
+  if (!q.chiave || creaFatti.has(q.chiave) || (lavoro && !lavoro.finito)) return;
+  const voci = q.coda.map(d => ({d, p: libreria.find(x => x.id === d.id)})).filter(x => x.p && x.d.chiave && !creaFatti.has(x.d.chiave));
+  if (!voci.length){ rapportoLavoro({messaggio: 'rifaiOre: coda vuota (paesaggi non trovati o già fatti)'}); return; }
+  const costo = voci.reduce((a, x) => a + costoRifaiOre(x.d), 0);
+  const chiavi = voci.every(x => imp.chiavi[Ai.modello(x.d.modello || imp.modello).fornitore]) && imp.chiavi.google;
+  apriFoglio(`<h3 class="foglio-titolo">${esc(q.titolo || 'Più lavori, uno dopo l\'altro')}</h3>
+    <p class="nota" style="margin-top:0">${esc(q.perche || '')}</p>
+    <ul class="membri">${voci.map((x, i) => `<li><span><b>${i + 1}. ${esc(x.d.nome || x.p.nome)} · ≈ ${euro(costoRifaiOre(x.d))}</b><small>${esc(x.d.perche || '')}</small></span></li>`).join('')}</ul>
+    <button class="btn oro piena" style="margin-top:14px" data-fai="rifaiOreVia"${chiavi ? '' : ' disabled'}>${icona('scintilla', 18)}Avvia tutti · ≈ ${euro(costo)}</button>
+    <p class="nota">Uno dopo l'altro, con un tocco solo. Se uno non riesce, si passa al successivo. Tieni l'app aperta su questa pagina.</p>
+    <ul class="membri" id="codaFatti"></ul>
+    <div id="lavoroFoglio"></div><div id="rifaiOreDopo"></div>`);
+  foglioAperto = 'rifaiOre'; chiediRifaiOre.d = q;
+  rapportoLavoro({messaggio: 'rifaiOre: coda di ' + voci.length + ', in attesa di «Avvia»', costo: Math.round(costo * 100) / 100});
+}
+async function rifaiCodaVia(q){
+  const b = document.querySelector('[data-fai="rifaiOreVia"]'); if (b) b.hidden = true;
+  creaFatti.add(q.chiave); scrivi('atm-crea-fatti', [...creaFatti]);
+  const voci = q.coda.filter(d => libreria.some(x => x.id === d.id) && !creaFatti.has(d.chiave));
+  for (const [i, d] of voci.entries()){
+    const nome = d.nome || (libreria.find(x => x.id === d.id) || {}).nome || d.id;
+    try { await rifaiOreVia(d); } catch(e) { segnala(e); }
+    const passi = (lavoro && lavoro.passi) || [], errori = passi.filter(x => x.cls === 'errore').length;
+    const esito = lavoro && lavoro.errore ? 'non riuscito: ' + lavoro.errore : errori ? errori + (errori === 1 ? ' passo non riuscito' : ' passi non riusciti') : d.animazioni === false && !d.soloAnimazioni ? 'immagini fatte, le guardi qui sotto' : 'fatto';
+    const el = document.getElementById('codaFatti');
+    if (el) el.insertAdjacentHTML('beforeend', `<li><span><b>${i + 1}. ${esc(nome)}</b><small>${esc(esito)}</small></span></li>`);
+    rapportoLavoro({messaggio: 'coda ' + (i + 1) + '/' + voci.length + ' · ' + d.chiave + ': ' + esito + (lavoro && lavoro.passi ? ' | ' + lavoro.passi.map(x => x.cls + ' · ' + x.testo).join(' ; ') : '')});
+  }
+  /* il tasto «Faccio le N animazioni» vale per l'ultimo, quello con le immagini da guardare */
+  chiediRifaiOre.d = voci[voci.length - 1] || q;
+}
 function chiediRifaiOre(d){
+  if (d && Array.isArray(d.coda)) return chiediCodaOre(d);
   if (!d || !d.chiave || creaFatti.has(d.chiave) || (lavoro && !lavoro.finito)) return;
   const p = libreria.find(x => x.id === d.id);
   if (!p){ rapportoLavoro({messaggio: 'rifaiOre: paesaggio ' + d.id + ' non trovato su questo telefono'}); return; }
@@ -1596,6 +1632,7 @@ function chiediRifaiOre(d){
 }
 async function rifaiOreVia(dd){
   const d = dd && dd.chiave ? dd : chiediRifaiOre.d; if (!d) return;
+  if (Array.isArray(d.coda)) return rifaiCodaVia(d);
   const b = document.querySelector('[data-fai="rifaiOreVia"]'); if (b) b.hidden = true;
   const p = libreria.find(x => x.id === d.id); if (!p){ avviso('Non trovo il paesaggio.', true); return; }
   creaFatti.add(d.chiave); scrivi('atm-crea-fatti', [...creaFatti]);
