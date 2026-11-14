@@ -526,8 +526,8 @@ def _recenti(cart, quanti=8):
 # gratuito ne dà 5 al mese (è arrivata a Maurizio la mail di Supabase). Ora, se all'ultimo giro non c'era niente da fare
 # né niente in sospeso, si chiedono solo i file toccati per ultimi (_recenti): se sono gli stessi di prima non è cambiato
 # niente e il giro finisce lì. L'elenco intero si rifà quando qualcosa cambia, quando c'è lavoro in sospeso (un video
-# lasciato al più forte, uno che un altro sta cucendo) e comunque ogni 10 minuti. Il lavoro nuovo parte come prima,
-# entro 20 secondi.
+# lasciato al più forte, uno che un altro sta cucendo) e comunque una volta all'ora (a riposo i giri sono uno ogni
+# 10 minuti, vedi «LA SPINTA»: con l'elenco intero a ogni giro di sicurezza erano ancora 5 MB al giorno).
 _RIPOSO = {}        # per cartella: {'firma': i file recenti all'ultimo giro intero senza niente da fare, 'quando': quando}
 _SOSPESI = [0]      # quante cose l'ultimo giro intero ha lasciato in sospeso (ad altri, o a dopo)
 
@@ -615,7 +615,7 @@ def giro_casa(casa, larghezza=None, veloce=False, forza=1, chi='pc'):
     riposo = _RIPOSO.setdefault(cart, {'firma': None, 'quando': 0.0})
     try: firma = _recenti(cart)
     except Exception: firma = None
-    if firma is not None and firma == riposo['firma'] and time.time() - riposo['quando'] < 600: return 0   # niente di nuovo (vedi «IL GIRO LEGGERO»)
+    if firma is not None and firma == riposo['firma'] and time.time() - riposo['quando'] < 3600: return 0   # niente di nuovo (vedi «IL GIRO LEGGERO»)
     _SOSPESI[0] = 0
     quando_elenco = time.time()
     elenco = _elenco(cart)
