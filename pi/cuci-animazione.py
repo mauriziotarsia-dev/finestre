@@ -240,7 +240,7 @@ class Cucitore:
             j += 1
 
 
-def fermo_dalla_foto(rif, alta, zone, cielo):
+def fermo_dalla_foto(rif, alta, zone, cielo, fx=0.5):
     """13/11 notte · Maurizio: «aumentiamo risoluzione, dettagli…». Le immagini ora arrivano in 4K, ma il fermo (tutto
     quello che non si muove) veniva dal video, a 1080: il dettaglio del 4K si perdeva proprio quando la scena è animata.
     Il video parte da quell'immagine con la camera ferma: si allinea la foto al video (ECC sulle parti ferme) e, se
@@ -249,6 +249,13 @@ def fermo_dalla_foto(rif, alta, zone, cielo):
     img = cv2.imread(alta)
     if img is None: return None, None
     H, W = img.shape[:2]; h, w = rif.shape[:2]
+    # 14/11 · il video è la foto ritagliata alla sua forma (js/ai.js, adatta: «cover», fx in orizzontale, centro in verticale):
+    # si ritaglia la foto allo stesso modo, così combacia anche quando la foto è più stretta o più larga del video
+    if abs(W / H - w / h) > .01:
+        sc = max(w / W, h / H); sw, sh = w / sc, h / sc
+        x0, y0 = int(round((W - sw) * fx)), int(round((H - sh) / 2))
+        img = img[max(0, y0):max(0, y0) + int(round(sh)), max(0, x0):max(0, x0) + int(round(sw))]
+        H, W = img.shape[:2]
     if W < w * 1.4 or abs(W / H - w / h) > .03: return None, None          # non più grande del video, o altra forma
     piccola = cv2.resize(img, (w, h), interpolation=cv2.INTER_AREA)
     ferme = ((cv2.resize(zone, (w, h)) < .1) & (cv2.resize(cielo, (w, h)) < .5)).astype(np.uint8)
@@ -275,12 +282,12 @@ def fermo_dalla_foto(rif, alta, zone, cielo):
     return grande, lut
 
 
-def cuci(entrata, uscita, profondita=None, immagine=None, fuoco_x=0.5, larghezza=None, veloce=False, fermo=None, maschera=None, alta=None, sfuma=None):
+def cuci(entrata, uscita, profondita=None, immagine=None, fuoco_x=0.5, larghezza=None, veloce=False, fermo=None, maschera=None, alta=None, sfuma=None, fx_video=None):
     n, fps, w, h = leggi_info(entrata)
     primo = next(fotogrammi(entrata))
     cielo = maschera_cielo(w, h, profondita, immagine, fuoco_x, primo)
     sp, rif, zone, guad, sost, info = analizza(entrata, n, fps, w, h, cielo)
-    foto, lut = fermo_dalla_foto(rif, alta, zone, cielo) if alta else (None, None)
+    foto, lut = fermo_dalla_foto(rif, alta, zone, cielo, fuoco_x if fx_video is None else fx_video) if alta else (None, None)
     c = int(round(fps * (sfuma or SECONDI_GIRO)))            # 14/11: coi pezzi (tutti da e verso la stessa immagine) basta 1,5 s
     lung = n - c                                               # il giro: n - c fotogrammi
     # ⚠ 30/10: il video serve solo dove si muove (nebbia, fumo, acqua): il resto lo disegna il fermo a piena
@@ -591,6 +598,34 @@ def giro_casa(casa, larghezza=None, veloce=False, forza=1, chi='pc'):
             fatti += _cuci_uno(cart, nomi, nome, base, parte, originale, larghezza, veloce)
         finally:
             vivo.set(); _libera(cart, segno)
+    if not fatti and forza >= 2:                               # 14/11: le animazioni già cucite col cucitore di prima, una per giro
+        for nome in nomi:
+            base, _, parte = nome.rpartition('_')
+            if not re.fullmatch(r'(est-)?anim-(giorno|alba|tramonto|notte)\.mp4', parte): continue
+            originale = f'{base}_{parte[:-4]}-originale.mp4'
+            if originale not in nomi or f'{base}_{parte[:-4]}-v2.png' in nomi: continue
+            if piu_forte: break
+            segno = f'{base}_{parte[:-4]}-incorso.png'
+            if segno in file:
+                if _eta_agg(file[segno]) < 3: continue
+                _libera(cart, segno)
+            if not _prenota(cart, segno, chi): continue
+            print(chi, 'ricuce', nome, flush=True)
+            vivo = threading.Event()
+            def battito():
+                while not vivo.wait(30):
+                    try: _rinfresca(cart, segno); _rinfresca(cart, io)
+                    except Exception: pass
+            threading.Thread(target=battito, daemon=True).start()
+            try:
+                fatti += _cuci_uno(cart, nomi, nome, base, parte, originale, larghezza, veloce, ricuci=True)
+            except Exception as ex:
+                print('  ricucitura non riuscita:', ex, file=sys.stderr, flush=True)
+                try: _rinfresca(cart, f'{base}_{parte[:-4]}-v2.png')   # non riprovarla all'infinito
+                except Exception: pass
+            finally:
+                vivo.set(); _libera(cart, segno)
+            break
     if not fatti:                                              # le animazioni prima di tutto; poi, se c'è tempo, le foto
         try:
             elenco = json.loads(_chiedi('POST', f'/storage/v1/object/list/{DEPOSITO}', json.dumps({'prefix': cart, 'limit': 1000}).encode()))
@@ -613,13 +648,15 @@ def metti_in_fila(pezzi, uscita):
     subprocess.run(cmd, check=True, creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
 
 
-def _cuci_uno(cart, nomi, nome, base, parte, originale, larghezza, veloce):
+def _cuci_uno(cart, nomi, nome, base, parte, originale, larghezza, veloce, ricuci=False):
+    """ricuci: l'animazione è già cucita (con il cucitore di prima): si riparte dal video originale dell'AI, che resta
+    com'è, e si rifanno video, fermo e maschera (14/11: il fermo dalla foto a piena risoluzione anche per i paesaggi vecchi)."""
     if True:
         with tempfile.TemporaryDirectory() as d:
             e, u = os.path.join(d, 'e.mp4'), os.path.join(d, 'u.mp4')
-            _scarica(cart, nome, e)
+            _scarica(cart, originale if ricuci else nome, e)
             # i pezzi in più del giro lungo (…_anim-notte-pezzo2.mp4 …): in fila dopo il primo
-            pezzi_n = [f'{base}_{parte[:-4]}-pezzo{k}.mp4' for k in range(2, 9) if f'{base}_{parte[:-4]}-pezzo{k}.mp4' in nomi]
+            pezzi_n = [] if ricuci else [f'{base}_{parte[:-4]}-pezzo{k}.mp4' for k in range(2, 9) if f'{base}_{parte[:-4]}-pezzo{k}.mp4' in nomi]
             if pezzi_n:
                 pz = [e]
                 for i, pn in enumerate(pezzi_n):
@@ -641,8 +678,10 @@ def _cuci_uno(cart, nomi, nome, base, parte, originale, larghezza, veloce):
             ora_f = parte[len(pre) + 5:-4]
             if f'{base}_{pre}{ora_f}.jpg' in nomi:
                 alta = os.path.join(d, 'a.jpg'); _scarica(cart, f'{base}_{pre}{ora_f}.jpg', alta)
-            info = cuci(e, u, prof, imm, fx, larghezza, veloce, fj, mp, alta, 1.5 if pezzi_n else None)
-            _chiedi('POST', f'/storage/v1/object/{DEPOSITO}/{cart}/' + urllib.parse.quote(originale), open(e, 'rb').read(), 'video/mp4', {'x-upsert': 'true'})
+            fxv = 0.5 if (pre or 'largo' in (base.split('@', 1)[1].split('.') if '@' in base else []) or 'interno' in (base.split('@', 1)[1].split('.') if '@' in base else [])) else fx
+            info = cuci(e, u, prof, imm, fx, larghezza, veloce, fj, mp, alta, 1.5 if (pezzi_n or (ricuci and leggi_info(e)[0] / max(1, leggi_info(e)[1]) > 12)) else None, fxv)
+            if not ricuci:
+                _chiedi('POST', f'/storage/v1/object/{DEPOSITO}/{cart}/' + urllib.parse.quote(originale), open(e, 'rb').read(), 'video/mp4', {'x-upsert': 'true'})
             _chiedi('POST', f'/storage/v1/object/{DEPOSITO}/{cart}/' + urllib.parse.quote(nome), open(u, 'rb').read(), 'video/mp4',
                     {'x-upsert': 'true', 'cache-control': 'max-age=60'})
             # fermo e maschera nuovi, al posto di quelli fatti dal telefono alla creazione (js/fermo.js).
@@ -668,6 +707,8 @@ def _cuci_uno(cart, nomi, nome, base, parte, originale, larghezza, veloce):
                         {'x-upsert': 'true', 'cache-control': 'max-age=60'})
             except Exception as ex: print('copia piccola del fermo non fatta:', ex, file=sys.stderr, flush=True)
             for pn in pezzi_n: _libera(cart, pn)                          # i pezzi sono dentro l'originale lungo
+            try: _rinfresca(cart, f'{base}_{parte[:-4]}-v2.png')          # cucita con il fermo dalla foto (o provato): non si rifà
+            except Exception: pass
             print('  fatto:', info, flush=True)
             return 1
 
