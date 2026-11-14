@@ -9,7 +9,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
 const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 const euro = n => (n < .1 ? n.toFixed(3) : n.toFixed(2)).replace('.', ',') + ' $';
-const VERSIONE = '6.50';
+const VERSIONE = '6.51';
 /* 8/11 · l'app si aggiorna da sola (Maurizio: «vedo ancora il quadrato con la doppia finestra»: sul telefono restava la
    versione vecchia anche dopo averla chiusa). Quando torna in primo piano, e ogni 10 minuti, chiede al server quale
    app.js c'è adesso; se è un'altra, ricarica (mai mentre un lavoro AI è in corso) */
@@ -1478,8 +1478,9 @@ async function bozzeVia(){
         if (!imp.chiavi[mm.fornitore]){ passo(kn, 'errore', x.id + ' · manca la chiave ' + (mm.fornitore === 'google' ? 'Google' : 'OpenAI')); return; }
         passo(kn, 'ora', x.id + ' · finestrelle' + (grande ? ' in 4K' : '') + '…');
         const testo = x.prompt ? x.prompt : x.interno ? promptInterno(x.descrizione, x.centro || 'the main counter', stile, x.vista, {luce: x.luce, persone: x.persone, lati: x.lati}) : promptLargo(x.descrizione, stile);
+        const stato = (st, sec) => passo(kn, 'ora', x.id + ' · ' + st + ' da ' + Math.floor(sec / 60) + ':' + String(sec % 60).padStart(2, '0'));
         const rn = rif && x.prompt
-          ? await Ai.modifica({modello, chiavi: imp.chiavi, qualita, grande, misura: 'tv', foto: rif, prompt: testo + (d.stanzaInPiu ? '\n\n' + d.stanzaInPiu : '')})
+          ? await Ai.modifica({modello, chiavi: imp.chiavi, qualita, grande, stato, misura: 'tv', foto: rif, prompt: testo + (d.stanzaInPiu ? '\n\n' + d.stanzaInPiu : '')})
           : rif && x.conStanza !== false
           ? await Ai.modifica({modello, chiavi: imp.chiavi, qualita, grande, misura: 'tv', foto: rif, prompt: (d.fedele ? PROMPT_STANZA_FEDELE : PROMPT_STANZA) + (d.stanzaInPiu ? d.stanzaInPiu + '\n\n' : '') + testo})
           : await Ai.crea({modello, chiavi: imp.chiavi, qualita, grande, misura: 'tv', prompt: testo});
@@ -1631,6 +1632,7 @@ async function rifaiOreVia(dd){
           try {
             const base = fissa || await prendi(p.immagini[k]);
             const r = await Ai.modifica({...opzImm(), prompt: o.prompt ? conInPiu(o.prompt) : promptOraPersone(o), foto: base, misura: 'tv',
+              stato: (st, sec) => passo(k, 'ora', eti + (o.prompt ? ': ritocco… ' : ': luce e persone… ') + st + ' da ' + Math.floor(sec / 60) + ':' + String(sec % 60).padStart(2, '0')),
               bozza: b64 => { L.anteprime[k] = {url: 'data:image/png;base64,' + b64, bozza: true}; disegnaLavoro(); }});
             const jpg = await inJpeg(b64aBlob(r.b64, r.mime), latoImm());
             const u = vista === 'est' ? await caricaEst(casa, p, ora, jpg) : await caricaLuce(casa, p, ora, jpg);

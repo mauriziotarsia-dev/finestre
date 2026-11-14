@@ -107,15 +107,17 @@ const Ai = {
     if (foto) contenuto.push({type:'input_image', image_url:'data:' + (foto.type || 'image/jpeg') + ';base64,' + await this.inBase64(foto)});
     const strumento = {type:'image_generation', model:modello, size:'3840x2160', quality:this.livelloOpenai(modello, o.qualita), action: foto ? 'edit' : 'generate', output_format:'png'};
     const ripiega = e => { e.ripiega = true; return e; };
-    let r, it = null;
+    let r, it = null, senzaRagiona = false;
     for (const guida of ['gpt-5.5', 'gpt-5']){
       for (let giro = 0; giro < 3; giro++){
-        const corpo = {model:guida, background:true, input:[{role:'user', content:contenuto}], tools:[strumento], tool_choice:{type:'image_generation'},
+        /* 14/11 · il modello guida deve solo passare il testo allo strumento: niente ragionamenti lunghi */
+        const corpo = {model:guida, background:true, reasoning: senzaRagiona ? undefined : {effort:'low'}, input:[{role:'user', content:contenuto}], tools:[strumento], tool_choice:{type:'image_generation'},
           instructions:'Call the image generation tool exactly once, passing the user\'s text as the prompt word for word, without rewriting, shortening or adding anything.'};
         try { r = await fetch('https://api.openai.com/v1/responses', {method:'POST', headers:intest, body:JSON.stringify(corpo)}); }
         catch(e){ if (giro < 1) continue; throw ripiega(this.rete('OpenAI', e)); }
         if (r.ok){ it = await r.json(); break; }
         const e = await this.errore(r, 'OpenAI');
+        if (r.status === 400 && /reasoning/i.test(e.testo || '') && !senzaRagiona){ senzaRagiona = true; continue; }
         if (r.status === 400 && /quality/i.test(e.testo || '') && strumento.quality !== 'high'){ strumento.quality = 'high'; continue; }
         if (r.status === 400 && /size/i.test(e.testo || '') && strumento.size !== '2560x1440'){ strumento.size = '2560x1440'; continue; }
         if ((r.status === 400 || r.status === 404 || r.status === 403) && /model/i.test(e.testo || '') && !new RegExp(modello.replace(/\./g, '\\.')).test(e.testo || '')) break;   /* manca il modello guida: si prova l'altro */
@@ -129,6 +131,7 @@ const Ai = {
        scadeva subito anche se l'immagine era pronta (pagata e persa). Ora conta i controlli fatti davvero (≈ 25 minuti attivi). */
     let controlli = 0;
     while (it.status && !/^(completed|failed|cancelled|incomplete)$/.test(it.status)){
+      o.stato && o.stato(it.status === 'queued' ? 'OpenAI: in coda' : 'OpenAI: la sta facendo', controlli * 4);   /* 14/11: si vede a che punto è */
       await new Promise(ok => setTimeout(ok, 4000));
       if (++controlli > 375) throw new Error('OpenAI ci sta mettendo troppo: riprova più tardi.');
       try { r = await fetch('https://api.openai.com/v1/responses/' + encodeURIComponent(it.id), {headers:{'Authorization':'Bearer ' + chiave}}); } catch(e) { continue; }   /* un controllo perso non ferma niente */
@@ -287,6 +290,7 @@ const Ai = {
     let it = await r.json();
     let controlli = 0;
     while (it.status && it.status !== 'completed' && it.status !== 'failed' && it.status !== 'cancelled'){
+      o.stato && o.stato('Google: la sta facendo', controlli * 4);
       await new Promise(ok => setTimeout(ok, 4000));
       if (++controlli > 375) throw new Error('Google ci sta mettendo troppo: riprova più tardi.');
       try { r = await fetch(base + '/' + encodeURIComponent(it.id), {headers:{'x-goog-api-key':chiave}}); } catch(e) { continue; }
