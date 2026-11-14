@@ -283,7 +283,12 @@ vec3 paesaggio(sampler2D img, sampler2D imgB, float vk, sampler2D dep, vec4 crop
        da 2-4 pixel col sereno a 8-9 col temporale (su un foro alto 1000). Solo dove c'è verde, mai nel cielo. */
     /* 4/11 (Maurizio: «non vedo il movimento degli alberi nel paesaggio TV»): sul TV gli alberi sono quasi tutti a
        media distanza; prima si muovevano solo i vicinissimi. Ora anche quelli a metà strada, un po' di più */
-    float vicino = smoothstep(.04, .27, n);   /* 11/11: anche un po' più lontano (Maurizio: «poco movimento di alberi ed arbusti») */
+    /* ⚠ 14/11 · ALBERI CON LE IMMAGINI IN 4K (Maurizio: «il movimento degli alberi è troppo fake, ondula troppo anche
+       dove non serve, si vede troppo», sulla finestrella dell'abbazia). Con l'immagine nitida lo stesso spostamento si
+       vede molto di più, e la maschera delle chiome prendeva anche campi e pendii (vedi mascheraAlberi). Ora: le chiome
+       lontane (il colle dell'abbazia) quasi ferme, quelle a metà strada appena, le vicine ondeggiano piano: lo
+       spostamento cresce con la vicinanza, come succede davvero, ed è circa un terzo di prima */
+    float vicino = smoothstep(.06, .30, n);
     vec2 dSp = vec2(0.);   /* di quanto si è spostato quello che si vede qui (chiome al vento): la nebbiolina lo segue */
     vec4 vt = uHaVento > .5 ? texture2D(uVentoT, vec2(vUv.x, 1. - vUv.y)) : vec4(.5, .5, 0., 0.);
     if (vicino > .01 && vt.b > .01){
@@ -304,7 +309,7 @@ vec3 paesaggio(sampler2D img, sampler2D imgB, float vk, sampler2D dep, vec4 crop
          · l'ondeggiare intorno alla posizione: 2-5 px nella calma, fino a 4-11 col vento forte;
          · la spinta sottovento (verso dove vanno le nuvole): niente nella calma, fino a 10-24 px col vento forte,
            più forte quando passa una raffica e meno fra una e l'altra: le chiome si piegano e tornano */
-      float amp = (10. + 16. * n) * vt.b;   /* 11/11: +30% (Maurizio: «vedo forse poco movimento di alberi ed arbusti») */   /* 5/11: un po' di più, due volte (Maurizio: «di poco in più», «leggermente più visibile ancora») */
+      float amp = (1.5 + 10. * n) * vt.b;   /* 14/11: era 10 + 16 n (alzato tre volte quando le immagini erano morbide) */
       vec2 osc = vec2((vt.r - .5) * 2.2, (vt.g - .5) * .8) * amp * (.45 + uVento * .55);
       float spinta = amp * uVento * uVento * 2.;
       float luccica = 0.;
@@ -1453,7 +1458,17 @@ function mascheraAlberi(img, dimg){
   const W = 256, H = Math.max(8, Math.round(W * img.naturalHeight / img.naturalWidth)), W3 = W * 3, H3 = H * 3;
   const c = document.createElement('canvas'); c.width = W3; c.height = H3;
   const x = c.getContext('2d', {willReadFrequently:true});
-  x.drawImage(img, 0, 0, W3, H3); const d = x.getImageData(0, 0, W3, H3).data;
+  /* ⚠ 14/11 · un'immagine in 4K ridotta di colpo a 768 punti si riempie di grana finta, e in più è nitida davvero:
+     la «grana delle foglie» usciva dappertutto (prati, campi, pendii) e un terzo del paesaggio ondeggiava. Si riduce a
+     metà per volta (ogni punto è la media dei quattro sotto) e la grana si giudica rispetto a quella dell'immagine */
+  let src = img, sw = img.naturalWidth || img.width, sh = img.naturalHeight || img.height;
+  while (sw > W3 * 2 && sh > H3 * 2){
+    const m = document.createElement('canvas'); m.width = Math.round(sw / 2); m.height = Math.round(sh / 2);
+    const mx2 = m.getContext('2d'); mx2.imageSmoothingEnabled = true; mx2.imageSmoothingQuality = 'high'; mx2.drawImage(src, 0, 0, m.width, m.height);
+    src = m; sw = m.width; sh = m.height;
+  }
+  x.imageSmoothingEnabled = true; x.imageSmoothingQuality = 'high';
+  x.drawImage(src, 0, 0, W3, H3); const d = x.getImageData(0, 0, W3, H3).data;
   let p = null; if (dimg){ x.clearRect(0, 0, W3, H3); x.drawImage(dimg, 0, 0, W, H); p = x.getImageData(0, 0, W, H).data; }
   const ss = (a, b2, v) => { const t = Math.max(0, Math.min(1, (v - a) / (b2 - a))); return t * t * (3 - 2 * t); };
   /* a 3× la risoluzione: luminanza e verde (come fogliame() nel disegno) */
@@ -1478,9 +1493,14 @@ function mascheraAlberi(img, dimg){
       for (let y = 0; y < H; y++){ o[y * W + xx] = a / (2 * r + 1); a += t[Math.min(H - 1, y + r + 1) * W + xx] - t[Math.max(0, y - r) * W + xx]; } }
     return o; };
   const Lloc = box(L, 7), C = new Float32Array(W * H);
+  /* la grana di riferimento: la mediana della grana dove c'è verde (fra .03 e .09). Una chioma ha più grana della
+     metà del verde dell'immagine ed è più scura di quello che ha intorno (prima bastava non essere più chiara) */
+  const verdi = []; for (let i = 0; i < W * H; i++) if (F[i] > .5) verdi.push(S[i]);
+  verdi.sort((a, b2) => a - b2);
+  const ref = Math.min(.09, Math.max(.03, verdi.length > 50 ? verdi[verdi.length >> 1] : .0395));
   for (let i = 0; i < W * H; i++){
     const n = p ? p[i * 4] / 255 : (i / W / H);
-    C[i] = F[i] * ss(.032, .058, S[i]) * ss(.045, -.03, L[i] - Lloc[i]) * (n > .08 ? 1 : 0);
+    C[i] = F[i] * ss(.81 * ref, 1.47 * ref, S[i]) * ss(.02, -.035, L[i] - Lloc[i]) * (n > .08 ? 1 : 0);
   }
   const o = new ImageData(W, H);
   for (let y = 0; y < H; y++) for (let xx = 0; xx < W; xx++){
