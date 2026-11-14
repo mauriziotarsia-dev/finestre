@@ -396,7 +396,9 @@ vec3 paesaggio(sampler2D img, sampler2D imgB, float vk, sampler2D dep, vec4 crop
          la neve e le nuvole dipinte (senza cielo che scorre): due venti opposti nella stessa finestra */
       float rgM = 0., rsM = 0.;
       if (uRaf.x >= 0.){ float rt = rafTau(uv), rc = rafCella(uv) * uRaf.z; rgM = rafEnv(rt) * rc; rsM = rafStrada(rt) * rc; }
-      float tva = uT * .05 + uTV * .06 + rsM * .3;   /* 9/11: era uT * (.05 + .06 × vento): vedi uTV */   /* ⚠ 5/11: una velocità sola per tutti i punti: moltiplicare il tempo per un valore diverso punto per punto, dopo qualche minuto, dava righe e puntini (G10) */      /* quanto scorre la trama (sue unità al secondo): un banco attraversa sé stesso in 12-25 s (5/11: più viva) */
+      /* 14/11 (Maurizio: «rendiamo più visibile il movimento della foschia»): scorre una volta e mezza più svelta (era .05 e .06),
+         e da metà distanza in là i veli sono un po' più chiari e più staccati dal fondo, i filamenti più fitti */
+      float tva = uT * .075 + uTV * .09 + rsM * .3;   /* 9/11: era uT * (.05 + .06 × vento): vedi uTV */   /* ⚠ 5/11: una velocità sola per tutti i punti: moltiplicare il tempo per un valore diverso punto per punto, dopo qualche minuto, dava righe e puntini (G10) */      /* quanto scorre la trama (sue unità al secondo): un banco attraversa sé stesso in 12-25 s (5/11: più viva) */
       /* 5/11 (Maurizio: «quella sotto è ancora poco viva»): la nebbia vicina scorre più svelta (come dal vero: più è
          vicina, più strada fa sullo schermo) e ha banchi più grandi e più contrastati */
       float vicinaM = smoothstep(.1, .35, nB);
@@ -406,14 +408,41 @@ vec3 paesaggio(sampler2D img, sampler2D imgB, float vk, sampler2D dep, vec4 crop
          con i veli e i filamenti che passano sopra */
       /* veli: banchi più chiari, lunghi e bassi, che passano e si disfano */
       float velo = fbmP(vec2(ti.x * mix(3.3, 2.2, vicinaM) + tP(tva * 1.6), ti.y * mix(15., 8., vicinaM) + tP(uT * .08))) * .65 + f2 * .35;
-      float wv = smoothstep(.38, .7, velo);
-      vec3 bianco = vec3(lm) * vec3(.97, .99, 1.03) * mix(1.3, 1.55, uNotte) + .06 * (1. - uNotte) + vec3(.008, .012, .02) * uNotte;   /* dal colore sfocato di qui (non da quello spostato: faceva venature) */
+      float piuV = 1. - vicinaM;   /* 14/11: più decisi da metà distanza in là; in primo piano come prima (lì la maschera prende anche le foglie chiare degli ulivi) */
+      float wv = smoothstep(.38 + .04 * piuV, .7 - .05 * piuV, velo);   /* 14/11: da metà distanza in là il bordo dei veli è un po' più netto: si vede che passano */
+      vec3 bianco = vec3(lm) * vec3(.97, .99, 1.03) * (mix(1.3, 1.55, uNotte) + .12 * piuV) + .06 * (1. - uNotte) + vec3(.008, .012, .02) * uNotte;   /* dal colore sfocato di qui (non da quello spostato: faceva venature) */
       c = mix(c, bianco, neb * wv * mix(.85, 1., vicinaM) * (1. - .45 * rgM));   /* raffica: i veli si strappano */
-      c *= 1. - neb * (1. - wv) * (.22 + .12 * vicinaM);   /* fra un velo e l'altro la nebbia si dirada un poco: respira */
+      c *= 1. - neb * (1. - wv) * (.22 + .12 * vicinaM + .06 * piuV);   /* fra un velo e l'altro la nebbia si dirada un poco: respira */
       /* filamenti: veli sottili e più svelti che attraversano i banchi (si vede che la nebbia scorre) */
       float fil = fbmP2(vec2(ti.x * mix(5.5, 3.5, vicinaM) + tP(tva * 2.6), ti.y * mix(24., 13., vicinaM) - tP(uT * .03)));
-      c = mix(c, bianco, neb * smoothstep(.5, .85, fil) * (.4 + .35 * rgM));   /* raffica: i filamenti frustano */
+      c = mix(c, bianco, neb * smoothstep(.5 - .04 * piuV, .85 - .05 * piuV, fil) * (.4 + .14 * piuV + .35 * rgM));   /* raffica: i filamenti frustano */
     }
+    /* ⚠ 14/11 · FOSCHIA LONTANA VIVA (Maurizio: «rendiamo più visibile il movimento della foschia, così si capisce a prima
+       vista che è un'immagine viva e non un quadro»). I banchi bianchi lontani, dietro l'abbazia, erano fermi del tutto:
+       dal 10/11 la nebbiolina viva non va oltre 0,05–0,1 di profondità, perché lì i suoi veli facevano puntini e
+       cavolfiori (la maschera a colori cambiava a chiazze). La foschia lontana si muove in un altro modo, senza maschere
+       a colori: veli larghi e morbidi scorrono piano verso sinistra e portano il colore sfocato del posto (il bianco del
+       banco accanto, il rosa al tramonto, il blu di notte), schiarito un poco. Sopra un banco quasi non si vedono; dove
+       il banco finisce contro una collina il velo la copre e poi la scopre: i bordi dei banchi si muovono, come la
+       foschia vera vista da lontano; fra un velo e l'altro quello che è più chiaro dei dintorni (il banco) si dirada un
+       filo. Tutto letto sfocato largo (0,4–0,8% dell'immagine, uguale su ogni schermo): niente puntini. Non tocca il
+       cielo (si ferma sotto il crinale) né gli oggetti (abbazia, torri). */
+#ifndef LEGGERO
+    { float bL = log2(max(2., .004 * uPix.x / max(crop.z, .01)));
+      vec3 dW = haDep > .5 ? fotoL(dep, cropD, pS, bL) : vec3(1., 0., 0.);
+      vec3 cW = haF > .5 ? fotoL(fer, crop, pS, bL + 1.) : fotoL(img, crop, pS, bL + 1.);
+      float lontana = (1. - smoothstep(.03, .075, dW.r)) * (1. - smoothstep(.02, .3, dW.g)) * (1. - dW.b) * step(.5, haDep) * min(1., uNebV);
+      if (lontana > .01){
+        vec2 ti = cropD.xy + p * cropD.zw;
+        float v1 = fbmP2(vec2(ti.x * 4. + tP(uT * .08 + uTV * .06), ti.y * 26. - tP(uT * .012) + 3.7));
+        float v2 = fbmP2(vec2(ti.x * 7. + tP(uT * .13 + uTV * .1) + 11.3, ti.y * 44. + tP(uT * .02)));
+        float vl = smoothstep(.42, .72, v1 * .65 + v2 * .35);
+        float lW = dot(cW, vec3(.299, .587, .114)), lC = dot(c, vec3(.299, .587, .114));
+        c *= 1. - lontana * (1. - vl) * .09 * smoothstep(1.02, 1.3, lC / max(lW, .02));
+        c = mix(c, cW * mix(1.12, 1.3, uNotte) + .03 * (1. - uNotte), lontana * vl * .6);
+      }
+    }
+#endif
   }
   return c;
 }
