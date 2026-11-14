@@ -652,7 +652,7 @@ void main(){
         float pulv = rumore(qd + vec2(uT * .08, -uT * .16)) * .5 + rumore(qd * 2.1 + vec2(-uT * .07, -uT * .27) + 7.3) * .3 + rumore(qd * 4.3 + vec2(uT * .12, -uT * .4) + 3.1) * .2;
         float respiro = rumore(vec2(uT * .13, 5.7)) * .6 + rumore(vec2(uT * .31, 9.2)) * .4;
         /* il pulviscolo sta nell'aria (raggi, chiazza sul pavimento), non sui vetri: i vetri, più chiari, seguono solo il respiro */
-        col *= 1. + fuoriD * (.55 * (pulv - .5) * (1. - smoothstep(.6, .72, lumD)) + .25 * (respiro - .5));
+        col *= 1. + fuoriD * (.8 * (pulv - .5) * (1. - smoothstep(.6, .72, lumD)) + .45 * (respiro - .5));   /* sul TV vero, con .55 e .25, in dieci secondi i vetri cambiavano dell'1,5%: non si vedeva */
       }
     } else {
       ombraV = clamp(-dV / 127., 0., 1.); nuvV = clamp(dV / 127., 0., 1.);
