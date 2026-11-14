@@ -87,12 +87,15 @@ const Ai = {
     /* 13/11 notte · il 4K ci mette minuti: la prima prova (richiesta diretta) è caduta con «Load failed» (Safari chiude
        una connessione muta). In 4K si chiede in sottofondo e si controlla ogni pochi secondi, come per le animazioni;
        se il sottofondo non va, si torna alla richiesta diretta. */
-    if (o.grande){
-      try { return await this.openaiSottofondo(o, modello, foto); }
-      catch(e){ if (!e.ripiega) throw e; }
-    }
+    /* 14/11 mattina · in sottofondo una sola immagine è rimasta in coda da OpenAI oltre 10 minuti, mentre la richiesta diretta
+       ci metteva meno di un minuto. Ora si chiede diretta (a flusso: le anteprime che arrivano tengono viva la connessione);
+       il sottofondo resta solo come ripiego se la connessione cade. */
     try { return await this.openaiUna(o, modello, foto, this.livelloOpenai(modello, o.qualita)); }
     catch(e){
+      if (o.grande && e.tipo === 'rete'){
+        try { return await this.openaiSottofondo(o, modello, foto); }
+        catch(e2){ if (!e2.ripiega) throw e2; }
+      }
       /* GPT Image 2.5 non disponibile su questa chiave (modello sconosciuto o non abilitato): stessa richiesta con GPT Image 2 */
       if (/^gpt-image-2\.5/.test(modello) && (e.status === 404 || e.status === 403 || (e.status === 400 && /model/i.test(e.testo || '') && /exist|not found|invalid|unsupported|access|verif/i.test(e.testo || ''))))
         return await this.openaiUna(o, 'gpt-image-2', foto, this.livelloOpenai('gpt-image-2', o.qualita));
@@ -166,14 +169,15 @@ const Ai = {
           corpo = JSON.stringify(Object.assign(base, flusso ? {stream:true, partial_images:2} : {}));
         }
         let r, b64;
+        const t0 = Date.now(), tic = o.stato ? setInterval(() => o.stato('OpenAI: la sta facendo', Math.round((Date.now() - t0) / 1000)), 4000) : null;
         try {
           r = await fetch(url, {method:'POST', headers:intest, body:corpo});
           if (r.ok) b64 = /event-stream/.test(r.headers.get('content-type') || '') ? await this.leggiFlusso(r, o.bozza) : ((j) => j.data && j.data[0] && j.data[0].b64_json)(await r.json());
         } catch(e) {
           if (e.tipo) throw e;                                 /* errore vero dentro il flusso (credito, regole…) */
-          if (giro < 1) continue;                              /* la rete è caduta: riprova una volta */
+          if (giro < 1 && !o.grande) continue;                 /* la rete è caduta: riprova una volta (in 4K si passa al sottofondo) */
           throw this.rete('OpenAI', e);
-        }
+        } finally { if (tic) clearInterval(tic); }
         if (r.ok){
           if (b64) return {b64, mime:'image/png', misura, modello};
           ultimo = new Error('OpenAI non ha mandato l\'immagine.'); break;
