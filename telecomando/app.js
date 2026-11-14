@@ -9,7 +9,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
 const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 const euro = n => (n < .1 ? n.toFixed(3) : n.toFixed(2)).replace('.', ',') + ' $';
-const VERSIONE = '6.54';
+const VERSIONE = '6.55';
 /* 8/11 · l'app si aggiorna da sola (Maurizio: «vedo ancora il quadrato con la doppia finestra»: sul telefono restava la
    versione vecchia anche dopo averla chiusa). Quando torna in primo piano, e ogni 10 minuti, chiede al server quale
    app.js c'è adesso; se è un'altra, ricarica (mai mentre un lavoro AI è in corso) */
@@ -1601,8 +1601,8 @@ function chiediCodaOre(q){
 }
 async function rifaiCodaVia(q){
   const b = document.querySelector('[data-fai="rifaiOreVia"]'); if (b) b.hidden = true;
-  creaFatti.add(q.chiave); scrivi('atm-crea-fatti', [...creaFatti]);
-  const voci = q.coda.filter(d => libreria.some(x => x.id === d.id) && !creaFatti.has(d.chiave));
+  creaFatti.add(q.chiave); scrivi('atm-crea-fatti', [...creaFatti]); rifaiCodaVia.attiva = true;
+  const voci = q.coda.filter(d => libreria.some(x => x.id === d.id) && !creaFatti.has(d.chiave)), daAnimare = [];
   for (const [i, d] of voci.entries()){
     const nome = d.nome || (libreria.find(x => x.id === d.id) || {}).nome || d.id;
     try { await rifaiOreVia(d); } catch(e) { segnala(e); }
@@ -1611,9 +1611,19 @@ async function rifaiCodaVia(q){
     const el = document.getElementById('codaFatti');
     if (el) el.insertAdjacentHTML('beforeend', `<li><span><b>${i + 1}. ${esc(nome)}</b><small>${esc(esito)}</small></span></li>`);
     rapportoLavoro({messaggio: 'coda ' + (i + 1) + '/' + voci.length + ' · ' + d.chiave + ': ' + esito + (lavoro && lavoro.passi ? ' | ' + lavoro.passi.map(x => x.cls + ' · ' + x.testo).join(' ; ') : '')});
+    const immOk = passi.filter(x => x.cls === 'fatto' && /^(Finestrelle|TV) · (?!profondit)/.test(x.testo)).length;
+    if (d.animazioni === false && !d.soloAnimazioni && immOk && !(lavoro && lavoro.errore)) daAnimare.push(d);
   }
-  /* il tasto «Faccio le N animazioni» vale per l'ultimo, quello con le immagini da guardare */
-  chiediRifaiOre.d = voci[voci.length - 1] || q;
+  /* il tasto «Faccio le N animazioni»: con un solo paesaggio da animare vale per quello (le sue immagini sono qui sopra);
+     con più paesaggi, uno solo per tutti, di nuovo in coda (14/11: città e valle insieme) */
+  rifaiCodaVia.attiva = false;
+  if (!daAnimare.length){ chiediRifaiOre.d = voci[voci.length - 1] || q; return; }
+  chiediRifaiOre.d = daAnimare.length === 1 ? daAnimare[0]
+    : {chiave: q.chiave + '-anim', coda: daAnimare.map(d => Object.assign({}, d, {chiave: d.chiave + '-anim', soloAnimazioni: true, animazioni: true}))};
+  const dopo = document.getElementById('rifaiOreDopo'), n = daAnimare.reduce((a, d) => a + contaRifai(d).anim, 0), costo = daAnimare.reduce((a, d) => a + costoAnimOre(d), 0);
+  const nomi = daAnimare.map(d => d.nome || (libreria.find(x => x.id === d.id) || {}).nome || d.id);
+  if (dopo && MODELLI_VIDEO.length) dopo.innerHTML = `<p class="nota" style="margin-top:12px">${daAnimare.length === 1 ? 'Guarda le immagini qui sopra (toccandole si ingrandiscono). Se vanno bene:' : 'Le immagini nuove sono già nei paesaggi (' + esc(nomi.join(', ')) + '): guardale sugli schermi o qui nell\'app. Se vanno bene:'}</p>
+      <button class="btn oro piena" data-fai="rifaiOreAnima">${icona('anima', 18)}Faccio le ${n} animazioni · ≈ ${euro(costo)}</button>`;
 }
 function chiediRifaiOre(d){
   if (d && Array.isArray(d.coda)) return chiediCodaOre(d);
@@ -1698,7 +1708,7 @@ async function rifaiOreVia(dd){
   const riuscite = ((lavoro && lavoro.passi) || []).filter(x => x.cls === 'fatto' && /^(Finestrelle|TV) · (?!profondit)/.test(x.testo)).length;
   rapportoLavoro({messaggio: lavoro && lavoro.errore ? 'rifaiOre: errore ' + lavoro.errore : d.animazioni === false && !d.soloAnimazioni ? (riuscite ? 'rifaiOre: immagini fatte (' + riuscite + '), in attesa del sì per le animazioni' : 'rifaiOre: nessuna immagine riuscita') : 'rifaiOre: finito'});
   const dopo = document.getElementById('rifaiOreDopo');
-  if (dopo && d.animazioni === false && !d.soloAnimazioni && riuscite && !(lavoro && lavoro.errore) && MODELLI_VIDEO.length)
+  if (dopo && !rifaiCodaVia.attiva && d.animazioni === false && !d.soloAnimazioni && riuscite && !(lavoro && lavoro.errore) && MODELLI_VIDEO.length)
     dopo.innerHTML = `<p class="nota" style="margin-top:12px">Guarda le immagini qui sopra (toccandole si ingrandiscono). Se vanno bene:</p>
       <button class="btn oro piena" data-fai="rifaiOreAnima">${icona('anima', 18)}Faccio le ${contaRifai(d).anim} animazioni · ≈ ${euro(costoAnimOre(d))}</button>`;
 }
