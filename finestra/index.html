@@ -28,7 +28,7 @@
 <script src="../js/accesso.js?v=8"></script>
 <script src="../js/qrcode.js?v=1"></script>
 <script src="../js/vita.js?v=5"></script>
-<script src="../js/vista.js?v=5.55"></script>
+<script src="../js/vista.js?v=5.56"></script>
 <script src="../js/inseguitore.js?v=1"></script>
 <script src="../js/uccelli.js?v=10"></script>
 <script src="../js/bard.js?v=9"></script>
@@ -927,7 +927,7 @@ let fpsMio = +leggi('fin-fps-mio', 0) || 0;   /* 14/11: la fluidità scelta per 
      più (se non regge: pochi secondi, e non si riprova); un altro lavoro sul computer (il montaggio, il collegamento
      da lontano) può abbassarlo, ma non per sempre. Vale 30 giorni, poi si reimpara.
    · subito dopo un cambio di scala (1,5 s) i giri lenti sono del cambio stesso e non si contano. */
-let tetti = leggi('fin-tetti', null) || {}, chiaveTetto = '', cambioTettoDa = -1e9, cambioScalaDa = -1e9, provaLenti = 0, provaSu = false;
+let tetti = leggi('fin-tetti', null) || {}, chiaveTetto = '', cambioTettoDa = -1e9, cambioScalaDa = -1e9, provaLenti = 0, provaSu = false, tettoNoto = false;
 const riprovati = {}, TETTO_VALE = 30 * 86400000;
 function salvaTetto(){ if (!chiaveTetto) return; tetti[chiaveTetto] = {t: tetto, q: Date.now()}; scrivi('fin-tetti', tetti); }
 function controllaSchermo(ora){
@@ -965,9 +965,9 @@ function giro(ora){
     for (const k of Object.keys(falliti)) delete falliti[k];
     const m = tetti[chiaveT];
     if (m && m.t >= scalaMin && m.t <= 1 && Date.now() - (m.q || 0) < TETTO_VALE){
-      tetto = m.t; attesaSalita = 90000;
+      tetto = m.t; attesaSalita = 90000; tettoNoto = true;
       if (!scalaFissa && Math.abs(scala - tetto) > .001){ scala = tetto; lentoR = 0; cadute = 0; fluido = 0; cambioScalaDa = ora; ultimoCalo = ora; impagina(); }
-    } else { tetto = 1; attesaSalita = 30000; }
+    } else { tetto = 1; attesaSalita = 30000; tettoNoto = false; }
   }
   /* se il computer fa fatica: prima abbassa la risoluzione del disegno (fino a metà), poi toglie gli strati di gocce più fini */
   /* ⚠ 30/10: si guarda il passo medio, non i singoli giri: sul Raspberry i giri erano metà veloci e metà lenti
@@ -982,7 +982,9 @@ function giro(ora){
   }
   /* 14/11: il TV a 60 Hz con un altro lavoro sulla Ally (il collegamento da lontano, il montaggio) saltava un'immagine su tre
      e restava a 0,7: movimento a strappi. Se se ne salta più del 12% si scende anche sotto 0,7, fino al pavimento */
-  const troppeCadute = (cadute > .03 && scala > .7 || cadute > .12 && scala > scalaMin) && ora - ultimoCalo > 3000;
+  /* 14/11 sera: nei primi 40 secondi dall'avvio le immagini saltate sono del caricamento (video e immagini in 4K che
+     arrivano), non del disegno: il TV ripartito al suo 90% è sceso all'80% dopo 32 s per questo, e non era fatica vera */
+  const troppeCadute = (cadute > .03 && scala > .7 || cadute > .12 && scala > scalaMin) && ora - ultimoCalo > 3000 && ora - avvioGiro > 40000;
   /* 9/11: mentre arriva un paesaggio o un'altra luce (immagini e video nuovi da decodificare) qualche giro salta per
      forza: alle prove, cambiando ora e tempo di seguito, il TV è sceso da 0,8 a 0,6 per quello, non per il disegno */
   if (inCambio || vista.inArrivo || fotoInCorso || document.hidden || ora - (vista.lavoroDa || -1e9) < 3000){ quieteDa = ora; lentoR = 0; cadute = 0; provaLenti = 0; }   /* 14/11: anche la pagina coperta da un'altra finestra (le impostazioni di Windows aperte sopra: la scala era scesa a 0,7 per niente) */   /* 11/11: anche la ricerca delle finestre accese alla prima notte di un paesaggio (al giro di prove le finestrelle scendevano a 0,9 e 0,8 proprio lì) */   /* anche la foto chiesta da lontano (copia e carica il disegno: alle prove ha fatto saltare il 16–19% dei giri) */
@@ -993,7 +995,7 @@ function giro(ora){
     scala = Math.max(scalaMin, Math.round((scala - .1) * 10) / 10); lentoR = 0; cadute = 0; provaLenti = 0;
     /* era una prova (salita da meno di 5 minuti) o il primo assestamento (avvio o cambio di tempo da meno di 2 minuti):
        il livello è fallito; al secondo fallimento il tetto scende lì sotto e si ricorda */
-    if (ora - ultimaSalita < 300000 || ora - cambioTettoDa < 120000){
+    if (ora - ultimaSalita < 300000 || (!tettoNoto && ora - cambioTettoDa < 120000)){   /* con un tetto già imparato l'assestamento dell'avvio non è un fallimento */
       attesaSalita = Math.min(1800000, attesaSalita * 2);
       const lv = Math.round(da * 10); falliti[lv] = (falliti[lv] || 0) + 1;
       if (falliti[lv] >= 2){ tetto = Math.min(tetto, (lv - 1) / 10); provaSu = false; salvaTetto(); }
