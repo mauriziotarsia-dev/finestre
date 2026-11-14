@@ -28,7 +28,7 @@
 <script src="../js/accesso.js?v=8"></script>
 <script src="../js/qrcode.js?v=1"></script>
 <script src="../js/vita.js?v=5"></script>
-<script src="../js/vista.js?v=5.60"></script>
+<script src="../js/vista.js?v=5.61"></script>
 <script src="../js/inseguitore.js?v=1"></script>
 <script src="../js/uccelli.js?v=10"></script>
 <script src="../js/bard.js?v=9"></script>
@@ -684,7 +684,7 @@ if (anteprima){
       else if (evento === 'effetto') effetto(dati || {});
       else if (evento === 'tv'){ if (daDM) suTv(dati, rispondi); }
       else if (evento === 'fori') calibra(dati);
-      else if (evento === 'ricarica') ricaricaPulita();
+      else if (evento === 'ricarica'){ if (!dati || !dati.chi || dati.chi === mio) ricaricaPulita(); }   /* 14/11 sera: {chi} per ricaricare uno schermo solo */
       /* prova delle prestazioni da lontano: spegne per un po' alcune parti del disegno (poi si ricarica e torna tutto) */
       /* 14/11: {chi} per uno schermo solo; {scala: 0} torna a regolarsi da sola; {fps: 30|60|0} la fluidità di QUESTO schermo
          (0 = quella della scena), con {ricorda: true} resta anche dopo la ricarica: per confrontare sul posto «60 immagini
@@ -695,7 +695,10 @@ if (anteprima){
         if (dati.fps != null){ fpsMio = Math.max(0, Math.min(60, +dati.fps || 0)); if (dati.ricorda) scrivi('fin-fps-mio', fpsMio); prossimo = 0; }   /* il tetto di quella fluidità si carica da sé */
         /* {tetto: 0.8}: il tetto di adesso (questa fluidità, questo tempo), ricordato; {tetti: 'via'}: si reimpara tutto */
         if (dati.tetto != null && chiaveTetto){ tetti[chiaveTetto] = {t: Math.max(scalaMin, Math.min(1, +dati.tetto || 1)), q: Date.now()}; scrivi('fin-tetti', tetti); chiaveTetto = ''; }
-        if (dati.tetti === 'via'){ tetti = {}; scrivi('fin-tetti', tetti); chiaveTetto = ''; } } }
+        if (dati.tetti === 'via'){ tetti = {}; scrivi('fin-tetti', tetti); chiaveTetto = ''; }
+        /* 14/11 sera · {senzaNuvole: true|false}: dalla prossima ricarica il disegno si compila senza (o con) le stelle dietro
+           le nuvole (js/vista.js): per misurare su questo schermo quanto pesa quel pezzo */
+        if (dati.senzaNuvole != null){ try { if (dati.senzaNuvole) localStorage.setItem('fin-senza-nuvole', '1'); else localStorage.removeItem('fin-senza-nuvole'); } catch(e) {} } } }
       else if (evento === 'occhio') daTelefono(dati.x, dati.z);
       else if (spettatore){ if (evento === 'eccomi' && dati && dati.scena && !dati.spettatore && (tv ? dati.lato === 'tv' : dati.lato !== 'tv')) applica(dati.scena, false); }
       /* ⚠ 9/11 (ROG Ally appena montata): uno schermo nuovo, senza scena salvata, restava nero finché qualcuno non apriva
@@ -866,7 +869,7 @@ async function statoRemoto(d, schedaVideo){
       out.errGL = g.getError(); out.persa = g.isContextLost(); return out; } catch(e) { return 'errore ' + e.message; } })(),
     scheda: vista.scheda, leggero: vista.leggero,
     vita: (() => { const f = vista.fonti[0], v = vista.vita; return {ora: oraVista, k: Math.round(progressoOra(oraVista || 'giorno', performance.now() - oraDa) * 100) / 100, luci: (f.luci || []).length, accese: v && v.luci ? v.luci.filter(x => x.k > .5).length : 0, fuochi: (f.fuochi || []).length, fuochiAccesi: v && v.fuochi ? v.fuochi.filter(x => x.k > .5).length : 0, lucciole: v ? v.lucciole.length : 0, pipistrelli: stormi.u.filter(b => b.pip).length, pip: Math.round(pip * 100) / 100, pulviscolo: Math.round(pulviscolo * 100) / 100}; })(),
-    fps: Math.round(fpsMisurati), hzSchermo: Math.round(1000 / intervalloSchermo), schermoVero: {w: Math.round(screen.width * devicePixelRatio), h: Math.round(screen.height * devicePixelRatio)}, msDisegno, giri: (() => { const n = Math.min(giroN, 900), a = Array.from(giriRecenti.slice(0, n)).filter(x => x > 0).sort((x, y) => x - y); const q = f => Math.round(a[Math.floor((a.length - 1) * f)] * 10) / 10; return {n: a.length, mediana: q(.5), p95: q(.95), p99: q(.99), max: q(1), sopra25: a.filter(x => x > 25).length, sopra50: a.filter(x => x > 50).length, sopra100: a.filter(x => x > 100).length}; })(), cali: cali.slice(), cadute: Math.round(cadute * 1000) / 10, bard: bard ? {qui: bard.qui, muto: bard.muto, attivo: bard.attivo, tempo: bard.stato.tempo, registrazioni: Object.keys(bard.stato.registrazioni || {}), suona: Object.fromEntries(Object.entries(bard.strati).map(([k, v]) => [k, v.chiave + ' @' + (v.g ? Math.round(v.g.gain.value * 100) / 100 : '?')])), ctx: bard.ctx ? bard.ctx.state : null} : null, attesaSalitaS: attesaSalita / 1000, tetto, limiteHz, fpsMio, chiaveTetto, tetti, provaSu, oraS: Math.round(performance.now() / 1000), errori: erroriRecenti.slice(), ultimoParam: ultimoParam ? {buio: ultimoParam.buio, luce: ultimoParam.luce, trasparente: ultimoParam.trasparente, notte: Math.round((ultimoParam.notte || 0) * 100) / 100, notteFinta: Math.round((ultimoParam.notteFinta || 0) * 100) / 100, nebViva: Math.round((ultimoParam.nebViva || 0) * 100) / 100} : null, nebG: !!(vista.fonti[0] && vista.fonti[0].nebG), nuvole: vista.fonti[0] && vista.fonti[0].nTex ? vista.fonti[0].nuvole || true : null};   /* 14/11: nebG = la nebbia del giorno è arrivata (di notte la nebbiolina va lì); nuvole = le nuvole del cielo sono state trovate (le stelle ci passano dietro) */
+    fps: Math.round(fpsMisurati), hzSchermo: Math.round(1000 / intervalloSchermo), schermoVero: {w: Math.round(screen.width * devicePixelRatio), h: Math.round(screen.height * devicePixelRatio)}, msDisegno, giri: (() => { const n = Math.min(giroN, 900), a = Array.from(giriRecenti.slice(0, n)).filter(x => x > 0).sort((x, y) => x - y); const q = f => Math.round(a[Math.floor((a.length - 1) * f)] * 10) / 10; return {n: a.length, mediana: q(.5), p95: q(.95), p99: q(.99), max: q(1), sopra25: a.filter(x => x > 25).length, sopra50: a.filter(x => x > 50).length, sopra100: a.filter(x => x > 100).length}; })(), cali: cali.slice(), cadute: Math.round(cadute * 1000) / 10, bard: bard ? {qui: bard.qui, muto: bard.muto, attivo: bard.attivo, tempo: bard.stato.tempo, registrazioni: Object.keys(bard.stato.registrazioni || {}), suona: Object.fromEntries(Object.entries(bard.strati).map(([k, v]) => [k, v.chiave + ' @' + (v.g ? Math.round(v.g.gain.value * 100) / 100 : '?')])), ctx: bard.ctx ? bard.ctx.state : null} : null, attesaSalitaS: attesaSalita / 1000, tetto, limiteHz, fpsMio, chiaveTetto, tetti, provaSu, oraS: Math.round(performance.now() / 1000), errori: erroriRecenti.slice(), ultimoParam: ultimoParam ? {buio: ultimoParam.buio, luce: ultimoParam.luce, trasparente: ultimoParam.trasparente, notte: Math.round((ultimoParam.notte || 0) * 100) / 100, notteFinta: Math.round((ultimoParam.notteFinta || 0) * 100) / 100, nebViva: Math.round((ultimoParam.nebViva || 0) * 100) / 100} : null, nebG: !!(vista.fonti[0] && vista.fonti[0].nebG), nuvole: vista.fonti[0] && vista.fonti[0].nTex ? vista.fonti[0].nuvole || true : null, senzaNuvole: !!vista.senzaNuvole};   /* 14/11: nebG = la nebbia del giorno è arrivata (di notte la nebbiolina va lì); nuvole = le nuvole del cielo sono state trovate (le stelle ci passano dietro) */
   /* 14/11 sera · {provaNuvole: true}: rifà qui, senza toccare quello che si vede, la ricerca delle nuvole sul cielo di
      adesso (js/vista.js, mascheraNuvole) e dice quanto è costata e dove è stata fatta («in disparte» = fuori dal giro
      del disegno): per verificarla su questo apparecchio anche di giorno, quando non serve e non si farebbe */

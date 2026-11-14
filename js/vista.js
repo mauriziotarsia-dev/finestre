@@ -56,9 +56,11 @@ uniform vec2 uSale;           /* 9/11 · nebbia che sale: x = fin dove è arriva
 uniform sampler2D uMeteo;     /* nebbia e nuvole, calcolate a bassa risoluzione (r: banchi di nebbia, g: nuvole, b: velo) */
 uniform sampler2D uAlberiM;   /* 11/11 · g: dove sono le chiome (dall'immagine del giorno): solo lì si muove qualcosa · 14/11 · b: dov'è la nebbia di giorno */
 uniform float uNebG;          /* 14/11: 1 = il blu di uAlberiM viene davvero dall'immagine del giorno (di notte la nebbiolina va lì) */
+#ifndef SENZA_NUVOLE
 uniform sampler2D uNuvole;    /* 14/11 sera · le nuvole del cielo che scorre (r: 0 sgombro … 1 nuvola; vedi mascheraNuvole): lì dietro le stelle non si vedono */
 uniform float uHaNuvole;
 vec2 gCieloPP; float gCieloPeso;   /* dove cade il punto nel cielo che scorre e quanto se ne vede: li scrive paesaggio() */
+#endif
 uniform sampler2D uVentoT;    /* il vento sugli alberi, calcolato a un quarto di risoluzione (r, g: spostamento, b: raffica sugli alberi, a: ombra delle nuvole) */
 uniform vec4 uU[24];          /* gli uccelli (js/uccelli.js): per ognuno (x, y, grandezza, ali) (inclinazione, chiarezza, tipo, -) */
 uniform float uNU;            /* quanti uccelli */
@@ -183,7 +185,9 @@ float fogliame(vec3 c){
 
 /* un'immagine del paesaggio, già col suo movimento */
 vec3 paesaggio(sampler2D img, sampler2D imgB, float vk, sampler2D dep, vec4 crop, vec4 cropD, float haDep, float mov, sampler2D cie, vec4 cm, sampler2D fer, float haF, sampler2D rap, float haR, vec2 uv, out float n, out float sky){
+#ifndef SENZA_NUVOLE
   gCieloPP = vec2(0.); gCieloPeso = 0.;
+#endif
   n = prof(dep, cropD, uv, haDep);
   /* prospettiva: le cose vicine si spostano di più fra una finestra e l'altra */
   vec2 p = uv; p.x += uLato * .012 * (n - .35);
@@ -261,7 +265,9 @@ vec3 paesaggio(sampler2D img, sampler2D imgB, float vk, sampler2D dep, vec4 crop
       vec3 cs = texture2D(cie, vec2(fract(pp.x), clamp(pp.y, .002, .998))).rgb;
 #endif
       c = mix(c, cs, sky * (1. - smoothstep(.8, 1., pp.y)));
+#ifndef SENZA_NUVOLE
       gCieloPP = vec2(fract(pp.x), clamp(pp.y, .002, .998)); gCieloPeso = sky * (1. - smoothstep(.8, 1., pp.y));   /* 14/11 sera: per le stelle (dietro le nuvole non si vedono) */
+#endif
     }
   }
   if (mov > .25){   /* 1 = nuvole e alberi (immagine ferma), .5 = solo alberi (video: le nuvole le ha già) */
@@ -600,7 +606,9 @@ void main(){
   float l0 = 0.; vec3 stelle = vec3(0.);
   if (uHaImg > .5){
     float n0, s0; vec3 c0 = paesaggio(uImg0, uImg0b, uVmix, uDep0, uCrop0, uCropD0, uHaDep0, uMovimento0, uCielo0, uCieloM0, uFermo0, uHaFermo0, uRap0, uHaRap0, uv, n0, s0);
+#ifndef SENZA_NUVOLE
     vec2 ppN = gCieloPP; float pesoN = gCieloPeso;   /* il cielo del paesaggio che c'è (quello che sta uscendo, nel cambio, non conta) */
+#endif
     if (uMix > .001){
       float n1, s1; vec3 c1 = paesaggio(uImg1, uImg1, 0., uDep1, uCrop1, uCropD1, uHaDep1, uMovimento1, uCielo1, uCieloM1, uFermo1, uHaFermo1, uRap0, 0., uv, n1, s1);
       col = mix(c0, c1, uMix); n = mix(n0, n1, uMix); sky = mix(s0, s1, uMix);
@@ -633,7 +641,9 @@ void main(){
        (maschera fatta una volta per panorama, vedi mascheraNuvole; verso l'orizzonte, dove torna il cielo dipinto, vale
        quanto il panorama si vede). Vale anche per la stella cadente, che dietro una nuvola si vede appena */
     float nuv = 0.;
+#ifndef SENZA_NUVOLE
     if (uHaNuvole > .5 && sky > .3 && pesoN > .01 && (uNotte > .01 || uMeteoraK > 0.)) nuv = smoothstep(.1, .55, texture2D(uNuvole, ppN).r * pesoN);
+#endif
     /* stelle che brillano (ognuna col suo ritmo) e, ogni tanto, una stella cadente */
     if (uNotte > .01 && sky > .3){
       vec2 pp = uv * uPix / (7. * scP), cel = floor(pp), f = fract(pp);
@@ -1027,11 +1037,16 @@ class Vista {
     try { const di = gl.getExtension('WEBGL_debug_renderer_info'); this.scheda = di ? gl.getParameter(di.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER); } catch(e) { this.scheda = '?'; }
     const ql = new URLSearchParams(location.search).get('leggero');
     this.leggero = ql != null ? ql === '1' : /V3D|VideoCore|Broadcom/i.test(this.scheda || '');
+    /* 14/11 sera · «senza nuvole»: il disegno compilato senza le stelle dietro le nuvole (come prima della 5.59). Serve a
+       misurare su uno schermo vero quanto pesa quel pezzo (da lontano: prova {senzaNuvole: true} e ricarica), e a toglierlo
+       se su qualche apparecchio desse fastidio */
+    try { this.senzaNuvole = localStorage.getItem('fin-senza-nuvole') === '1'; } catch(e) { this.senzaNuvole = false; }
     /* con WebGL2 i programmi passano alla lingua GLSL 3: servono le letture col livello di dettaglio esplicito */
     const in3 = (src, vert) => '#version 300 es\n' + (vert ? src.replace(/\battribute /g, 'in ').replace(/\bvarying /g, 'out ')
       : src.replace(/\bvarying /g, 'in ').replace(/gl_FragColor/g, 'fragColor').replace(/(precision \w+ float;)/, '$1\nout vec4 fragColor;')).replace(/texture2D\(/g, 'texture(');
     const sh = (tipo, src) => { if (this.gl2) src = in3(src.trim(), tipo === gl.VERTEX_SHADER);
       if (this.leggero) src = /^#version[^\n]*\n/.test(src) ? src.replace(/^(#version[^\n]*\n)/, '$1#define LEGGERO\n') : '#define LEGGERO\n' + src;
+      if (this.senzaNuvole) src = /^#version[^\n]*\n/.test(src) ? src.replace(/^(#version[^\n]*\n)/, '$1#define SENZA_NUVOLE\n') : '#define SENZA_NUVOLE\n' + src;
       const s = gl.createShader(tipo); gl.shaderSource(s, src); gl.compileShader(s);
       if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s)); return s; };
     const programma = (v, f, attr) => { const p = gl.createProgram();
