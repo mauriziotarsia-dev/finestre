@@ -999,11 +999,17 @@ function giro(ora){
   giriRecenti[giroN++ % 900] = ora - (giro.ultimo || ora); giro.ultimo = ora;
   controllaSchermo(ora);
   /* il tetto di questo momento: per fluidità e per tempo (vedi «IL TETTO RICORDATO») */
-  const chiaveT = obiettivo + '|' + (internoDi(scena) ? 'dentro' : (scena.meteo || 'sereno'));
+  /* ⚠ 14/11 sera · LA NOTTE HA IL SUO TETTO. Di notte il disegno pesa di più (il video del giorno ricolorato, le stelle,
+     le luci): misurato sul TV col banco, abbazia al 90% del 4K, 13,8 ms a immagine di giorno e 17-19 di notte, e a 60
+     immagini al secondo ce ne stanno 16,7. Con un tetto solo, ogni notte lo abbassava anche per il giorno, e il giorno
+     lo rialzava per la notte dopo (salti di risoluzione e immagini saltate a ogni cambio). La prima notte parte dal
+     tetto del giorno, poi impara il suo */
+  const notteT = !internoDi(scena) && oraDi(scena) === 'notte';
+  const chiaveT = obiettivo + '|' + (internoDi(scena) ? 'dentro' : (scena.meteo || 'sereno')) + (notteT ? '|notte' : '');
   if (chiaveT !== chiaveTetto){
     chiaveTetto = chiaveT; cambioTettoDa = ora; provaSu = false; provaLenti = 0;
     for (const k of Object.keys(falliti)) delete falliti[k];
-    const m = tetti[chiaveT];
+    const m = tetti[chiaveT] || (notteT ? tetti[chiaveT.replace(/\|notte$/, '')] : null);
     if (m && m.t >= scalaMin && m.t <= 1 && Date.now() - (m.q || 0) < TETTO_VALE){
       tetto = m.t; attesaSalita = 90000; tettoNoto = true;
       if (!scalaFissa && Math.abs(scala - tetto) > .001){ scala = tetto; lentoR = 0; cadute = 0; fluido = 0; cambioScalaDa = ora; ultimoCalo = ora; impagina(); }
