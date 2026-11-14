@@ -236,7 +236,7 @@ class Cucitore:
             vicini = [buf[i] for i in range(j - 2, j + 3) if i in buf]
             cielo5 = np.median(np.stack(vicini), axis=0) if len(vicini) >= 3 else buf[j]
             out = self.rif * (1 - self.mc - self.mz) + cielo5 * self.mc + buf[j] * self.mz
-            yield np.clip(out, 0, 255).astype(np.uint8)
+            yield np.clip(out + .5, 0, 255).astype(np.uint8)          # arrotondato: troncando, mezzo livello più scuro
             j += 1
 
 
@@ -280,7 +280,7 @@ def fermo_dalla_foto(rif, alta, zone, cielo, fx=0.5):
         v = rif[..., c][sel].astype(np.float32); f = allineata[..., c][sel].astype(np.float32)
         g = (f.std() + 1e-3) / (v.std() + 1e-3); o = f.mean() - g * v.mean()
         if not (.75 < g < 1.33) or abs(o) > 40: return None, None              # troppo diversi: non è la stessa scena
-        lut[0, :, c] = np.clip(np.arange(256) * g + o, 0, 255).astype(np.uint8)
+        lut[0, :, c] = np.clip(np.arange(256) * g + o + .5, 0, 255).astype(np.uint8)
     return grande, lut
 
 
@@ -313,7 +313,9 @@ def cuci(entrata, uscita, profondita=None, immagine=None, fuoco_x=0.5, larghezza
         a = next(inizio)
         if j < c:
             b = next(fine); t = (j + .5) / c; t = t * t * (3 - 2 * t)
-            a = (b.astype(np.float32) * (1 - t) + a.astype(np.float32) * t).astype(np.uint8)
+            # ⚠ 14/11: arrotondato, non troncato. Troncando, il tratto sfumato (il primo secondo e mezzo del giro) veniva
+            # quasi un livello più scuro del resto: al giro del loop la nebbia e il fuoco facevano un piccolo scatto
+            a = np.clip(b.astype(np.float32) * (1 - t) + a.astype(np.float32) * t + .5, 0, 255).astype(np.uint8)
         if lut is not None: a = cv2.LUT(a, lut)                   # i colori del video come la foto (fermo dalla foto)
         if j < 4: testa.append(a)
         ff.stdin.write(a.tobytes()); scritti += 1
@@ -665,6 +667,9 @@ def aggiornati():
         print('aggiornamento non controllato:', e, file=sys.stderr, flush=True)
 
 
+SFUMA_PEZZI = 0.6
+
+
 def metti_in_fila(pezzi, uscita):
     """13/11 notte · il giro lungo: più video da 10 s, ognuno con un movimento diverso, che partono e finiscono tutti
     sulla stessa immagine, messi uno dopo l'altro (ricodificati insieme: stessi fotogrammi al secondo e stessa misura)."""
@@ -675,9 +680,18 @@ def metti_in_fila(pezzi, uscita):
     kbps = max(4000, int(40e6 * 8 / max(1, durata) / 1000))
     cmd = ['ffmpeg', '-v', 'error', '-y', '-threads', FF_THREADS]
     for x in pezzi: cmd += ['-i', x]
-    filtro = ''.join(f'[{i}:v]fps={fps:.3f},scale={w}:{h}:flags=lanczos,setsar=1[v{i}];' for i in range(len(pezzi)))
-    filtro += ''.join(f'[v{i}]' for i in range(len(pezzi))) + f'concat=n={len(pezzi)}:v=1:a=0[out]'
-    cmd += ['-filter_complex', filtro, '-map', '[out]', '-an', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '14',
+    # 14/11 · fra un pezzo e l'altro una dissolvenza di 0,6 s: l'AI non torna mai esattamente all'immagine, e col
+    # semplice accodamento a metà giro il fuoco della taverna (e la nebbia dell'abbazia) facevano uno scatto
+    dur = [i[0] / max(1, i[1]) for i in map(leggi_info, pezzi)]
+    filtro = ''.join(f'[{i}:v]fps={fps:.3f},scale={w}:{h}:flags=lanczos,setsar=1,format=yuv420p,settb=AVTB[v{i}];' for i in range(len(pezzi)))
+    prima, fino = 'v0', 0.0
+    for i in range(1, len(pezzi)):
+        fino += dur[i - 1] - SFUMA_PEZZI
+        dopo = 'out' if i == len(pezzi) - 1 else f'x{i}'
+        filtro += f'[{prima}][v{i}]xfade=transition=fade:duration={SFUMA_PEZZI}:offset={fino:.3f}[{dopo}];'
+        prima = dopo
+    if len(pezzi) == 1: filtro += '[v0]null[out];'
+    cmd += ['-filter_complex', filtro.rstrip(';'), '-map', '[out]', '-an', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '14',
             '-maxrate', f'{kbps}k', '-bufsize', f'{kbps}k', '-pix_fmt', 'yuv420p', uscita]
     subprocess.run(cmd, check=True, creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
 
