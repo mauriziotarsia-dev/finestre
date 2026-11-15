@@ -9,7 +9,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
 const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 const euro = n => (n < .1 ? n.toFixed(3) : n.toFixed(2)).replace('.', ',') + ' $';
-const VERSIONE = '6.67';
+const VERSIONE = '6.68';
 /* 8/11 · l'app si aggiorna da sola (Maurizio: «vedo ancora il quadrato con la doppia finestra»: sul telefono restava la
    versione vecchia anche dopo averla chiusa). Quando torna in primo piano, e ogni 10 minuti, chiede al server quale
    app.js c'è adesso; se è un'altra, ricarica (mai mentre un lavoro AI è in corso) */
@@ -1557,7 +1557,16 @@ async function bozzeVia(){
       const rifs = []; for (const u of d.riferimenti || []) rifs.push(await scaricaB(u));
       const basi = {}, baseB = async u => basi[u] || (basi[u] = await scaricaB(u));
       let primoErrore = null;
-      await Promise.all(d.opzioni.map(async x => { try { await unaBozza(x); } catch(e) { primoErrore = primoErrore || e; passo('b-' + x.id + '-n', 'errore', x.id + ' · ' + e.message); segnala(e); } }));
+      /* 15/11 sera · cinque bozze tutte insieme (ognuna con tre foto da mandare) facevano cadere la connessione del telefono
+         («La connessione con OpenAI si è interrotta»): ora due alla volta, e chi cade per la rete riprova una volta da sola */
+      const coda = d.opzioni.slice();
+      const operaio = async () => { for (let x; (x = coda.shift());){
+        for (let prova = 0; prova < 2; prova++){
+          try { await unaBozza(x); break; }
+          catch(e) { if (prova === 0 && (e.tipo === 'rete' || /connessione|Load failed|network/i.test(e.message || ''))){ passo('b-' + x.id + '-n', 'ora', x.id + ' · la rete è caduta, riprovo…'); continue; }
+            primoErrore = primoErrore || e; passo('b-' + x.id + '-n', 'errore', x.id + ' · ' + e.message); segnala(e); break; }
+        } } };
+      await Promise.all([operaio(), operaio()]);
       if (primoErrore && !d.opzioni.some(x => (bozzeStato.fatte || {})[x.id])) throw primoErrore;
       async function unaBozza(x){
         if ((bozzeStato.fatte || {})[x.id]) return;
