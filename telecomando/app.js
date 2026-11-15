@@ -9,7 +9,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
 const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 const euro = n => (n < .1 ? n.toFixed(3) : n.toFixed(2)).replace('.', ',') + ' $';
-const VERSIONE = '6.62';
+const VERSIONE = '6.63';
 /* 8/11 · l'app si aggiorna da sola (Maurizio: «vedo ancora il quadrato con la doppia finestra»: sul telefono restava la
    versione vecchia anche dopo averla chiusa). Quando torna in primo piano, e ogni 10 minuti, chiede al server quale
    app.js c'è adesso; se è un'altra, ricarica (mai mentre un lavoro AI è in corso) */
@@ -1653,8 +1653,11 @@ People are seen small to medium, with natural poses and faces; nobody close to t
 /* 14/11 · fuori (paesaggi): si animano solo le ore di oreDaAnimare (giorno e tramonto); alba e notte ricolorano il giorno */
 const oreDiRifai = d => [...new Set(['nord', 'est'].flatMap(v => Object.keys((d[v] && d[v].ore) || {})))];
 const oreAnimRifai = d => { const p = libreria.find(x => x.id === d.id); return oreDiRifai(d).filter(o => !p || oreDaAnimare(p).includes(o)); };
-const contaRifai = d => { const oa = oreAnimRifai(d), ore = ['nord', 'est'].map(v => Object.keys((d[v] && d[v].ore) || {}));
-  return {imm: ore.reduce((a, o) => a + o.length, 0), anim: ore.reduce((a, o) => a + o.filter(x => oa.includes(x)).length, 0)}; };
+/* 15/11 · le animazioni vista per vista: un'ora con «ferma» (es. la sala vuota all'alba) ha l'immagine ma non si anima */
+const animRifai = d => { const oa = oreAnimRifai(d);
+  return ['nord', 'est'].flatMap(v => Object.entries((d[v] && d[v].ore) || {}).filter(([o, x]) => oa.includes(o) && !(x && x.ferma)).map(([o]) => ({tv: v === 'est', ora: o}))); };
+const contaRifai = d => { const ore = ['nord', 'est'].map(v => Object.keys((d[v] && d[v].ore) || {}));
+  return {imm: ore.reduce((a, o) => a + o.length, 0), anim: animRifai(d).length}; };
 const secondiRifai = d => { const g = d.giro || giroVideo(), pz = pezziDi(g); return Math.min(10, Math.round(g / pz)) * pz; };
 const costoAnimOre = d => { const mv = MODELLI_VIDEO.find(v => v.id === imp.video.modello) || MODELLI_VIDEO[0] || {euroSecondo: 0};
   return mv.euroSecondo * secondiRifai(d) * contaRifai(d).anim; };
@@ -1794,7 +1797,7 @@ async function rifaiOreVia(dd){
       }
       /* 14/11 · fuori: la profondità (dov'è il cielo, la nebbia lontana) rifatta sul giorno nuovo, sul telefono, gratis */
       if (!d.soloAnimazioni && !eInterno(p)) for (const [vista, jpg] of Object.entries(giorniNuovi)) { await faiProfondita(p, jpg, vista === 'est'); aggiornaInLibreria(p); }
-      if (imp.anima && d.animazioni !== false) await animaTutto(p, animMancanti(p, [false, true], oreAnimRifai(d)));
+      if (imp.anima && d.animazioni !== false) await animaTutto(p, animRifai(d).filter(x => p.immagini[(x.tv ? 'est-' : '') + x.ora] && !p.animati[(x.tv ? 'est-' : '') + x.ora]));
     });
   } finally { creaCon = {}; clearInterval(t); }
   /* 14/11 · prima solo le immagini: se vanno bene, le animazioni di quelle ore con un tocco (solo se almeno una è riuscita) */
