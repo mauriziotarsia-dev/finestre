@@ -28,7 +28,7 @@
 <script src="../js/accesso.js?v=8"></script>
 <script src="../js/qrcode.js?v=1"></script>
 <script src="../js/vita.js?v=5"></script>
-<script src="../js/vista.js?v=5.74"></script>
+<script src="../js/vista.js?v=5.75"></script>
 <script src="../js/inseguitore.js?v=1"></script>
 <script src="../js/uccelli.js?v=10"></script>
 <script src="../js/bard.js?v=9"></script>
@@ -316,7 +316,13 @@ function fonteDi(s){
      simili»): l'alba senza video suo prende quello del tramonto (luce bassa e calda, lo stesso movimento), la notte
      quello del giorno. Del video si prende solo il movimento: colori e dettagli restano del dipinto di quell'ora */
   const fonteRic = o === 'alba' && an.tramonto ? 'tramonto' : 'giorno';
-  if ((!video || (q.get('ricolora') === 'forza' && an[o])) && an[fonteRic] && s.immagini[o] && o !== 'giorno' && o !== fonteRic && s.ricolora !== false && q.get('ricolora') !== '0' && vista.unita >= 13){ video = an[fonteRic]; ricolora = true; }
+  /* ⚠ 15/11 (Maurizio: «all'alba le finestrelle sono senza persone»): dentro, in un'ora senza video suo, il video di
+     un'altra ora porterebbe le sue persone (l'uomo del giorno che mangia, la cuoca) sopra un dipinto che ne ha altre o
+     nessuna: niente video preso in prestito. Restano il dipinto di quell'ora e la vita disegnata qui (fuochi, fiamme,
+     polvere nella luce). E nemmeno il video del giorno per un'ora che ha il suo dipinto */
+  const dentroF = internoDi(s);
+  if (dentroF && video && o !== 'giorno' && !an[o] && s.immagini[o]) video = null;
+  if (!dentroF && (!video || (q.get('ricolora') === 'forza' && an[o])) && an[fonteRic] && s.immagini[o] && o !== 'giorno' && o !== fonteRic && s.ricolora !== false && q.get('ricolora') !== '0' && vista.unita >= 13){ video = an[fonteRic]; ricolora = true; }
   /* il cielo che scorre: quello della luce che si vede; se la scena non lo porta (da DMaster, per esempio)
      si prova il file con lo stesso nome (…_alba.jpg → …_cielo-alba.jpg): se non c'è, niente */
   const oraUsata = s.immagini[o] ? o : 'giorno';
