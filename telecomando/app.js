@@ -9,7 +9,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
 const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 const euro = n => (n < .1 ? n.toFixed(3) : n.toFixed(2)).replace('.', ',') + ' $';
-const VERSIONE = '6.61';
+const VERSIONE = '6.62';
 /* 8/11 · l'app si aggiorna da sola (Maurizio: «vedo ancora il quadrato con la doppia finestra»: sul telefono restava la
    versione vecchia anche dopo averla chiusa). Quando torna in primo piano, e ogni 10 minuti, chiede al server quale
    app.js c'è adesso; se è un'altra, ricarica (mai mentre un lavoro AI è in corso) */
@@ -1758,6 +1758,10 @@ async function rifaiOreVia(dd){
       }
       aggiornaInLibreria(p);
       const giorniNuovi = {};
+      /* 15/11 · d.riferimento: le foto della stanza vera (un indirizzo o più), mandate all'AI dopo l'immagine da modificare */
+      const riferimenti = [];
+      for (const u of [].concat(d.soloAnimazioni ? [] : d.riferimento || [])){
+        const r0 = await fetch(u, {cache: 'no-store'}); if (!r0.ok) throw new Error('Non trovo le foto della stanza (' + r0.status + ')'); riferimenti.push(await r0.blob()); }
       for (const vista of (d.soloAnimazioni ? [] : ['nord', 'est'])){
         const v = d[vista]; if (!v || !v.ore) continue;
         /* 14/11 · base «attuale»: si ritocca l'immagine che il paesaggio ha già a quell'ora (o.prompt: il ritocco, per intero) */
@@ -1771,7 +1775,7 @@ async function rifaiOreVia(dd){
           passo(k, 'ora', eti + (o.prompt ? ': ritocco…' : ': luce e persone di quell\'ora…'));
           try {
             const base = fissa || await prendi(p.immagini[k]);
-            const r = await Ai.modifica({...opzImm(), prompt: o.prompt ? conInPiu(o.prompt) : promptOraPersone(o), foto: base, misura: 'tv',
+            const r = await Ai.modifica({...opzImm(), prompt: o.prompt ? conInPiu(o.prompt) : promptOraPersone(o), foto: base, riferimenti, misura: 'tv',
               stato: (st, sec) => passo(k, 'ora', eti + (o.prompt ? ': ritocco… ' : ': luce e persone… ') + st + ' da ' + Math.floor(sec / 60) + ':' + String(sec % 60).padStart(2, '0')),
               bozza: b64 => { L.anteprime[k] = {url: 'data:image/png;base64,' + b64, bozza: true}; disegnaLavoro(); }});
             const jpg = await inJpeg(b64aBlob(r.b64, r.mime), latoImm());

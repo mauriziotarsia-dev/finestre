@@ -108,6 +108,7 @@ const Ai = {
     const intest = {'Authorization':'Bearer ' + chiave, 'Content-Type':'application/json'};
     const contenuto = [{type:'input_text', text:o.prompt}];
     if (foto) contenuto.push({type:'input_image', image_url:'data:' + (foto.type || 'image/jpeg') + ';base64,' + await this.inBase64(foto)});
+    for (const x of (foto && o.riferimenti) || []) contenuto.push({type:'input_image', image_url:'data:' + (x.type || 'image/jpeg') + ';base64,' + await this.inBase64(x)});   /* 15/11: le foto della stanza vera, dopo l'immagine da modificare */
     const strumento = {type:'image_generation', model:modello, size:'3840x2160', quality:this.livelloOpenai(modello, o.qualita), action: foto ? 'edit' : 'generate', output_format:'png'};
     const ripiega = e => { e.ripiega = true; return e; };
     let r, it = null, senzaRagiona = false;
@@ -161,7 +162,10 @@ const Ai = {
         const base = {model:modello, prompt:o.prompt, size:misura, quality:livello, n:1};
         if (foto){
           corpo = new FormData(); for (const k in base) corpo.append(k, base[k]);
-          corpo.append('image', foto, 'riferimento.' + (foto.type.includes('png') ? 'png' : 'jpg'));
+          /* 15/11 · con le foto della stanza vera: più immagini («image[]»), la prima è quella da modificare */
+          const rif = o.riferimenti || [], campo = rif.length ? 'image[]' : 'image';
+          corpo.append(campo, foto, 'riferimento.' + (foto.type.includes('png') ? 'png' : 'jpg'));
+          rif.forEach((x, i) => corpo.append('image[]', x, 'stanza-' + (i + 1) + '.' + ((x.type || '').includes('png') ? 'png' : 'jpg')));
           if (modello === 'gpt-image-1') corpo.append('input_fidelity', 'high');
           if (flusso){ corpo.append('stream', 'true'); corpo.append('partial_images', '2'); }
         } else {
@@ -218,6 +222,7 @@ const Ai = {
     if (!chiave) throw new Error('Serve la chiave Google (Gemini): mettila nelle Impostazioni.');
     const parti = [];
     if (foto) parti.push({inline_data:{mime_type:foto.type || 'image/jpeg', data: await this.inBase64(foto)}});
+    for (const x of (foto && o.riferimenti) || []) parti.push({inline_data:{mime_type:x.type || 'image/jpeg', data: await this.inBase64(x)}});
     parti.push({text:o.prompt});
     /* 13/11 sera · la misura: senza «imageSize» Nano Banana Pro dà solo l'1K (1376×768). 2K normale, 4K se grande
        (5504×3072 in 16:9). Il 4K ci mette di più: si chiede a flusso, con i «pensieri» del modello che arrivano mentre
@@ -284,6 +289,7 @@ const Ai = {
     const intest = {'Content-Type':'application/json', 'x-goog-api-key':chiave};
     const input = [];
     if (foto) input.push({type:'image', data: await this.inBase64(foto), mime_type: foto.type || 'image/jpeg'});
+    for (const x of (foto && o.riferimenti) || []) input.push({type:'image', data: await this.inBase64(x), mime_type: x.type || 'image/jpeg'});
     input.push({type:'text', text:o.prompt});
     const corpo = {model:modello, input, response_format:{type:'image', aspect_ratio: Ai.rapporto(o.misura), image_size:'4K'}, background:true};
     const ripiega = e => { e.ripiega = true; return e; };
