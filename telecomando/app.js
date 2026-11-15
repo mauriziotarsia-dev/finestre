@@ -9,7 +9,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
 const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 const euro = n => (n < .1 ? n.toFixed(3) : n.toFixed(2)).replace('.', ',') + ' $';
-const VERSIONE = '6.60';
+const VERSIONE = '6.61';
 /* 8/11 · l'app si aggiorna da sola (Maurizio: «vedo ancora il quadrato con la doppia finestra»: sul telefono restava la
    versione vecchia anche dopo averla chiusa). Quando torna in primo piano, e ogni 10 minuti, chiede al server quale
    app.js c'è adesso; se è un'altra, ricarica (mai mentre un lavoro AI è in corso) */
@@ -1692,7 +1692,7 @@ async function rifaiCodaVia(q){
     if (el) el.insertAdjacentHTML('beforeend', `<li><span><b>${i + 1}. ${esc(nome)}</b><small>${esc(esito)}</small></span></li>`);
     rapportoLavoro({messaggio: 'coda ' + (i + 1) + '/' + voci.length + ' · ' + d.chiave + ': ' + esito + (lavoro && lavoro.passi ? ' | ' + lavoro.passi.map(x => x.cls + ' · ' + x.testo).join(' ; ') : '')});
     const immOk = passi.filter(x => x.cls === 'fatto' && /^(Finestrelle|TV) · (?!profondit)/.test(x.testo)).length;
-    if (d.animazioni === false && !d.soloAnimazioni && immOk && !(lavoro && lavoro.errore)) daAnimare.push(d);
+    if (d.animazioni === false && !d.soloAnimazioni && !d.maiAnimare && immOk && !(lavoro && lavoro.errore)) daAnimare.push(d);   /* maiAnimare: una sala vuota, non si anima */
   }
   /* il tasto «Faccio le N animazioni»: con un solo paesaggio da animare vale per quello (le sue immagini sono qui sopra);
      con più paesaggi, uno solo per tutti, di nuovo in coda (14/11: città e valle insieme) */
@@ -1762,7 +1762,9 @@ async function rifaiOreVia(dd){
         const v = d[vista]; if (!v || !v.ore) continue;
         /* 14/11 · base «attuale»: si ritocca l'immagine che il paesaggio ha già a quell'ora (o.prompt: il ritocco, per intero) */
         const prendi = async u => { const r0 = await fetch(u, {cache: 'no-store'}); if (!r0.ok) throw new Error('Non trovo l\'immagine di partenza (' + r0.status + ')'); return await r0.blob(); };
-        const fissa = v.base && v.base !== 'attuale' ? await prendi(v.base) : null;
+        /* 15/11 · base «ora:alba»: l'immagine che il paesaggio ha ADESSO a quell'ora (in coda: quella appena rifatta dal lavoro prima) */
+        const fissa = v.base && v.base.startsWith('ora:') ? await prendi(p.immagini[(vista === 'est' ? 'est-' : '') + v.base.slice(4)])
+          : v.base && v.base !== 'attuale' ? await prendi(v.base) : null;
         for (const ora of ['notte', 'giorno', 'alba', 'tramonto']){
           const o = v.ore[ora]; if (!o) continue;
           const k = (vista === 'est' ? 'est-' : '') + ora, eti = (vista === 'est' ? 'TV · ' : 'Finestrelle · ') + NOME_ORA[ora];
