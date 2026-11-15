@@ -9,7 +9,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
 const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 const euro = n => (n < .1 ? n.toFixed(3) : n.toFixed(2)).replace('.', ',') + ' $';
-const VERSIONE = '6.63';
+const VERSIONE = '6.64';
 /* 8/11 · l'app si aggiorna da sola (Maurizio: «vedo ancora il quadrato con la doppia finestra»: sul telefono restava la
    versione vecchia anche dopo averla chiusa). Quando torna in primo piano, e ogni 10 minuti, chiede al server quale
    app.js c'è adesso; se è un'altra, ricarica (mai mentre un lavoro AI è in corso) */
@@ -1548,6 +1548,11 @@ async function bozzeVia(){
       /* la foto di riferimento (la stanza vera), scaricata una volta */
       let rif = null;
       if (d.riferimento){ try { const r = await fetch(d.riferimento, {cache: 'no-store'}); if (r.ok) rif = await r.blob(); } catch(e) {} if (!rif) throw new Error('Non riesco a scaricare la foto della stanza: riprova.'); }
+      /* 15/11 sera · varianti di un paesaggio che c'è già: ogni vista parte dalla SUA immagine (baseNord, baseEst) con le foto
+         della stanza vera come riferimento (riferimenti); il TV non si ricava più dalle finestrelle */
+      const scaricaB = async u => { const r = await fetch(u, {cache: 'no-store'}); if (!r.ok) throw new Error('Non trovo un\'immagine di partenza (' + r.status + ')'); return await r.blob(); };
+      const rifs = []; for (const u of d.riferimenti || []) rifs.push(await scaricaB(u));
+      const basi = {}, baseB = async u => basi[u] || (basi[u] = await scaricaB(u));
       let primoErrore = null;
       await Promise.all(d.opzioni.map(async x => { try { await unaBozza(x); } catch(e) { primoErrore = primoErrore || e; passo('b-' + x.id + '-n', 'errore', x.id + ' · ' + e.message); segnala(e); } }));
       if (primoErrore && !d.opzioni.some(x => (bozzeStato.fatte || {})[x.id])) throw primoErrore;
@@ -1559,7 +1564,10 @@ async function bozzeVia(){
         passo(kn, 'ora', x.id + ' · finestrelle' + (grande ? ' in 4K' : '') + '…');
         const testo = x.prompt ? x.prompt : x.interno ? promptInterno(x.descrizione, x.centro || 'the main counter', stile, x.vista, {luce: x.luce, persone: x.persone, lati: x.lati}) : promptLargo(x.descrizione, stile);
         const stato = (st, sec) => passo(kn, 'ora', x.id + ' · ' + st + ' da ' + Math.floor(sec / 60) + ':' + String(sec % 60).padStart(2, '0'));
-        const rn = rif && x.prompt
+        const bN = x.baseNord || d.baseNord, bE = x.baseEst || d.baseEst;
+        const rn = bN
+          ? await Ai.modifica({modello, chiavi: imp.chiavi, qualita, grande, stato, misura: 'tv', foto: await baseB(bN), riferimenti: rifs, prompt: testo})
+          : rif && x.prompt
           ? await Ai.modifica({modello, chiavi: imp.chiavi, qualita, grande, stato, misura: 'tv', foto: rif, prompt: testo + (d.stanzaInPiu ? '\n\n' + d.stanzaInPiu : '')})
           : rif && x.conStanza !== false
           ? await Ai.modifica({modello, chiavi: imp.chiavi, qualita, grande, misura: 'tv', foto: rif, prompt: (d.fedele ? PROMPT_STANZA_FEDELE : PROMPT_STANZA) + (d.stanzaInPiu ? d.stanzaInPiu + '\n\n' : '') + testo})
@@ -1569,7 +1577,9 @@ async function bozzeVia(){
         passo(kn, 'fatto', x.id + ' · finestrelle');
         if (d.soloFinestrelle){ bozzeStato.fatte[x.id] = {nord: urlNord, chi, grande}; salvaBozze(); rapportoLavoro({bozze: bozzeStato.fatte}); return; }
         passo(ke, 'ora', x.id + ' · TV…');
-        const re = await Ai.modifica({modello, chiavi: imp.chiavi, qualita, grande, misura: 'tv', foto: nord,
+        const re = bE
+          ? await Ai.modifica({modello, chiavi: imp.chiavi, qualita, grande, misura: 'tv', foto: await baseB(bE), riferimenti: rifs, prompt: x.promptEst || testo})
+          : await Ai.modifica({modello, chiavi: imp.chiavi, qualita, grande, misura: 'tv', foto: nord,
           prompt: x.interno ? promptEstInterno(x.descEst, x.vista) : promptEst(x.descEst || '')});
         const est = await inJpeg(b64aBlob(re.b64, re.mime), lato);
         const urlEst = await caricaBozza(d.chiave, x.id, 'est', est);
