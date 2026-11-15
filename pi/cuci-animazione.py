@@ -245,7 +245,10 @@ def analizza(percorso, n, fps, w, h, cielo):
         fiam = cv2.dilate(cv2.morphologyEx(fiam, cv2.MORPH_OPEN, np.ones((2, 2), np.uint8)), np.ones((3, 3), np.uint8))
         zf = np.maximum(pers, fiam)
         forte = np.clip(cv2.GaussianBlur(cv2.resize(zf, (w, h), interpolation=cv2.INTER_LINEAR), (0, 0), 6) * 1.3, 0, 1)
-        firma = L[:, zf > .5].astype(np.float16)       # le persone e le fiamme, piccole: per scegliere dove richiudere il giro
+        # le persone, piccole: per scegliere dove richiudere il giro e dove saltare fra i pezzi (15/11: senza le fiamme, che
+        # tremolando di continuo coprivano i movimenti delle persone: il ritorno di corsa dell'uomo alla posa iniziale
+        # risultava appena 1,5 volte il passo normale)
+        firma = (L[:, pers > .5] if (pers > .5).sum() >= 40 else L[:, zf > .5]).astype(np.float16)
         zone = np.maximum(zone, forte)
     # il cielo: dove l'AI «inciampa» (un fotogramma di colpo più scuro e ridisegnato, a metà video) e quanto
     # scorre ogni nuvola, per ricucire lo strappo
