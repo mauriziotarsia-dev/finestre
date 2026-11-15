@@ -196,7 +196,11 @@ vec3 paesaggio(sampler2D img, sampler2D imgB, float vk, sampler2D dep, vec4 crop
   /* prospettiva viva: chi si sposta a destra vede più paesaggio a sinistra (il lontano scorre con lui, il vicino meno);
      chi si avvicina alla finestra vede un po' più di paesaggio */
   p.x += uOcchio.x * .065 * (1. - .7 * n);
-  p = .5 + (p - .5) * (1. + uOcchio.z * .07);
+  /* ⚠ 15/11 sera (Maurizio: «avvicinarsi alla finestra o allontanarsi dovrebbe cambiare cosa si vede, ampliando o restringendo
+     la visuale»): c'era già ma si vedeva appena (7%). Ora il doppio: a un metro dal TV si vede il 15% di paesaggio in più, oltre
+     i quattro metri il 15% in meno. Una finestra vera farebbe molto di più, ma serve immagine oltre i bordi: con la prospettiva
+     viva la riserva è il 33% (finestra/index.html, margine), che basta giusto per questo e per lo spostamento ai lati insieme */
+  p = .5 + (p - .5) * (1. + uOcchio.z * .15);
   /* ⚠ 15/11 · FIAMME CHE DANZANO (Maurizio, finestrelle della taverna: «il fuoco delle torce è troppo poco reale»). Nel
      video dell'AI le torce quasi non si muovono, e nelle ore senza video sono dipinte. Dentro, dove l'immagine è una
      fiamma (chiara e molto più rossa che blu, guardata un po' sfocata, così si prende anche il bordo) il punto si legge
@@ -636,7 +640,7 @@ float uccelli(vec2 uv){
    non va più veloce. Si calcola solo vicino a ciascun comignolo. */
 float fumo(vec2 uv){
   float tot = 0.;
-  float k = 1. + uOcchio.z * .07;
+  float k = 1. + uOcchio.z * .15;   /* come il paesaggio (vedi sopra) */
   for (int i = 0; i < 8; i++){
     if (float(i) >= uNFumo) break;
     vec4 F = uFumo[i];
@@ -1395,7 +1399,7 @@ class Vista {
   /* i bagliori della vita del paesaggio, nel foro: stessa inquadratura e stessa prospettiva del paesaggio */
   disegnaBagliori(foro, s, lista, f0, marg){
     const gl = this.gl, ci = this.crop(f0, foro.aspetto, marg, f0.fuoco, foro.striscia, f0.fuoco), map = foro.map;
-    const oc = s.occhio || {x: 0, z: 0}, kz = 1 + (oc.z || 0) * .07, lato = s.prospettiva ? foro.lato : 0;
+    const oc = s.occhio || {x: 0, z: 0}, kz = 1 + (oc.z || 0) * .15, lato = s.prospettiva ? foro.lato : 0;
     const scala = (foro.h / map[3]) / 1000;   /* pixel della vista intera su 1000 */
     const luce = (.45 + .55 * Math.sqrt(Math.max(0, s.luce || 0))) * (1 - (s.buio || 0));
     const d = this.datiBag;
