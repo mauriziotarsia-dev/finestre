@@ -724,7 +724,24 @@ void main(){
         float pulv = rumore(qd + vec2(uT * .08, -uT * .16)) * .5 + rumore(qd * 2.1 + vec2(-uT * .07, -uT * .27) + 7.3) * .3 + rumore(qd * 4.3 + vec2(uT * .12, -uT * .4) + 3.1) * .2;
         float respiro = rumore(vec2(uT * .13, 5.7)) * .6 + rumore(vec2(uT * .31, 9.2)) * .4;
         /* il pulviscolo sta nell'aria (raggi, chiazza sul pavimento), non sui vetri: i vetri, più chiari, seguono solo il respiro */
-        col *= 1. + fuoriD * (.8 * (pulv - .5) * (1. - smoothstep(.6, .72, lumD)) + .45 * (respiro - .5));   /* sul TV vero, con .55 e .25, in dieci secondi i vetri cambiavano dell'1,5%: non si vedeva */
+        col *= 1. + fuoriD * (1. * (pulv - .5) * (1. - smoothstep(.6, .72, lumD)) + .45 * (respiro - .5));   /* sul TV vero, con .55 e .25, in dieci secondi i vetri cambiavano dell'1,5%: non si vedeva */
+        /* ⚠ 15/11 (Maurizio: «aumenta un po' gli effetti particellari della luce che viene da fuori»): oltre ai banchi di
+           polvere, i granelli: puntini che scendono piano nei raggi e si accendono quando girano nella luce, ognuno col suo
+           ritmo. Due strati (vicini più grandi e lenti, lontani più fini) */
+        float raggio = fuoriD * (1. - smoothstep(.6, .72, lumD));
+        if (raggio > .02){
+          float gran = 0.;
+          for (int g = 0; g < 2; g++){
+            float fg = float(g);
+            vec2 qm = uv * vec2(uAspetto, 1.) * (70. + fg * 55.) + vec2(uT * (.11 - fg * .04), -uT * (.32 + fg * .1)) + fg * 17.3;
+            vec2 cella = floor(qm), fr = fract(qm) - .5;
+            float h = fract(sin(dot(cella, vec2(127.1, 311.7))) * 43758.5453);
+            vec2 sp = vec2(fract(h * 13.7), fract(h * 71.3)) - .5;
+            float tw = .5 + .5 * sin(uT * (.7 + 1.9 * h) + h * 40.);
+            gran += smoothstep(.16, .02, length(fr - sp * .6)) * step(.72, h) * tw * tw * (1. - fg * .35);
+          }
+          col += raggio * gran * .42 * vec3(1., .96, .86);
+        }
       }
     } else {
       ombraV = clamp(-dV / 127., 0., 1.); nuvV = clamp(dV / 127., 0., 1.);
