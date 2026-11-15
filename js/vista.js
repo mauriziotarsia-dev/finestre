@@ -198,22 +198,35 @@ vec3 paesaggio(sampler2D img, sampler2D imgB, float vk, sampler2D dep, vec4 crop
      fiamma (chiara e molto più rossa che blu, guardata un po' sfocata, così si prende anche il bordo) il punto si legge
      un poco più in là: lingue che salgono e ondeggiano, svelte, ognuna per conto suo. Il bordo caldo del muro attorno
      ondeggia appena (il tremolio dell'aria calda). Solo coordinate: le letture vere vengono dopo, fuori da ogni «if» */
+  /* ⚠ 15/11 mattina · SPENTO (Maurizio, dal telefono: «dove c'è il camino l'immagine sfarfalla. Anche vicino ed
+     intorno alla mugnaia. Non va bene»). Misurato: la regola delle fiamme prendeva il 9% del quadro (soffitto ocra, muro
+     arancio della cucina, cuffia della cuoca) e lo faceva ondeggiare svelto; stretta alle sole fiamme, quasi non le
+     prende (le fiamme vere sono quasi bianche, la cera delle candele e il muro della cucina sono più arancio di loro).
+     Si riaccende solo con un modo che riconosca davvero le fiamme (#define FIAMME_DANZANTI) */
+#ifdef FIAMME_DANZANTI
   if (uDentro > .5 && uDentro < 1.5){
     /* la punta si muove, la base no: conta quanto c'è fiamma SOTTO il punto e non sopra (la cima delle lingue e delle
        torce); dentro la cera delle candele (fiamma sopra e sotto) e alla base, appoggiata alla torcia, poco o niente */
     vec2 dF = vec2(0., .012);
-    vec3 bF = haF > .5 ? fotoL(fer, crop, p, 2.5) : fotoL(img, crop, p, 2.5);
-    vec3 bS = haF > .5 ? fotoL(fer, crop, p + dF, 2.5) : fotoL(img, crop, p + dF, 2.5);
-    vec3 bA = haF > .5 ? fotoL(fer, crop, p - dF, 2.5) : fotoL(img, crop, p - dF, 2.5);
+    vec4 bF = haF > .5 ? texture2D(fer, clamp(crop.xy + p * crop.zw, .0005, .9995), 1.5) : vec4(fotoL(img, crop, p, 1.5), 0.);
+    vec3 bS = haF > .5 ? fotoL(fer, crop, p + dF, 1.5) : fotoL(img, crop, p + dF, 1.5);
+    vec3 bA = haF > .5 ? fotoL(fer, crop, p - dF, 1.5) : fotoL(img, crop, p - dF, 1.5);
+    /* ⚠ 15/11 mattina (Maurizio, dal telefono: «dove c'è il camino l'immagine sfarfalla. Anche vicino ed intorno alla
+       mugnaia»): la prima regola (chiaro e più rosso che blu) prendeva il 9% del quadro: il soffitto ocra, il muro
+       arancio della cucina dietro la cuoca, la sua cuffia e il grembiule al lume del fuoco. Tutto ondeggiava, svelto.
+       Ora solo le fiamme vere: molto chiare, molto rosse sul blu e molto sature (1,5% del quadro: fiamme, aloni delle
+       torce, riflessi sul pavimento). E niente dove c'è il video intero (persone e fuoco del camino si muovono già) */
     vec3 fF = vec3(max(bF.r, max(bF.g, bF.b)), max(bS.r, max(bS.g, bS.b)), max(bA.r, max(bA.g, bA.b)));
+    vec3 nF = vec3(min(bF.r, min(bF.g, bF.b)), min(bS.r, min(bS.g, bS.b)), min(bA.r, min(bA.g, bA.b)));
     vec3 rF = vec3(bF.r - bF.b, bS.r - bS.b, bA.r - bA.b);
-    vec3 mm = smoothstep(.45, .7, fF) * smoothstep(.16, .32, rF);
-    float mF = mm.x * clamp((mm.y - mm.z) * 2. + .2, 0., 1.);
+    vec3 mm = smoothstep(.72, .9, fF) * smoothstep(.3, .45, rF) * smoothstep(.45, .6, (fF - nF) / max(fF, vec3(.01)));
+    float mF = mm.x * clamp((mm.y - mm.z) * 2. + .2, 0., 1.) * (1. - clamp(bF.a * 2. - 1., 0., 1.));
     vec2 qF = p * vec2(uAspetto, 1.) * 70.;
     float sw = rumore(vec2(qF.y * .8 + uT * 2.3, qF.x * .5 - uT * .7)) * .65 + rumore(vec2(qF.y * 2.1 + uT * 5.1, qF.x * 1.7 + 3.3)) * .35 - .5;
-    float su = rumore(vec2(qF.x * 1.4 + 1.7, qF.y * 1.2 + uT * 4.2)) * .6 + rumore(vec2(qF.x * 3.1 - 2.2, qF.y * 2.6 + uT * 7.9)) * .4 - .5;
-    p += mF * vec2(sw * .0075 / uAspetto, su * .0085);
+    float su = rumore(vec2(qF.x * 1.4 + 1.7, qF.y * 1.2 + uT * 4.2)) * .6 + rumore(vec2(qF.x * 3.1 - 2.2, qF.y * 2.6 + uT * 6.3)) * .4 - .5;
+    p += mF * vec2(sw * .006 / uAspetto, su * .007);
   }
+#endif
   vec3 c = foto(img, crop, p);
   /* ⚠ 5/11 · il passaggio al giro del video sfuma SOLO il video (prima si sfumava verso un secondo paesaggio disegnato
      senza vento e senza nebbiolina: a ogni giro i cipressi tornavano dritti e i veli sparivano, «si vede il loop») */
