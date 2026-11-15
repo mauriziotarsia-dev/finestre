@@ -422,36 +422,45 @@ def _percorso_dentro(firma, n, fps):
     a tempo fisso: si cerca, a cavallo di ogni giunta e del giro, la coppia di istanti in cui le persone sono più simili
     (misurato: circa due passi normali di differenza) e si salta dall'uno all'altro con un passaggio di pochi fotogrammi.
     Si scarta anche il ritorno di corsa alla posa iniziale che l'AI mette in fondo ai pezzi (scatti oltre 2,5 volte il
-    passo normale nell'ultimo tratto). Torna l'elenco dei fotogrammi da scrivere: ('f', k) o ('m', a, b, t)."""
+    passo normale nell'ultimo tratto). Torna l'elenco dei fotogrammi da scrivere: ('f', k), ('m', a, b, t) fra due
+    fotogrammi fermi, ('x', a, b, t) fra due tratti che scorrono."""
     F = firma.astype(np.float32)
     D = lambda a, b: float(np.abs(F[a] - F[b]).mean())
     passi = np.array([D(k, k + 1) for k in range(n - 1)]); tip = float(np.median(passi)) or 1.
+    # ⚠ 15/11 (Maurizio, con i secondi sullo schermo: il salto «intorno a 0,0 poi 7,0», cioè proprio ai due tagli). Le
+    # due pose erano simili, ma il passaggio andava da un fotogramma fermo a un altro fermo: il gesto si interrompeva e
+    # ripartiva in un'altra direzione. Ora la coppia si sceglie guardando anche il movimento (le pose simili per mezzo
+    # secondo attorno, non in un istante solo) e il passaggio dura K fotogrammi in cui scorrono TUTTI E DUE i tratti:
+    # il primo che finisce e il secondo che comincia, fusi seguendo il movimento. Il gesto continua mentre cambia tratto.
+    K = max(8, int(round(fps * .42))); W = K // 2
+    def costo(a, b): return float(np.mean([D(a + i, b + i) for i in range(-W, W + 1, 2)]))
     def migliore(A, B):
         best = (1e18, None, None)
         for a in A:
             for b in B:
-                d = D(a, b)
+                d = costo(a, b)
                 if d < best[0]: best = (d, a, b)
         return best
-    tagli = []; da = 0
+    tagli = []; da = W
     for g0, g1 in giunte_dei_pezzi(n, fps):
-        d, a, b = migliore(range(max(da + int(2 * fps), g0 - int(2 * fps)), g0), range(g1, min(n - int(3 * fps), g1 + int(2 * fps))))
+        # a + W dentro il primo pezzo prima della sfumata, b - W dentro il secondo dopo la sfumata
+        d, a, b = migliore(range(max(da + int(2 * fps), g0 - int(2 * fps)), g0 - W), range(g1 + W, min(n - int(3 * fps), g1 + int(2 * fps))))
         if a is None: continue
         tagli.append((a, b, d)); da = b
-    # il giro: l'ultimo istante buono prima dello scatto finale dell'AI, verso un istante dei primi due secondi
+    # il giro: l'ultimo tratto buono prima dello scatto finale dell'AI, verso un istante dei primi due secondi
     coda0 = max(da + int(3 * fps), n - int(3.5 * fps))
     scatti = [k for k in range(coda0, n - 1) if passi[k] > 2.5 * tip]
     fine_max = (scatti[0] - 1) if scatti else n - 1
     if fine_max - coda0 < int(fps * .5): fine_max = n - 1
-    d, e, s0 = migliore(range(coda0, fine_max + 1), range(0, int(2 * fps)))
-    seq = []; inizio = s0
-    morf = lambda d: int(np.clip(round(d / tip * 1.5), 2, 6))
-    for a, b, d in tagli:
-        seq += [('f', k) for k in range(inizio, a + 1)]
-        m = morf(d); seq += [('m', a, b, (q + 1) / (m + 1)) for q in range(m)]
-        inizio = b
-    seq += [('f', k) for k in range(inizio, e + 1)]
-    m = morf(d); seq += [('m', e, s0, (q + 1) / (m + 1)) for q in range(m)]
+    d, e, s0 = migliore(range(coda0, fine_max - W), range(W, int(2 * fps)))
+    seq = []; inizio = s0 + W
+    def passaggio(a, b):                                       # K fotogrammi: a-W… del primo tratto, b-W… del secondo
+        return [('x', a - W + i, b - W + i, (i + 1) / (K + 1)) for i in range(K)]
+    for a, b, d2 in tagli:
+        seq += [('f', k) for k in range(inizio, a - W)]
+        seq += passaggio(a, b); inizio = b + W
+    seq += [('f', k) for k in range(inizio, e - W)]
+    seq += passaggio(e, s0)
     # ⚠ 15/11 (Maurizio, sul TV: «si vede il loop in due frame»): misurato sul video del TV, i due scatti più grandi
     # (3,5 e 5,3 s) non erano le giunte ma il video dell'AI: in un fotogramma la cuoca intera si sposta di colpo. Ogni
     # salto oltre il doppio del passo normale si spalma su sei fotogrammi seguendo il movimento
@@ -525,7 +534,7 @@ def cuci(entrata, uscita, profondita=None, immagine=None, fuoco_x=0.5, larghezza
 
     if percorso is not None:
         # interni: i fotogrammi nell'ordine scelto da _percorso_dentro (letti una volta sola, in avanti)
-        servono = {k for it in percorso if it[0] == 'm' for k in it[1:3]}; tenuti = {}; letto = -1; a = None
+        servono = {k for it in percorso if it[0] in 'mx' for k in it[1:3]}; tenuti = {}; letto = -1; a = None
         def prendi(k):
             nonlocal letto, a
             while letto < k:
@@ -914,9 +923,10 @@ def giro_casa(casa, larghezza=None, veloce=False, forza=1, chi='pc'):
             # 15/11: e di nuovo con il boccale dentro la zona piena e i passaggi che seguono il movimento (segno v4), poi
             # senza il tremolio della cucina e con le persone intere fino a terra (segno v5), poi con i punti fermi seguiti uno
             # per uno e il passaggio del giro solo dove le pose sono diverse (segno v6), poi coi salti fra le pose più simili
-            # alla giunta e al giro (segno v7), poi senza sbuffi di fumo lontano da persone e fiamme (segno v8)
+            # alla giunta e al giro (segno v7), poi senza sbuffi di fumo lontano da persone e fiamme (segno v8), poi coi
+            # passaggi in cui scorrono tutti e due i tratti (segno v9)
             dentro = 'interno' in (base.split('@', 1)[1].split('.') if '@' in base else [])
-            if originale not in nomi or f'{base}_{parte[:-4]}-' + ('v8' if dentro else 'v2') + '.png' in nomi: continue
+            if originale not in nomi or f'{base}_{parte[:-4]}-' + ('v9' if dentro else 'v2') + '.png' in nomi: continue
             _SOSPESI[0] += 1                                   # c'è un video da ricucire
             # 15/11 (Maurizio aspettava la taverna: mezz'ora a video sull'Ally, uno dopo l'altro): se il più forte è già
             # occupato con una ricucitura, il meno forte prende la successiva invece di aspettare; a priorità bassa, perché
@@ -941,7 +951,7 @@ def giro_casa(casa, larghezza=None, veloce=False, forza=1, chi='pc'):
             except Exception as ex:
                 print('  ricucitura non riuscita:', ex, file=sys.stderr, flush=True)
                 try:                                                                                                  # non riprovarla all'infinito
-                    for v in ('v2', 'v3', 'v4', 'v5', 'v6', 'v7', 'v8'): _rinfresca(cart, f'{base}_{parte[:-4]}-{v}.png')
+                    for v in ('v2', 'v3', 'v4', 'v5', 'v6', 'v7', 'v8', 'v9'): _rinfresca(cart, f'{base}_{parte[:-4]}-{v}.png')
                 except Exception: pass
             finally:
                 vivo.set(); _libera(cart, segno)
@@ -1226,7 +1236,7 @@ def _cuci_uno(cart, nomi, nome, base, parte, originale, larghezza, veloce, ricuc
             for pn in pezzi_n: _libera(cart, pn)                          # i pezzi sono dentro l'originale lungo
             try:
                 _rinfresca(cart, f'{base}_{parte[:-4]}-v2.png')          # cucita con il fermo dalla foto (o provato): non si rifà
-                if SENZA_CIELO: _rinfresca(cart, f'{base}_{parte[:-4]}-v8.png')   # un interno, con persone e fiamme vive (15/11: v5, tremolio e gonna)
+                if SENZA_CIELO: _rinfresca(cart, f'{base}_{parte[:-4]}-v9.png')   # un interno, con persone e fiamme vive (15/11: v5, tremolio e gonna)
             except Exception: pass
             print('  fatto:', info, flush=True)
             return 1
