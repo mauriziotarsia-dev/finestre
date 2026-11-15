@@ -134,17 +134,25 @@ def stima_spostamenti(percorso, fermo_basso):
 def _spostamenti_dentro(percorso):
     """⚠ 15/11 (Maurizio, video del TV dal telefono: «l'immagine trema e si sposta»). In un interno la cuoca e il fuoco
     occupano una bella parte del quadro: misurando il tremolio su tutto, la correzione inseguiva loro e il video tremava
-    più dell'originale (mensola del camino: fino a 3 px contro 1,6). Qui prima si trova quello che si muove davvero
-    (lo scarto nel tempo, a mezza risoluzione) e il tremolio si misura solo sul resto, sui contorni fermi."""
+    più dell'originale (mensola del camino: fino a 3 px contro 1,6). Poi, misurato sul video sullo schermo, restavano
+    scatti di 1-3 px in fotogrammi singoli. Ora si seguono uno per uno i punti di contorno che stanno fermi (dove lo
+    scarto nel tempo è piccolo) e lo spostamento di ogni fotogramma è la mediana dei loro spostamenti."""
     G = [cv2.cvtColor(cv2.resize(f, None, fx=.5, fy=.5, interpolation=cv2.INTER_AREA), cv2.COLOR_BGR2GRAY) for f in fotogrammi(percorso)]
-    S = np.stack(G[::max(1, len(G) // 60)]).astype(np.float32)
-    fermo = (S.std(0) < 6).astype(np.float32)
-    fermo = cv2.GaussianBlur(cv2.erode(fermo, np.ones((9, 9), np.uint8)), (0, 0), 4)
-    finestra = cv2.createHanningWindow((G[0].shape[1], G[0].shape[0]), cv2.CV_32F) * fermo
-    rif = G[0].astype(np.float32); sp = [(0., 0.)]
+    S = np.stack(G[::max(1, len(G) // 60)]).astype(np.float32).std(0)
+    fermo = cv2.erode((S < 5).astype(np.uint8), np.ones((7, 7), np.uint8)) * 255
+    p0 = cv2.goodFeaturesToTrack(G[0], 400, .01, 6, mask=fermo)
+    if p0 is None or len(p0) < 12:
+        rif = G[0].astype(np.float32); fin = cv2.createHanningWindow((G[0].shape[1], G[0].shape[0]), cv2.CV_32F)
+        return np.array([(0., 0.)] + [tuple(2 * v for v in cv2.phaseCorrelate(rif, g.astype(np.float32), fin)[0]) for g in G[1:]], np.float32)
+    sp = [(0., 0.)]
     for g in G[1:]:
-        (dx, dy), r = cv2.phaseCorrelate(rif, g.astype(np.float32), finestra)
-        sp.append((dx * 2, dy * 2) if r > .03 and abs(dx) < 8 and abs(dy) < 8 else sp[-1])
+        p1, st, err = cv2.calcOpticalFlowPyrLK(G[0], g, p0, None, winSize=(21, 21), maxLevel=3)
+        ok = st[:, 0] == 1
+        if ok.sum() < 8: sp.append(sp[-1]); continue
+        d = (p1 - p0)[ok, 0]; med = np.median(d, 0)
+        buoni = np.hypot(*(d - med).T) < 1.0                      # via i punti che si sono mossi davvero (una mano che passa)
+        dx, dy = np.median(d[buoni], 0) if buoni.sum() >= 6 else med
+        sp.append((float(dx) * 2, float(dy) * 2) if abs(dx) < 8 and abs(dy) < 8 else sp[-1])
     return np.array(sp, np.float32)
 
 
@@ -217,7 +225,7 @@ def analizza(percorso, n, fps, w, h, cielo):
         lontano = np.percentile(np.abs(L - np.median(L, 0)), 95, axis=0)
         # solo attorno alle persone vere (macchie grandi: l'uomo al tavolo, a questa grandezza, è più di 500 punti), non
         # attorno ai puntini di polvere nei raggi o alle fiamme, che si porterebbero dietro muri e raggi interi
-        grandi = np.zeros(nb, np.uint8); grandi[1:] = stat[1:, cv2.CC_STAT_AREA] >= max(60, L.shape[1] * L.shape[2] // 600)
+        grandi = np.zeros(nb, np.uint8); grandi[1:] = stat[1:, cv2.CC_STAT_AREA] >= max(30, L.shape[1] * L.shape[2] // 1200)
         semi = grandi[etich].astype(np.uint8)
         pers = np.maximum(pers, ((lontano > 18) & (cv2.dilate(semi, np.ones((21, 21), np.uint8)) > 0)).astype(np.float32))
         # ⚠ 15/11 (Maurizio: «la gonna in basso è ferma ma poi si vede lo stacco dove si muove»): della cuoca si muovono
@@ -373,10 +381,12 @@ def _tramezzo(a, b, t):
     """15/11 · il fotogramma a una frazione t (0…1) della strada fra la posa di a e quella di b, seguendo il movimento
     (braccia e testa si spostano invece di sfumare una nell'altra): float32"""
     f01, f10 = _flusso(a, b), _flusso(b, a)
-    # quello che è fermo (muri, pentole: spostamenti sotto il pixel, rumore del calcolo) resta fermo: si muovono solo
-    # le parti che vanno davvero da una posa all'altra (misurato: senza questo la mensola del camino ballava di 3 px)
+    # quello che è fermo (muri, pentole) resta fermo: si muove solo dove le due pose sono davvero diverse (misurato sul
+    # video sullo schermo: col solo limite sul flusso, nel passaggio del giro la cucina ballava ancora di 1-3 px)
+    diversi = cv2.GaussianBlur(np.abs(a.astype(np.float32) - b.astype(np.float32)).max(2), (0, 0), 6)
+    k = np.clip((diversi - 6) / 10, 0, 1); k = cv2.GaussianBlur(k * k * (3 - 2 * k), (0, 0), 8)
     for f in (f01, f10):
-        k = np.clip((np.hypot(f[..., 0], f[..., 1]) - .6) / 1.2, 0, 1); f *= (k * k * (3 - 2 * k))[..., None]
+        v = np.clip((np.hypot(f[..., 0], f[..., 1]) - .6) / 1.2, 0, 1); f *= (v * v * (3 - 2 * v) * k)[..., None]
     ft0 = -(1 - t) * t * f01 + t * t * f10
     ft1 = (1 - t) ** 2 * f01 - t * (1 - t) * f10
     h, w = a.shape[:2]; gx, gy = np.meshgrid(np.arange(w, dtype=np.float32), np.arange(h, dtype=np.float32))
@@ -818,9 +828,10 @@ def giro_casa(casa, larghezza=None, veloce=False, forza=1, chi='pc'):
             originale = f'{base}_{parte[:-4]}-originale.mp4'
             # 14/11 notte: gli interni cuciti prima di «DENTRO: LE PERSONE E LE FIAMME» si rifanno una volta (segno v3);
             # 15/11: e di nuovo con il boccale dentro la zona piena e i passaggi che seguono il movimento (segno v4), poi
-            # senza il tremolio della cucina e con le persone intere fino a terra (segno v5)
+            # senza il tremolio della cucina e con le persone intere fino a terra (segno v5), poi con i punti fermi seguiti uno
+            # per uno e il passaggio del giro solo dove le pose sono diverse (segno v6)
             dentro = 'interno' in (base.split('@', 1)[1].split('.') if '@' in base else [])
-            if originale not in nomi or f'{base}_{parte[:-4]}-' + ('v5' if dentro else 'v2') + '.png' in nomi: continue
+            if originale not in nomi or f'{base}_{parte[:-4]}-' + ('v6' if dentro else 'v2') + '.png' in nomi: continue
             _SOSPESI[0] += 1                                   # c'è un video da ricucire
             # 15/11 (Maurizio aspettava la taverna: mezz'ora a video sull'Ally, uno dopo l'altro): se il più forte è già
             # occupato con una ricucitura, il meno forte prende la successiva invece di aspettare; a priorità bassa, perché
@@ -845,7 +856,7 @@ def giro_casa(casa, larghezza=None, veloce=False, forza=1, chi='pc'):
             except Exception as ex:
                 print('  ricucitura non riuscita:', ex, file=sys.stderr, flush=True)
                 try:                                                                                                  # non riprovarla all'infinito
-                    for v in ('v2', 'v3', 'v4', 'v5'): _rinfresca(cart, f'{base}_{parte[:-4]}-{v}.png')
+                    for v in ('v2', 'v3', 'v4', 'v5', 'v6'): _rinfresca(cart, f'{base}_{parte[:-4]}-{v}.png')
                 except Exception: pass
             finally:
                 vivo.set(); _libera(cart, segno)
@@ -1130,7 +1141,7 @@ def _cuci_uno(cart, nomi, nome, base, parte, originale, larghezza, veloce, ricuc
             for pn in pezzi_n: _libera(cart, pn)                          # i pezzi sono dentro l'originale lungo
             try:
                 _rinfresca(cart, f'{base}_{parte[:-4]}-v2.png')          # cucita con il fermo dalla foto (o provato): non si rifà
-                if SENZA_CIELO: _rinfresca(cart, f'{base}_{parte[:-4]}-v5.png')   # un interno, con persone e fiamme vive (15/11: v5, tremolio e gonna)
+                if SENZA_CIELO: _rinfresca(cart, f'{base}_{parte[:-4]}-v6.png')   # un interno, con persone e fiamme vive (15/11: v5, tremolio e gonna)
             except Exception: pass
             print('  fatto:', info, flush=True)
             return 1
