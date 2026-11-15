@@ -9,7 +9,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
 const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 const euro = n => (n < .1 ? n.toFixed(3) : n.toFixed(2)).replace('.', ',') + ' $';
-const VERSIONE = '6.58';
+const VERSIONE = '6.59';
 /* 8/11 · l'app si aggiorna da sola (Maurizio: «vedo ancora il quadrato con la doppia finestra»: sul telefono restava la
    versione vecchia anche dopo averla chiusa). Quando torna in primo piano, e ogni 10 minuti, chiede al server quale
    app.js c'è adesso; se è un'altra, ricarica (mai mentre un lavoro AI è in corso) */
@@ -1732,16 +1732,23 @@ async function rifaiOreVia(dd){
     await conLavoro('rifaiOre', async L => {
       L.p = p;
       /* le animazioni vecchie (e i loro pezzi, fermi, maschere) non vanno più con le immagini nuove */
-      const ore = oreDiRifai(d), orRe = '(' + ore.join('|') + ')';
+      /* 15/11 · solo le viste che si rifanno: rifare le finestrelle all'alba non toglie più l'animazione dell'alba del TV
+         (prima «_(est-)?…» prendeva tutte e due le viste) */
+      const ore = oreDiRifai(d);
+      const viste = ['nord', 'est'].map(v => ({pre: v === 'est' ? 'est-' : '', ore: Object.keys((d[v] && d[v].ore) || {})})).filter(v => v.ore.length);
       if (!d.soloAnimazioni){
       passo('via', 'ora', 'Tolgo le animazioni vecchie di ' + ore.map(o => NOME_ORA[o]).join(', ') + '…');
-      const vecchi = (p.file || []).filter(n => new RegExp('_(est-)?(anim|fermo|maschera|mini-fermo)-' + orRe + '(-originale)?\\.(mp4|jpg|png)$').test(n));
-      const pezzi = (p.file || []).filter(n => new RegExp('_(est-)?anim-' + orRe + '\\.mp4$').test(n)).flatMap(n => [2, 3, 4].map(k => n.replace(/\.mp4$/, '-pezzo' + k + '.mp4')));
-      await togliFile(casa, p, vecchi);
-      try { await togliFile(casa, p, pezzi); } catch(e) {}
-      for (const k of Object.keys(p.animati || {})) if (new RegExp('^(est-)?' + orRe + '$').test(k)) delete p.animati[k];
-      for (const k of Object.keys(p.immagini || {})) if (new RegExp('^(est-)?(fermo|maschera|mini-fermo)-' + orRe + '$').test(k)) delete p.immagini[k];
-      passo('via', 'fatto', 'Animazioni vecchie tolte (' + vecchi.length + ' file)');
+      let tolti = 0;
+      for (const v of viste){
+        const orRe = '(' + v.ore.join('|') + ')';
+        const vecchi = (p.file || []).filter(n => new RegExp('_' + v.pre + '(anim|fermo|maschera|mini-fermo)-' + orRe + '(-originale)?\\.(mp4|jpg|png)$').test(n));
+        const pezzi = (p.file || []).filter(n => new RegExp('_' + v.pre + 'anim-' + orRe + '\\.mp4$').test(n)).flatMap(n => [2, 3, 4].map(k => n.replace(/\.mp4$/, '-pezzo' + k + '.mp4')));
+        await togliFile(casa, p, vecchi); tolti += vecchi.length;
+        try { await togliFile(casa, p, pezzi); } catch(e) {}
+        for (const k of Object.keys(p.animati || {})) if (new RegExp('^' + v.pre + orRe + '$').test(k)) delete p.animati[k];
+        for (const k of Object.keys(p.immagini || {})) if (new RegExp('^' + v.pre + '(fermo|maschera|mini-fermo)-' + orRe + '$').test(k)) delete p.immagini[k];
+      }
+      passo('via', 'fatto', 'Animazioni vecchie tolte (' + tolti + ' file)');
       }
       if (!d.soloAnimazioni && ((d.nome && d.nome !== p.nome) || d.parole)){
         passo('nome', 'ora', 'Nome: «' + (d.nome || p.nome) + '»…');
