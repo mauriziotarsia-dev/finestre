@@ -1377,6 +1377,7 @@ class Vista {
     if (pVideo){ f.video = await pVideo; if (f.video) f.vtex = this.texture(); }
     /* cucito? cuci-animazione.py lascia accanto il file dell'AI, «…-originale.mp4» */
     if (f.video) f.cucito = await pCucito;
+    f.interno = !!this.internoInArrivo;   /* 15/11: il giro del video di un interno si chiude in tre fotogrammi (aggiornaVideo) */
     /* fermo + maschera in una texture sola (rgb + a); se non ci sono, il video è già cucito */
     const fm = pFermo ? await pFermo : null;
     if (f.video && fm){
@@ -1444,7 +1445,11 @@ class Vista {
        (finestrelle abbazia 0,78 contro 0,08; TV 0,49 contro 0,07). Con 3 fotogrammi di passaggio il salto si vedeva.
        Ora mezzo secondo (15 fotogrammi): il salto diventa più piccolo del movimento normale. Nel video cucito si
        muovono solo nebbia, acqua e fumo (alberi e case sono fermi), quindi la sovrapposizione non si nota. */
-    const [a, b] = f.video, D = a.duration || 0, coda = f.cucito ? Math.min(.5, D * .08) : f.fTex ? Math.min(1, D * .15) : Math.min(.25, D * .05);
+    /* ⚠ 15/11 (Maurizio, finestrelle della taverna: «si vede ancora il loop subito dopo che mette sul tavolo il
+       bicchiere»): dentro, il mezzo secondo di dissolvenza sovrapponeva due momenti diversi dell'uomo (braccia e
+       cucchiaio doppi). Il video di un interno lo chiude già il cucitore seguendo il movimento: qui basta un passaggio
+       di tre fotogrammi */
+    const [a, b] = f.video, D = a.duration || 0, coda = f.cucito ? Math.min(f.interno ? .1 : .5, D * .08) : f.fTex ? Math.min(1, D * .15) : Math.min(.25, D * .05);
     if (D > 2 && a.currentTime > D - coda && b.paused){ b.currentTime = 0; b.play().catch(() => {}); }
     if (!b.paused){
       const k = Math.min(1, Math.max(0, (a.currentTime - (D - coda)) / coda));
@@ -2035,12 +2040,22 @@ function nuovoFotogramma(v){
 const VERSIONE_VIDEO = 'c3';
 function apriVideo(url){
   url += (url.includes('?') ? '&' : '?') + VERSIONE_VIDEO;
-  const fai = () => { const v = document.createElement('video'); v.crossOrigin = 'anonymous'; v.muted = true; v.playsInline = true;
-    v.preload = 'auto'; v.src = url; return v; };
+  const fai = () => { const v = document.createElement('video'); v.crossOrigin = 'anonymous'; v.muted = v.defaultMuted = true; v.playsInline = true;
+    v.setAttribute('muted', ''); v.setAttribute('playsinline', ''); v.preload = 'auto'; v.src = url; return v; };
   const a = fai(), b = fai();
+  /* ⚠ 15/11 (Maurizio: «sullo smartphone in full screen la mugnaia la vedo ferma, come il resto del paesaggio»).
+     Prima si aspettava «canplay» e solo dopo si faceva partire il video. Safari sull'iPhone però non scarica un video
+     finché nessuno gli chiede di partire: «canplay» non arrivava, dopo 20 secondi il video veniva lasciato perdere e
+     restava il dipinto fermo. Ora si chiede subito di partire (muto e dentro la pagina: permesso senza tocchi).
+     Se il telefono rifiuta lo stesso (risparmio energetico) il video si tiene e parte al primo tocco sullo schermo. */
   return new Promise((ok, no) => {
-    a.oncanplay = () => { a.oncanplay = null; a.play().then(() => ok([a, b])).catch(no); };
+    let fatto = false; const pronto = () => { if (!fatto){ fatto = true; ok([a, b]); } };
     a.onerror = () => no(new Error('video non caricato'));
-    setTimeout(() => no(new Error('video lento')), 20000);
+    a.play().then(pronto).catch(e => {
+      if (!e || e.name !== 'NotAllowedError') return no(e || new Error('video non partito'));
+      const via = () => { removeEventListener('pointerdown', via, true); a.play().catch(() => {}); };
+      addEventListener('pointerdown', via, true); pronto();
+    });
+    setTimeout(() => { if (!fatto) no(new Error('video lento')); }, 45000);
   });
 }
