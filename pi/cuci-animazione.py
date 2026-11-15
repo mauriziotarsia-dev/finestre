@@ -241,7 +241,9 @@ def analizza(percorso, n, fps, w, h, cielo):
                 pers[y0:y1, x:x + ww] = np.maximum(pers[y0:y1, x:x + ww], blob[:y1 - y0])
         pers = cv2.morphologyEx(pers, cv2.MORPH_CLOSE, np.ones((7, 7), np.uint8))   # una persona intera, non a pezzi
         pers = cv2.dilate(pers, np.ones((5, 5), np.uint8))                          # il margine per braccia e testa
-        fiam = (vivo > max(18., soglia * 2.6)).astype(np.float32)
+        # (15/11: solo dove la fiamma c'è quasi sempre, cioè è chiara anche nell'immagine di mezzo: uno sbuffo di fumo che
+        # compare un attimo sopra l'arco cambia molto di luce, ma non è una fiamma)
+        fiam = ((vivo > max(18., soglia * 2.6)) & (np.median(L, 0) > 150)).astype(np.float32)
         fiam = cv2.dilate(cv2.morphologyEx(fiam, cv2.MORPH_OPEN, np.ones((2, 2), np.uint8)), np.ones((3, 3), np.uint8))
         zf = np.maximum(pers, fiam)
         forte = np.clip(cv2.GaussianBlur(cv2.resize(zf, (w, h), interpolation=cv2.INTER_LINEAR), (0, 0), 6) * 1.3, 0, 1)
@@ -249,7 +251,11 @@ def analizza(percorso, n, fps, w, h, cielo):
         # tremolando di continuo coprivano i movimenti delle persone: il ritorno di corsa dell'uomo alla posa iniziale
         # risultava appena 1,5 volte il passo normale)
         firma = (L[:, pers > .5] if (pers > .5).sum() >= 40 else L[:, zf > .5]).astype(np.float16)
-        zone = np.maximum(zone, forte)
+        # ⚠ 15/11 (Maurizio: «c'è anche uno sbuffo di fumo che compare sopra la porta di pietra ad un certo punto»):
+        # dentro, le zone «a nebbia» lontane da persone e fiamme sono quasi sempre sbagli dell'AI (un fumo che sale dal
+        # camino attraverso il muro sopra l'arco): si tengono solo vicino a persone e fiamme
+        vicino = np.clip(cv2.GaussianBlur(cv2.dilate((forte > .2).astype(np.uint8), np.ones((41, 41), np.uint8)).astype(np.float32), (0, 0), 12) * 1.5, 0, 1)
+        zone = np.maximum(zone * vicino, forte)
     # il cielo: dove l'AI «inciampa» (un fotogramma di colpo più scuro e ridisegnato, a metà video) e quanto
     # scorre ogni nuvola, per ricucire lo strappo
     mc = cv2.resize(cielo, (L.shape[2], L.shape[1]))
@@ -908,9 +914,9 @@ def giro_casa(casa, larghezza=None, veloce=False, forza=1, chi='pc'):
             # 15/11: e di nuovo con il boccale dentro la zona piena e i passaggi che seguono il movimento (segno v4), poi
             # senza il tremolio della cucina e con le persone intere fino a terra (segno v5), poi con i punti fermi seguiti uno
             # per uno e il passaggio del giro solo dove le pose sono diverse (segno v6), poi coi salti fra le pose più simili
-            # alla giunta e al giro (segno v7)
+            # alla giunta e al giro (segno v7), poi senza sbuffi di fumo lontano da persone e fiamme (segno v8)
             dentro = 'interno' in (base.split('@', 1)[1].split('.') if '@' in base else [])
-            if originale not in nomi or f'{base}_{parte[:-4]}-' + ('v7' if dentro else 'v2') + '.png' in nomi: continue
+            if originale not in nomi or f'{base}_{parte[:-4]}-' + ('v8' if dentro else 'v2') + '.png' in nomi: continue
             _SOSPESI[0] += 1                                   # c'è un video da ricucire
             # 15/11 (Maurizio aspettava la taverna: mezz'ora a video sull'Ally, uno dopo l'altro): se il più forte è già
             # occupato con una ricucitura, il meno forte prende la successiva invece di aspettare; a priorità bassa, perché
@@ -935,7 +941,7 @@ def giro_casa(casa, larghezza=None, veloce=False, forza=1, chi='pc'):
             except Exception as ex:
                 print('  ricucitura non riuscita:', ex, file=sys.stderr, flush=True)
                 try:                                                                                                  # non riprovarla all'infinito
-                    for v in ('v2', 'v3', 'v4', 'v5', 'v6', 'v7'): _rinfresca(cart, f'{base}_{parte[:-4]}-{v}.png')
+                    for v in ('v2', 'v3', 'v4', 'v5', 'v6', 'v7', 'v8'): _rinfresca(cart, f'{base}_{parte[:-4]}-{v}.png')
                 except Exception: pass
             finally:
                 vivo.set(); _libera(cart, segno)
@@ -1220,7 +1226,7 @@ def _cuci_uno(cart, nomi, nome, base, parte, originale, larghezza, veloce, ricuc
             for pn in pezzi_n: _libera(cart, pn)                          # i pezzi sono dentro l'originale lungo
             try:
                 _rinfresca(cart, f'{base}_{parte[:-4]}-v2.png')          # cucita con il fermo dalla foto (o provato): non si rifà
-                if SENZA_CIELO: _rinfresca(cart, f'{base}_{parte[:-4]}-v7.png')   # un interno, con persone e fiamme vive (15/11: v5, tremolio e gonna)
+                if SENZA_CIELO: _rinfresca(cart, f'{base}_{parte[:-4]}-v8.png')   # un interno, con persone e fiamme vive (15/11: v5, tremolio e gonna)
             except Exception: pass
             print('  fatto:', info, flush=True)
             return 1
