@@ -9,7 +9,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
 const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 const euro = n => (n < .1 ? n.toFixed(3) : n.toFixed(2)).replace('.', ',') + ' $';
-const VERSIONE = '6.68';
+const VERSIONE = '6.69';
 /* 8/11 · l'app si aggiorna da sola (Maurizio: «vedo ancora il quadrato con la doppia finestra»: sul telefono restava la
    versione vecchia anche dopo averla chiusa). Quando torna in primo piano, e ogni 10 minuti, chiede al server quale
    app.js c'è adesso; se è un'altra, ricarica (mai mentre un lavoro AI è in corso) */
@@ -1743,7 +1743,7 @@ function chiediRifaiOre(d){
     <p class="nota" style="margin-top:0">${esc(d.perche || '')}</p>
     <ul class="membri">${['notte', 'giorno', 'alba', 'tramonto'].filter(o => oreIt[o]).map(o => `<li><span><b>${esc(NOME_ORA[o][0].toUpperCase() + NOME_ORA[o].slice(1))}</b><small>${esc(oreIt[o])}</small></span></li>`).join('')}</ul>
     <button class="btn oro piena" style="margin-top:14px" data-fai="rifaiOreVia"${imp.chiavi[m.fornitore] && imp.chiavi.google ? '' : ' disabled'}>${icona('scintilla', 18)}Avvia · ≈ ${euro(costo)}</button>
-    <p class="nota">${d.soloAnimazioni ? 'Solo le animazioni, una dopo l\'altra: qualche minuto ciascuna.' : d.animazioni === false ? 'Prima solo le immagini (qualche minuto): le guardi e, se vanno bene, qui sotto compare il tasto per le animazioni.' : 'Prima le immagini (qualche minuto), poi le animazioni, una dopo l\'altra: in tutto circa un\'ora.'} Tieni l'app aperta su questa pagina.</p>
+    <p class="nota">${d.soloAnimazioni ? 'Solo le animazioni, una dopo l\'altra: qualche minuto ciascuna.' : d.animazioni === false ? (contaRifai(d).anim ? 'Prima solo le immagini (qualche minuto): le guardi e, se vanno bene, qui sotto compare il tasto per le animazioni.' : 'Solo ' + (contaRifai(d).imm === 1 ? 'un\'immagine' : 'le immagini') + ', da guardare: un paio di minuti. Nessuna animazione.') : 'Prima le immagini (qualche minuto), poi le animazioni, una dopo l\'altra: in tutto circa un\'ora.'} Tieni l'app aperta su questa pagina.</p>
     <div id="lavoroFoglio"></div><div id="rifaiOreDopo"></div>`);
   foglioAperto = 'rifaiOre'; chiediRifaiOre.d = d;
   rapportoLavoro({messaggio: 'rifaiOre: in attesa di «Avvia»', costo: Math.round(costo * 100) / 100});
@@ -1829,7 +1829,8 @@ async function rifaiOreVia(dd){
   const riuscite = ((lavoro && lavoro.passi) || []).filter(x => x.cls === 'fatto' && /^(Finestrelle|TV) · (?!profondit)/.test(x.testo)).length;
   rapportoLavoro({messaggio: lavoro && lavoro.errore ? 'rifaiOre: errore ' + lavoro.errore : d.animazioni === false && !d.soloAnimazioni ? (riuscite ? 'rifaiOre: immagini fatte (' + riuscite + '), in attesa del sì per le animazioni' : 'rifaiOre: nessuna immagine riuscita') : 'rifaiOre: finito'});
   const dopo = document.getElementById('rifaiOreDopo');
-  if (dopo && !rifaiCodaVia.attiva && d.animazioni === false && !d.soloAnimazioni && riuscite && !(lavoro && lavoro.errore) && MODELLI_VIDEO.length)
+  /* 15/11 sera · un'immagine di prova («ferma»: niente da animare) non mostra il tasto delle animazioni */
+  if (dopo && !rifaiCodaVia.attiva && d.animazioni === false && !d.soloAnimazioni && riuscite && !(lavoro && lavoro.errore) && MODELLI_VIDEO.length && contaRifai(d).anim > 0)
     dopo.innerHTML = `<p class="nota" style="margin-top:12px">Guarda le immagini qui sopra (toccandole si ingrandiscono). Se vanno bene:</p>
       <button class="btn oro piena" data-fai="rifaiOreAnima">${icona('anima', 18)}Faccio le ${contaRifai(d).anim} animazioni · ≈ ${euro(costoAnimOre(d))}</button>`;
 }
