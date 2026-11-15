@@ -406,6 +406,48 @@ def giunte_dei_pezzi(n, fps):
     return []
 
 
+def _percorso_dentro(firma, n, fps):
+    """⚠ 15/11 (Maurizio: «si vede il loop in due frame, dove penso vengano legati i due loop. Va sistemato»). I due pezzi
+    dell'AI partono dalla stessa posa e dovrebbero tornarci, ma non ci tornano davvero: alla giunta e al giro la cuoca
+    cambiava posa, e il passaggio (per quanto seguisse il movimento) si vedeva. Qui non si lega più fine con inizio
+    a tempo fisso: si cerca, a cavallo di ogni giunta e del giro, la coppia di istanti in cui le persone sono più simili
+    (misurato: circa due passi normali di differenza) e si salta dall'uno all'altro con un passaggio di pochi fotogrammi.
+    Si scarta anche il ritorno di corsa alla posa iniziale che l'AI mette in fondo ai pezzi (scatti oltre 2,5 volte il
+    passo normale nell'ultimo tratto). Torna l'elenco dei fotogrammi da scrivere: ('f', k) o ('m', a, b, t)."""
+    F = firma.astype(np.float32)
+    D = lambda a, b: float(np.abs(F[a] - F[b]).mean())
+    passi = np.array([D(k, k + 1) for k in range(n - 1)]); tip = float(np.median(passi)) or 1.
+    def migliore(A, B):
+        best = (1e18, None, None)
+        for a in A:
+            for b in B:
+                d = D(a, b)
+                if d < best[0]: best = (d, a, b)
+        return best
+    tagli = []; da = 0
+    for g0, g1 in giunte_dei_pezzi(n, fps):
+        d, a, b = migliore(range(max(da + int(2 * fps), g0 - int(2 * fps)), g0), range(g1, min(n - int(3 * fps), g1 + int(2 * fps))))
+        if a is None: continue
+        tagli.append((a, b, d)); da = b
+    # il giro: l'ultimo istante buono prima dello scatto finale dell'AI, verso un istante dei primi due secondi
+    coda0 = max(da + int(3 * fps), n - int(3.5 * fps))
+    scatti = [k for k in range(coda0, n - 1) if passi[k] > 2.5 * tip]
+    fine_max = (scatti[0] - 1) if scatti else n - 1
+    if fine_max - coda0 < int(fps * .5): fine_max = n - 1
+    d, e, s0 = migliore(range(coda0, fine_max + 1), range(0, int(2 * fps)))
+    seq = []; inizio = s0
+    morf = lambda d: int(np.clip(round(d / tip * 1.5), 2, 6))
+    for a, b, d in tagli:
+        seq += [('f', k) for k in range(inizio, a + 1)]
+        m = morf(d); seq += [('m', a, b, (q + 1) / (m + 1)) for q in range(m)]
+        inizio = b
+    seq += [('f', k) for k in range(inizio, e + 1)]
+    m = morf(d); seq += [('m', e, s0, (q + 1) / (m + 1)) for q in range(m)]
+    info = {'tagli': [{'da': round(a / fps, 2), 'a': round(b / fps, 2), 'passi': round(d2 / tip, 1)} for a, b, d2 in tagli],
+            'giro': {'fine': round(e / fps, 2), 'inizio': round(s0 / fps, 2), 'passi': round(d / tip, 1)}}
+    return seq, info
+
+
 def cuci(entrata, uscita, profondita=None, immagine=None, fuoco_x=0.5, larghezza=None, veloce=False, fermo=None, maschera=None, alta=None, sfuma=None, fx_video=None):
     n, fps, w, h = leggi_info(entrata)
     primo = next(fotogrammi(entrata))
@@ -414,6 +456,9 @@ def cuci(entrata, uscita, profondita=None, immagine=None, fuoco_x=0.5, larghezza
     foto, lut = fermo_dalla_foto(rif, alta, zone, cielo, fuoco_x if fx_video is None else fx_video) if alta else (None, None)
     c = int(round(fps * (sfuma or SECONDI_GIRO)))            # 14/11: coi pezzi (tutti da e verso la stessa immagine) basta 1,5 s
     lung = n - c                                               # il giro: n - c fotogrammi
+    percorso = None
+    if forte is not None and info.get('_firma') is not None and info['_firma'].shape[1]:
+        percorso, it = _percorso_dentro(info['_firma'], n, fps); info.update(it); lung = len(percorso)
     # ⚠ 30/10: il video serve solo dove si muove (nebbia, fumo, acqua): il resto lo disegna il fermo a piena
     # risoluzione. Così il video può essere piccolo: alto al massimo 1080, che il Raspberry 4 decodifica col suo
     # circuito (1080×1920 no: lo decodificava il processore, e le finestre andavano a 30 immagini a scatti)
@@ -429,7 +474,7 @@ def cuci(entrata, uscita, profondita=None, immagine=None, fuoco_x=0.5, larghezza
     # su Windows, lanciato da pythonw, ffmpeg aprirebbe una finestra nera sopra il TV per tutta la cucitura (11/11)
     ff = subprocess.Popen(cmd, stdin=subprocess.PIPE, creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
     inizio = iter(Cucitore(entrata, 0, sp, rif, cielo, zone, guad, sost, forte))
-    fine = iter(Cucitore(entrata, lung, sp, rif, cielo, zone, guad, sost, forte))
+    fine = iter(Cucitore(entrata, lung, sp, rif, cielo, zone, guad, sost, forte)) if percorso is None else None
     # ⚠ 14/11 notte · LE PERSONE AL GIRO DEL LOOP: sfumate per un secondo e mezzo come la nebbia, la cuoca (che a fine
     # video non è esattamente nella posa dell'inizio) appariva doppia, due pose sovrapposte: proprio il momento da cui si
     # capisce il loop. Dove c'è video pieno si passa invece in un quinto di secondo, nell'istante del tratto in cui la
@@ -441,7 +486,7 @@ def cuci(entrata, uscita, profondita=None, immagine=None, fuoco_x=0.5, larghezza
     # posa dell'ultimo fotogramma intero del primo pezzo a quella del primo intero del secondo
     MEZZO = 8
     firma = info.pop('_firma', None); j0 = None; giunte = []
-    if firma is not None and firma.shape[1] and c >= 2 * MEZZO + 2:
+    if firma is not None and firma.shape[1] and c >= 2 * MEZZO + 2 and percorso is None:
         dif = np.array([float(np.abs(firma[j].astype(np.float32) - firma[lung + j].astype(np.float32)).mean()) for j in range(c)])
         dif = np.convolve(np.pad(dif, 2, mode='edge'), np.ones(5) / 5, 'valid')
         j0 = MEZZO // 2 + 1 + int(np.argmin(dif[MEZZO // 2 + 1:c - MEZZO // 2 - 1]))
@@ -457,7 +502,25 @@ def cuci(entrata, uscita, profondita=None, immagine=None, fuoco_x=0.5, larghezza
         if len(testa) < 4: testa.append(x)
         ff.stdin.write(x.tobytes()); scritti += 1
 
-    for j in range(lung):
+    if percorso is not None:
+        # interni: i fotogrammi nell'ordine scelto da _percorso_dentro (letti una volta sola, in avanti)
+        servono = {k for it in percorso if it[0] == 'm' for k in it[1:3]}; tenuti = {}; letto = -1; a = None
+        def prendi(k):
+            nonlocal letto, a
+            while letto < k:
+                a = next(inizio); letto += 1
+                if letto in servono: tenuti[letto] = a
+            return tenuti.get(k, a)
+        primo_s = percorso[0][1] if percorso[0][0] == 'f' else None
+        if primo_s is not None: servono.add(primo_s)
+        for it in percorso:
+            if it[0] == 'f': scrivi(prendi(it[1])); continue
+            _, ka, kb, t = it
+            if kb < ka: A, B = prendi(ka), tenuti[kb]                # il giro: verso un fotogramma già passato
+            else: A = tenuti[ka] if ka in tenuti else prendi(ka); B = prendi(kb)
+            t = t * t * (3 - 2 * t)
+            scrivi(np.clip(_tramezzo(A, B, t) + .5, 0, 255).astype(np.uint8))
+    for j in range(lung if percorso is None else 0):
         a = next(inizio)
         if j < c:
             b = next(fine); t = (j + .5) / c; t = t * t * (3 - 2 * t)
@@ -829,9 +892,10 @@ def giro_casa(casa, larghezza=None, veloce=False, forza=1, chi='pc'):
             # 14/11 notte: gli interni cuciti prima di «DENTRO: LE PERSONE E LE FIAMME» si rifanno una volta (segno v3);
             # 15/11: e di nuovo con il boccale dentro la zona piena e i passaggi che seguono il movimento (segno v4), poi
             # senza il tremolio della cucina e con le persone intere fino a terra (segno v5), poi con i punti fermi seguiti uno
-            # per uno e il passaggio del giro solo dove le pose sono diverse (segno v6)
+            # per uno e il passaggio del giro solo dove le pose sono diverse (segno v6), poi coi salti fra le pose più simili
+            # alla giunta e al giro (segno v7)
             dentro = 'interno' in (base.split('@', 1)[1].split('.') if '@' in base else [])
-            if originale not in nomi or f'{base}_{parte[:-4]}-' + ('v6' if dentro else 'v2') + '.png' in nomi: continue
+            if originale not in nomi or f'{base}_{parte[:-4]}-' + ('v7' if dentro else 'v2') + '.png' in nomi: continue
             _SOSPESI[0] += 1                                   # c'è un video da ricucire
             # 15/11 (Maurizio aspettava la taverna: mezz'ora a video sull'Ally, uno dopo l'altro): se il più forte è già
             # occupato con una ricucitura, il meno forte prende la successiva invece di aspettare; a priorità bassa, perché
@@ -856,7 +920,7 @@ def giro_casa(casa, larghezza=None, veloce=False, forza=1, chi='pc'):
             except Exception as ex:
                 print('  ricucitura non riuscita:', ex, file=sys.stderr, flush=True)
                 try:                                                                                                  # non riprovarla all'infinito
-                    for v in ('v2', 'v3', 'v4', 'v5', 'v6'): _rinfresca(cart, f'{base}_{parte[:-4]}-{v}.png')
+                    for v in ('v2', 'v3', 'v4', 'v5', 'v6', 'v7'): _rinfresca(cart, f'{base}_{parte[:-4]}-{v}.png')
                 except Exception: pass
             finally:
                 vivo.set(); _libera(cart, segno)
@@ -1141,7 +1205,7 @@ def _cuci_uno(cart, nomi, nome, base, parte, originale, larghezza, veloce, ricuc
             for pn in pezzi_n: _libera(cart, pn)                          # i pezzi sono dentro l'originale lungo
             try:
                 _rinfresca(cart, f'{base}_{parte[:-4]}-v2.png')          # cucita con il fermo dalla foto (o provato): non si rifà
-                if SENZA_CIELO: _rinfresca(cart, f'{base}_{parte[:-4]}-v6.png')   # un interno, con persone e fiamme vive (15/11: v5, tremolio e gonna)
+                if SENZA_CIELO: _rinfresca(cart, f'{base}_{parte[:-4]}-v7.png')   # un interno, con persone e fiamme vive (15/11: v5, tremolio e gonna)
             except Exception: pass
             print('  fatto:', info, flush=True)
             return 1
