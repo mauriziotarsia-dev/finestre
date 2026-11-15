@@ -28,7 +28,7 @@
 <script src="../js/accesso.js?v=8"></script>
 <script src="../js/qrcode.js?v=1"></script>
 <script src="../js/vita.js?v=5"></script>
-<script src="../js/vista.js?v=5.72"></script>
+<script src="../js/vista.js?v=5.73"></script>
 <script src="../js/inseguitore.js?v=1"></script>
 <script src="../js/uccelli.js?v=10"></script>
 <script src="../js/bard.js?v=9"></script>
@@ -628,6 +628,13 @@ function daPersone(lista, etaMs = 0){
 /* la prova dal telefono passa dallo stesso inseguitore */
 /* ?misura=1: in un angolo, quante letture arrivano, ogni quanto, e quanto sono vecchie quando arrivano */
 const misuraVisibile = q.get('misura') === '1';
+let orologio = null;
+function mostraOrologio(si){
+  if (si && !orologio){ orologio = document.createElement('div');
+    orologio.style.cssText = 'position:fixed;left:2%;top:3%;z-index:99;font:600 ' + (tv ? '42' : '30') + 'px system-ui,sans-serif;color:#fff;background:rgba(0,0,0,.55);padding:.15em .5em;border-radius:.3em;font-variant-numeric:tabular-nums;pointer-events:none';
+    document.body.appendChild(orologio); }
+  else if (!si && orologio){ orologio.remove(); orologio = null; }
+}
 let cartellino = null;
 function mostraMisura(){
   if (!cartellino){ cartellino = document.createElement('div'); cartellino.style.cssText = 'position:fixed;left:8px;bottom:8px;z-index:99;font:13px/1.4 monospace;color:#9f9;background:rgba(0,0,0,.7);padding:6px 9px;border-radius:6px;pointer-events:none;white-space:pre'; document.body.appendChild(cartellino); }
@@ -696,6 +703,9 @@ if (anteprima){
         /* {tetto: 0.8}: il tetto di adesso (questa fluidità, questo tempo), ricordato; {tetti: 'via'}: si reimpara tutto */
         if (dati.tetto != null && chiaveTetto){ tetti[chiaveTetto] = {t: Math.max(scalaMin, Math.min(1, +dati.tetto || 1)), q: Date.now()}; scrivi('fin-tetti', tetti); chiaveTetto = ''; }
         if (dati.tetti === 'via'){ tetti = {}; scrivi('fin-tetti', tetti); chiaveTetto = ''; }
+        /* 15/11 · {orologio: true|false}: i secondi del video in un angolo (Maurizio: «puoi mettere i secondi che
+           avanzano così ti dico a che secondo?»), per dire dove si vede un salto */
+        if (dati.orologio != null) mostraOrologio(!!dati.orologio);
         /* 14/11 sera · {senzaNuvole: true|false}: dalla prossima ricarica il disegno si compila senza (o con) le stelle dietro
            le nuvole (js/vista.js): per misurare su questo schermo quanto pesa quel pezzo */
         if (dati.senzaNuvole != null){ try { if (dati.senzaNuvole) localStorage.setItem('fin-senza-nuvole', '1'); else localStorage.removeItem('fin-senza-nuvole'); } catch(e) {} } } }
@@ -1161,6 +1171,9 @@ function giro(ora){
     occhio.x += (occhioTgt.x - occhio.x) * ko; occhio.z += (occhioTgt.z - occhio.z) * ko;
   }
   if (misuraVisibile && ora - misura.t0 > 500){ misura.t0 = ora; mostraMisura(); }
+  if (orologio){ const f0 = vista.fonti[0], v = f0 && f0.video && f0.video[0];
+    const testo = v ? v.currentTime.toFixed(1).replace('.', ',') + ' s  /  ' + (v.duration || 0).toFixed(1).replace('.', ',') : 'nessun video';
+    if (orologio.textContent !== testo) orologio.textContent = testo; }
   margine += ((viva || Math.abs(occhio.x) > .01 ? 1.2 : 1.04) - margine) * (1 - Math.exp(-dt * .8));
   const t0d = performance.now();
   const param = {
