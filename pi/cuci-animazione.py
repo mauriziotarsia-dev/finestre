@@ -443,8 +443,20 @@ def _percorso_dentro(firma, n, fps):
         inizio = b
     seq += [('f', k) for k in range(inizio, e + 1)]
     m = morf(d); seq += [('m', e, s0, (q + 1) / (m + 1)) for q in range(m)]
+    # ⚠ 15/11 (Maurizio, sul TV: «si vede il loop in due frame»): misurato sul video del TV, i due scatti più grandi
+    # (3,5 e 5,3 s) non erano le giunte ma il video dell'AI: in un fotogramma la cuoca intera si sposta di colpo. Ogni
+    # salto oltre il doppio del passo normale si spalma su sei fotogrammi seguendo il movimento
+    lisci = []
+    for q in range(2, len(seq) - 3):
+        if not all(seq[q + r][0] == 'f' and seq[q + r][1] == seq[q][1] + r for r in range(-2, 4)): continue
+        k = seq[q][1]
+        if passi[k] > 2 * tip and not any(abs(k - l) < 6 for l in lisci): lisci.append(k)
+    for k in lisci:
+        q = next(i for i, it in enumerate(seq) if it[0] == 'f' and it[1] == k)
+        seq[q - 1:q + 3] = [('m', k - 2, k + 3, (r + 1) / 5) for r in range(4)]
+    info0 = {'salti_lisciati': [round(k / fps, 2) for k in lisci]}
     info = {'tagli': [{'da': round(a / fps, 2), 'a': round(b / fps, 2), 'passi': round(d2 / tip, 1)} for a, b, d2 in tagli],
-            'giro': {'fine': round(e / fps, 2), 'inizio': round(s0 / fps, 2), 'passi': round(d / tip, 1)}}
+            'giro': {'fine': round(e / fps, 2), 'inizio': round(s0 / fps, 2), 'passi': round(d / tip, 1)}, **info0}
     return seq, info
 
 
