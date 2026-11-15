@@ -28,7 +28,7 @@
 <script src="../js/accesso.js?v=8"></script>
 <script src="../js/qrcode.js?v=1"></script>
 <script src="../js/vita.js?v=5"></script>
-<script src="../js/vista.js?v=5.70"></script>
+<script src="../js/vista.js?v=5.71"></script>
 <script src="../js/inseguitore.js?v=1"></script>
 <script src="../js/uccelli.js?v=10"></script>
 <script src="../js/bard.js?v=9"></script>
@@ -335,7 +335,7 @@ function fonteDi(s){
   const comignoli = s.immagini.comignoli || (/_(?:est-)?(giorno|alba|tramonto|notte)\.jpg$/.test(url.split('?')[0]) ? url.split('?')[0].replace(/_((?:est-)?)(giorno|alba|tramonto|notte)\.jpg$/, '_$1comignoli.json') : null);
   /* 13/11: in un interno niente cielo che scorre, niente alberi al vento, niente fumo dai comignoli */
   const dentro = internoDi(s);
-  return {url, profondita: s.immagini.profondita || null, video, fuoco: s.fuoco || null, cielo: s.immagini.profondita && !dentro ? cielo : null, fermo, maschera, comignoli: dentro ? null : comignoli, alberi: dentro ? null : s.immagini.giorno || null, ricolora, notte: s.immagini.notte || null, interno: dentro,
+  return {url, profondita: s.immagini.profondita || null, video, fuoco: s.fuoco || null, cielo: s.immagini.profondita && !dentro ? cielo : null, fermo, maschera, comignoli,   /* 15/11: in un interno lo stesso file porta le fiamme di candele e torce (niente fumo) */ alberi: dentro ? null : s.immagini.giorno || null, ricolora, notte: s.immagini.notte || null, interno: dentro,
     /* 14/11 sera: le stelle non si vedono dietro le nuvole del cielo che scorre (js/vista.js, mascheraNuvole). Le nuvole si
        cercano solo quando le stelle si possono vedere: di notte, un poco al tramonto, e nei paesaggi senza la loro notte
        (lì la notte è il giorno scurito, con lo stesso cielo: va preparato già di giorno) */

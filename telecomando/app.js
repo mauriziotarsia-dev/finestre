@@ -9,7 +9,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
 const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 const euro = n => (n < .1 ? n.toFixed(3) : n.toFixed(2)).replace('.', ',') + ' $';
-const VERSIONE = '6.57';
+const VERSIONE = '6.58';
 /* 8/11 · l'app si aggiorna da sola (Maurizio: «vedo ancora il quadrato con la doppia finestra»: sul telefono restava la
    versione vecchia anche dopo averla chiusa). Quando torna in primo piano, e ogni 10 minuti, chiede al server quale
    app.js c'è adesso; se è un'altra, ricarica (mai mentre un lavoro AI è in corso) */
@@ -728,10 +728,27 @@ async function profonditaInSottofondo(){
   } finally { profonditaInCorso = false; }
 }
 
+/* ⚠ 15/11 (Maurizio rimette il giorno della taverna dall'app e sul TV torna il video con il tremolio): l'app aveva
+   letto la libreria prima che il cucitore finisse la vista del TV, e mandava agli schermi l'indirizzo del video vecchio
+   (stesso nome, versione vecchia: il browser lo ridava dalla sua memoria). Ora, quando si torna all'app (o ogni 5
+   minuti mentre è aperta) la libreria si rilegge; se i file del paesaggio in onda sono cambiati, gli schermi ricevono
+   la scena con quelli nuovi. */
+let libreriaLetta = 0;
+async function rileggiLibreria(){
+  if (document.hidden || !libreriaLetta || Date.now() - libreriaLetta < 60000 || libreriaStato === 'carico') return;
+  const prima = scena.paesaggio ? JSON.stringify([scena.immagini, scena.animati]) : '';
+  await caricaLibreria();
+  if (!scena.paesaggio || !prima) return;
+  const p = libreria.find(x => x.id === scena.paesaggio); if (!p) return;
+  const nuova = scenaDi(p);
+  if (JSON.stringify([nuova.immagini, nuova.animati]) !== prima){ scena.immagini = nuova.immagini; scena.animati = nuova.animati; mandaScena(); }
+}
+document.addEventListener('visibilitychange', () => { rileggiLibreria().catch(() => {}); });
+setInterval(() => { rileggiLibreria().catch(() => {}); }, 5 * 60e3);
 async function caricaLibreria(){
   if (!casa && !CASA_PRIVATA){ libreriaStato = 'Collega il telefono alla tua stanza (Impostazioni → Stanza e schermi) per vedere i tuoi paesaggi.'; if (scheda === 'paesaggi') disegnaPaesaggi(); return; }
   libreriaStato = 'carico';
-  try { libreria = await leggiLibreria(casa); libreriaStato = 'ok'; setTimeout(profonditaInSottofondo, 1500); setTimeout(richiestaInRete, 2500); }
+  try { libreria = await leggiLibreria(casa); libreriaStato = 'ok'; libreriaLetta = Date.now(); setTimeout(profonditaInSottofondo, 1500); setTimeout(richiestaInRete, 2500); }
   catch(e) { libreriaStato = e.message; }
   if (scheda === 'paesaggi') disegnaPaesaggi(); if (scheda === 'finestre') aggiornaFinestre();
 }

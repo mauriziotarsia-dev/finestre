@@ -74,6 +74,9 @@ uniform float uHaVento;   /* (il passaggio a bassa risoluzione scrive dal basso:
 uniform vec4 uFumo[8];        /* fumo dai comignoli: (x, y nella vista, larghezza del tetto in larghezze della vista, profondità) */
 uniform float uFumoI[8];      /* 9/11: quanto fuma ognuno (i comignoli 1, i fuochi lontani quando sono accesi: js/vita.js) */
 uniform float uNFumo, uFumoA; /* quanti, e quanto si vedono (sfumano col paesaggio) */
+uniform vec4 uFiamma[8];      /* 15/11 · fiamme di candele e torce negli interni: (x, y della base nella vista, altezza in altezze della vista, seme) */
+uniform float uNFiamma;
+float gFiamma;                /* quanto di questo punto è fiamma (per il tremolio della luce, dopo) */
 uniform float uNebV;          /* la nebbiolina viva (0 spenta) */
 uniform vec2 uChiar;          /* 10/11 · ricolorato: nitidezza fine (x) e «chiarezza», il contrasto locale largo (y) */
 
@@ -227,6 +230,28 @@ vec3 paesaggio(sampler2D img, sampler2D imgB, float vk, sampler2D dep, vec4 crop
     p += mF * vec2(sw * .006 / uAspetto, su * .007);
   }
 #endif
+  /* ⚠ 15/11 mattina · FIAMME VIVE, PUNTO PER PUNTO (Maurizio: «la fiamma delle candele deve essere più animata»).
+     Riconoscerle dal colore non va (quasi bianche, più chiare della cera ma meno arancio; il muro della cucina è più
+     arancio di loro): dove stanno lo dice il file dei punti del paesaggio (…_comignoli.json, chiave «fiamme»: base e
+     altezza di ogni fiamma). Attorno a ogni fiamma il punto si legge un po' più in là: la fiamma ondeggia di lato, di
+     più verso la punta, e si allunga e si accorcia; la base resta attaccata allo stoppino. Svelta e mai uguale */
+  gFiamma = 0.;
+  if (uNFiamma > .5){
+    vec2 dpF = vec2(0.);
+    for (int i = 0; i < 8; i++){
+      if (float(i) >= uNFiamma) break;
+      vec4 F = uFiamma[i];
+      vec2 q = vec2((p.x - F.x) * uAspetto, p.y - F.y) / F.z;      /* in altezze di fiamma: 0 alla base, -1 alla punta */
+      float su = clamp(-q.y, 0., 1.8);
+      float zona = smoothstep(.8, .35, abs(q.x)) * smoothstep(-.25, .05, -q.y) * smoothstep(1.9, 1.2, -q.y);
+      float t = uT * 1.25 + F.w * 13.7;
+      float sw = (rumore(vec2(t * 2.7, su * 1.3 + F.w * 5.)) - .5) * .55 + (rumore(vec2(t * 6.9, su * 2.9 + F.w * 9.)) - .5) * .3;
+      float lu = (rumore(vec2(t * 4.3 + 3.7, F.w * 7.)) - .5) * .45 + (rumore(vec2(t * 9.1, F.w * 3.)) - .5) * .2;
+      dpF += zona * vec2(sw * su * su * .5 * F.z / uAspetto, lu * su * .7 * F.z);
+      gFiamma += zona * (rumore(vec2(t * 7.7, F.w)) * .7 + rumore(vec2(t * 13.1, F.w + 2.)) * .3 - .5);   /* la luce della fiamma trema */
+    }
+    p += dpF;
+  }
   vec3 c = foto(img, crop, p);
   /* ⚠ 5/11 · il passaggio al giro del video sfuma SOLO il video (prima si sfumava verso un secondo paesaggio disegnato
      senza vento e senza nebbiolina: a ogni giro i cipressi tornavano dritti e i veli sparivano, «si vede il loop») */
@@ -643,6 +668,7 @@ float fumo(vec2 uv){
 }
 
 void main(){
+  gFiamma = 0.;
   vec2 uv = uMap.xy + vUv * uMap.zw;
   vec3 col = vec3(0.); float n = .5, sky = 0., alfa = 1.;
   float l0 = 0.; vec3 stelle = vec3(0.);
@@ -672,6 +698,7 @@ void main(){
     float dV = gVentoA * 255. - 128.;
     float ombraV = 0., nuvV = 0.;
     if (uDentro > .5 && uDentro < 1.5){   /* 2 = un interno con la luce dei fuochi spenta (prova «fuochi») */
+      col *= 1. + gFiamma * .45;   /* 15/11: le fiamme segnate tremano anche di luce */
       /* ⚠ 14/11 sera · LA LUCE DEI FUOCHI, DENTRO (Maurizio, davanti alla taverna di giorno: «Bisogna aumentare movimento
          anche di giorno»). In un interno non ci sono nuvole, chiome, foschia e uccelli: di vivo restava solo il video
          (le fiamme, piccole). Ora tutto quello che è illuminato dai fuochi (muri attorno alle torce, cucina, riflessi su
@@ -1188,7 +1215,7 @@ class Vista {
     /* il programma principale: paesaggio, cielo, nebbia, lampo, luce */
     this.p = programma(VERT, FRAG, ['aPos']);
     this.fumoDati = new Float32Array(32); this.fumoForza = new Float32Array(8);
-    this.u = posizioni(this.p, ['uOcchio','uImg0b','uVmix','uImg0','uImg1','uDep0','uDep1','uMap','uCrop0','uCrop1','uCropD0','uCropD1','uUccelli','uCielo0','uCielo1','uCieloM0','uCieloM1','uCieloX','uFermo0','uFermo1','uHaFermo0','uHaFermo1','uRap0','uHaRap0','uVentoT','uAlberiM','uHaVento','uU','uNU','uUBox','uFumo','uFumoI','uNFumo','uFumoA','uNebV','uNebG','uDentro','uChiar','uNotte','uOmbre','uMeteora','uMeteoraK','uMix','uHaImg','uHaDep0','uHaDep1','uMovimento0','uMovimento1',
+    this.u = posizioni(this.p, ['uOcchio','uImg0b','uVmix','uImg0','uImg1','uDep0','uDep1','uMap','uCrop0','uCrop1','uCropD0','uCropD1','uUccelli','uCielo0','uCielo1','uCieloM0','uCieloM1','uCieloX','uFermo0','uFermo1','uHaFermo0','uHaFermo1','uRap0','uHaRap0','uVentoT','uAlberiM','uHaVento','uU','uNU','uUBox','uFumo','uFumoI','uNFumo','uFumoA','uFiamma','uNFiamma','uNebV','uNebG','uDentro','uChiar','uNotte','uOmbre','uMeteora','uMeteoraK','uMix','uHaImg','uHaDep0','uHaDep1','uMovimento0','uMovimento1',
       'uLato','uT','uTV','uRaf','uAspetto','uPix','uCoperto','uNebbia','uPioggia','uNeve','uTempesta','uVento','uLampo','uLampoX','uLampoS','uLampoB',
       'uNotteFinta','uLuce','uBuio','uQualita','uColNebbia','uMeteo','uSale']);
     gl.useProgram(this.p);
@@ -1289,7 +1316,9 @@ class Vista {
       f.fumi = (j.punti || []).slice(0, 6).map(q => ({x:+q.x, y:+q.y, w:+q.w || .04, n: pr(q)}));
       /* 9/11: dove si può accendere un fuoco lontano (un prato, un campo, una radura): js/vita.js */
       f.fuochi = (j.fuochi || []).slice(0, 4).map(q => ({x:+q.x, y:+q.y, w:+q.w || .02, n: pr(q)}));
-    } catch(e) { f.fumi = []; f.fuochi = []; }
+      /* 15/11: le fiamme di candele e torce di un interno (base x, y e altezza h, nell'immagine) */
+      f.fiamme = (j.fiamme || []).slice(0, 8).map((q, i) => ({x:+q.x, y:+q.y, h:+q.h || .03, s: i * .37 + .11}));
+    } catch(e) { f.fumi = []; f.fuochi = []; f.fiamme = []; }
   }
   /* 9/11 · luci delle case (dall'immagine della notte) e prati delle lucciole (dalla profondità): js/vita.js.
      Le finestre accese si cercano una volta sola per immagine */
@@ -1664,6 +1693,15 @@ class Vista {
         gl.uniform4fv(u.uFumo, this.fumoDati); gl.uniform1fv(u.uFumoI, this.fumoForza);
       }
       gl.uniform1f(u.uNFumo, fumi.length); gl.uniform1f(u.uFumoA, 1 - (this.mix || 0));
+      /* 15/11: le fiamme vive degli interni, nella vista (come il fumo) */
+      const fiamme = haImg && f0.ok && s.movimento && !sp.has('fiamme') && s.vita && s.vita.interno ? (f0.fiamme || []) : [];
+      if (fiamme.length){
+        const ci = this.crop(f0, foro.aspetto, marg, f0.fuoco, foro.striscia, f0.fuoco);
+        if (!this.fiammaDati) this.fiammaDati = new Float32Array(32);
+        fiamme.forEach((q, j) => { this.fiammaDati[j * 4] = (q.x - ci[0]) / ci[2]; this.fiammaDati[j * 4 + 1] = (q.y - ci[1]) / ci[3]; this.fiammaDati[j * 4 + 2] = q.h / ci[3]; this.fiammaDati[j * 4 + 3] = q.s; });
+        gl.uniform4fv(u.uFiamma, this.fiammaDati);
+      }
+      gl.uniform1f(u.uNFiamma, fiamme.length);
       gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
       /* 2b. luci delle case, falò e lucciole: piccoli bagliori sopra il paesaggio (js/vita.js) */
       if (vitaBagliori.length) this.disegnaBagliori(foro, s, vitaBagliori, f0, marg);
