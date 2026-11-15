@@ -9,7 +9,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
 const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 const euro = n => (n < .1 ? n.toFixed(3) : n.toFixed(2)).replace('.', ',') + ' $';
-const VERSIONE = '6.69';
+const VERSIONE = '6.70';
 /* 8/11 · l'app si aggiorna da sola (Maurizio: «vedo ancora il quadrato con la doppia finestra»: sul telefono restava la
    versione vecchia anche dopo averla chiusa). Quando torna in primo piano, e ogni 10 minuti, chiede al server quale
    app.js c'è adesso; se è un'altra, ricarica (mai mentre un lavoro AI è in corso) */
@@ -1785,7 +1785,7 @@ async function rifaiOreVia(dd){
         passo('nome', 'fatto', 'Nome: ' + p.nome);
       }
       aggiornaInLibreria(p);
-      const giorniNuovi = {};
+      const giorniNuovi = {}, albeNuove = {};
       /* 15/11 · d.riferimento: le foto della stanza vera (un indirizzo o più), mandate all'AI dopo l'immagine da modificare */
       const riferimenti = [];
       for (const u of [].concat(d.soloAnimazioni ? [] : d.riferimento || [])){
@@ -1811,6 +1811,7 @@ async function rifaiOreVia(dd){
             p.immagini[k] = u + (u.includes('?') ? '' : '?v=' + Date.now().toString(36));
             L.anteprime[k] = {url: p.immagini[k]}; passo(k, 'fatto', eti);
             if (ora === 'giorno') giorniNuovi[vista] = jpg;
+            if (ora === 'alba') albeNuove[vista] = jpg;
             /* la copia «…-originale.jpg» era dell'immagine vecchia (prima che il mini PC la ingrandisse): non va più */
             try { await togliFile(casa, p, (p.file || []).filter(n => n.endsWith('_' + k + '-originale.jpg'))); } catch(e) {}
           } catch(e) {
@@ -1822,6 +1823,10 @@ async function rifaiOreVia(dd){
       }
       /* 14/11 · fuori: la profondità (dov'è il cielo, la nebbia lontana) rifatta sul giorno nuovo, sul telefono, gratis */
       if (!d.soloAnimazioni && !eInterno(p)) for (const [vista, jpg] of Object.entries(giorniNuovi)) { await faiProfondita(p, jpg, vista === 'est'); aggiornaInLibreria(p); }
+      /* 15/11 sera · dentro: la profondità serve alla prospettiva viva (col radar la sala scorre dietro la finestra: il lontano di più,
+         il vicino di meno). Si rifà quando cambia la stanza, cioè sull'alba nuova (la sala vuota, da cui nascono le altre ore):
+         prima restava quella della prima taverna, di un'altra stanza */
+      if (!d.soloAnimazioni && eInterno(p)) for (const [vista, jpg] of Object.entries(albeNuove)) { await faiProfondita(p, jpg, vista === 'est'); aggiornaInLibreria(p); }
       if (imp.anima && d.animazioni !== false) await animaTutto(p, animRifai(d).filter(x => p.immagini[(x.tv ? 'est-' : '') + x.ora] && !p.animati[(x.tv ? 'est-' : '') + x.ora]));
     });
   } finally { creaCon = {}; clearInterval(t); }
