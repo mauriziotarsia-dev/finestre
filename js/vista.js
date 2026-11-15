@@ -68,6 +68,7 @@ uniform vec4 uUBox;           /* dove sono, tutti insieme (x0, y0, x1, y1 nella 
 uniform float uNotte;         /* 0 giorno … 1 notte (stelle, fuochi che tremolano) */
 uniform float uOmbre;         /* quanto si vedono le ombre delle nuvole (giorno sereno) */
 uniform float uDentro;        /* 14/11 sera · 1 = un interno (la taverna): niente cielo né ombre di nuvole; il quarto canale del vento porta il respiro della luce dei fuochi */
+uniform vec3 uFuori;          /* 15/11 sera · in un interno, il tempo di fuori visto dalle finestre: coperto, pioggia, tempesta */
 uniform vec4 uMeteora;        /* stella cadente: da (x, y) a (z, w), nella vista */
 uniform float uMeteoraK;      /* a che punto è (0 = nessuna) */
 uniform float uHaVento;   /* (il passaggio a bassa risoluzione scrive dal basso: si legge capovolto) */
@@ -740,7 +741,32 @@ void main(){
             float tw = .5 + .5 * sin(uT * (.7 + 1.9 * h) + h * 40.);
             gran += smoothstep(.16, .02, length(fr - sp * .6)) * step(.72, h) * tw * tw * (1. - fg * .35);
           }
-          col += raggio * gran * .42 * vec3(1., .96, .86);
+          col += raggio * gran * .42 * vec3(1., .96, .86) * (1. - max(uFuori.x, uFuori.y));   /* col brutto tempo niente granelli nella luce */
+        }
+        /* ⚠ 15/11 sera · IL TEMPO DI FUORI, DALLE FINESTRE (Maurizio: «pioggia sulle finestre»: quando il meteo è pioggia,
+           luce più grigia e gocce sui vetri). Coperto e pioggia spengono i raggi e la chiazza sul pavimento e ingrigiscono
+           i vetri; sui vetri chiari le gocce scendono a righe, ognuna col suo passo, e qualche goccia ferma luccica; il
+           lampo del temporale accende vetri e raggi (il tuono si sente, js/bard.js) */
+        float brutto = max(uFuori.x * .8, uFuori.y);
+        if (brutto + uLampo > .005){
+          float vetro = smoothstep(.6, .72, lumD);
+          col = mix(col, vec3(lumD) * vec3(.86, .93, 1.06), fuoriD * brutto * .8);
+          col *= 1. - fuoriD * brutto * (.55 * (1. - vetro) + .38 * vetro);
+          if (uFuori.y > .01 && vetro > .02){
+            vec2 qg = uv * vec2(uAspetto, 1.) * vec2(150., 1.);
+            float cg = floor(qg.x), hg = fract(sin(cg * 91.7 + 3.1) * 43758.5453);
+            float fxg = fract(qg.x) - .5;
+            float yg = fract(uv.y * (2.5 + 3. * hg) - uT * (.18 + .5 * hg) + hg * 13.);
+            float scia = smoothstep(.34, .06, abs(fxg)) * smoothstep(.1, .9, yg) * step(yg, .93) * step(.5, hg);
+            float testa = smoothstep(.36, .0, abs(fxg)) * smoothstep(.045, .0, abs(yg - .9)) * step(.5, hg);
+            vec2 qf = uv * vec2(uAspetto, 1.) * 110.; vec2 cf = floor(qf);
+            float hf = fract(sin(dot(cf, vec2(41.3, 289.1))) * 43758.5453);
+            float ferma = smoothstep(.34, .12, length(fract(qf) - .5 - (vec2(fract(hf * 17.), fract(hf * 31.)) - .5) * .4)) * step(.78, hf);
+            float pg = vetro * fuoriD * min(1., uFuori.y * 1.3);
+            col *= 1. - pg * (.5 * scia + .38 * ferma);
+            col += pg * (.6 * testa + .3 * ferma) * vec3(.95, .97, 1.);
+          }
+          col += fuoriD * uLampo * (.9 * vetro + .45 * (1. - vetro)) * vec3(.88, .92, 1.);
         }
       }
     } else {
@@ -865,7 +891,7 @@ void main(){
   /* ⚠ 4/11 (Maurizio: «coi lampi sopra l'orizzonte si vedono dei puntini»): prima la luce del lampo moltiplicava
      tutto, anche il crinale lontano dove cielo e alberi si mescolano, e ne esaltava la grana. Ora il cielo si
      schiarisce per conto suo (bagliore dentro le nuvole, a velo) e la terra prende solo un riflesso moderato */
-  if (uLampo > .001){
+  if (uLampo > .001 && uDentro < .5){   /* dentro il lampo si vede solo dalle finestre (sopra) */
     /* ⚠ 5/11 (Maurizio: «rivedi gli effetti dei lampi, poco realistici o peggio di prima»). Come dal vero: un lampo
        vicino accende il cielo da dentro le nuvole (si vede la loro forma, i bordi più chiari) e illumina la terra di
        luce fredda per un istante; a volte si vede il fulmine stesso, frastagliato, con un ramo, che scende dietro
@@ -1235,7 +1261,7 @@ class Vista {
     this.fumoDati = new Float32Array(32); this.fumoForza = new Float32Array(8);
     this.u = posizioni(this.p, ['uOcchio','uImg0b','uVmix','uImg0','uImg1','uDep0','uDep1','uMap','uCrop0','uCrop1','uCropD0','uCropD1','uUccelli','uCielo0','uCielo1','uCieloM0','uCieloM1','uCieloX','uFermo0','uFermo1','uHaFermo0','uHaFermo1','uRap0','uHaRap0','uVentoT','uAlberiM','uHaVento','uU','uNU','uUBox','uFumo','uFumoI','uNFumo','uFumoA','uFiamma','uNFiamma','uNebV','uNebG','uDentro','uChiar','uNotte','uOmbre','uMeteora','uMeteoraK','uMix','uHaImg','uHaDep0','uHaDep1','uMovimento0','uMovimento1',
       'uLato','uT','uTV','uRaf','uAspetto','uPix','uCoperto','uNebbia','uPioggia','uNeve','uTempesta','uVento','uLampo','uLampoX','uLampoS','uLampoB',
-      'uNotteFinta','uLuce','uBuio','uQualita','uColNebbia','uMeteo','uSale']);
+      'uNotteFinta','uLuce','uBuio','uQualita','uColNebbia','uMeteo','uSale','uFuori']);
     gl.useProgram(this.p);
     gl.uniform1i(this.u.uImg0, 0); gl.uniform1i(this.u.uImg1, 1); gl.uniform1i(this.u.uDep0, 2); gl.uniform1i(this.u.uDep1, 3); gl.uniform1i(this.u.uImg0b, 4); gl.uniform1i(this.u.uMeteo, 5); gl.uniform1i(this.u.uCielo0, 6); gl.uniform1i(this.u.uCielo1, 7); gl.uniform1i(this.u.uFermo0, 8); gl.uniform1i(this.u.uFermo1, 9); gl.uniform1i(this.u.uVentoT, 10); if (this.u.uAlberiM) gl.uniform1i(this.u.uAlberiM, 11); if (this.u.uRap0) gl.uniform1i(this.u.uRap0, 12);
     this.unita = gl.getParameter(gl.MAX_TEXTURE_IMAGE_UNITS) || 8;   /* il fermo vuole 10 unità (il Raspberry 4 ne ha 16) */
@@ -1335,7 +1361,9 @@ class Vista {
       /* 9/11: dove si può accendere un fuoco lontano (un prato, un campo, una radura): js/vita.js */
       f.fuochi = (j.fuochi || []).slice(0, 4).map(q => ({x:+q.x, y:+q.y, w:+q.w || .02, n: pr(q)}));
       /* 15/11: le fiamme di candele e torce di un interno (base x, y e altezza h, nell'immagine) */
-      f.fiamme = (j.fiamme || []).slice(0, 8).map((q, i) => ({x:+q.x, y:+q.y, h:+q.h || .03, s: i * .37 + .11}));
+      /* 15/11 sera · le candele si consumano ora per ora: «fiammeOre» {ora: […]} vince su «fiamme» (l'ora arriva in fondo all'indirizzo, #ora=…) */
+      const ora = (String(url).match(/#ora=(\w+)/) || [])[1], fo = ora && j.fiammeOre && j.fiammeOre[ora];
+      f.fiamme = (fo || j.fiamme || []).slice(0, 8).map((q, i) => ({x:+q.x, y:+q.y, h:+q.h || .03, s: i * .37 + .11}));
     } catch(e) { f.fumi = []; f.fuochi = []; f.fiamme = []; }
   }
   /* 9/11 · luci delle case (dall'immagine della notte) e prati delle lucciole (dalla profondità): js/vita.js.
@@ -1635,6 +1663,7 @@ class Vista {
        spenti per prova: la maschera del video si legge comunque da interno (due piani) */
     const dentro = haImg && !!(s.vita && s.vita.interno) ? (sp.has('fuochi') ? 2 : 1) : 0;
     gl.uniform1f(u.uDentro, dentro);
+    gl.uniform3fv(u.uFuori, dentro ? (s.fuori || [0, 0, 0]) : [0, 0, 0]);
     const me = s.meteora || null;
     gl.uniform4fv(u.uMeteora, me ? me.da : [0,0,0,0]); gl.uniform1f(u.uMeteoraK, me ? me.k : 0);
     const oc = s.occhio || {x:0, z:0}; gl.uniform3f(u.uOcchio, oc.x || 0, 0, oc.z || 0);
