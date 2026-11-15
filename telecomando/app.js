@@ -9,7 +9,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
 const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 const euro = n => (n < .1 ? n.toFixed(3) : n.toFixed(2)).replace('.', ',') + ' $';
-const VERSIONE = '6.66';
+const VERSIONE = '6.67';
 /* 8/11 · l'app si aggiorna da sola (Maurizio: «vedo ancora il quadrato con la doppia finestra»: sul telefono restava la
    versione vecchia anche dopo averla chiusa). Quando torna in primo piano, e ogni 10 minuti, chiede al server quale
    app.js c'è adesso; se è un'altra, ricarica (mai mentre un lavoro AI è in corso) */
@@ -1543,6 +1543,9 @@ async function bozzeVia(){
   const b = document.querySelector('[data-fai="bozzeVia"]'); if (b) b.hidden = true;
   if (!bozzeStato || bozzeStato.chiave !== d.chiave) bozzeStato = {chiave: d.chiave, richiesta: d, fatte: {}, scelta: null};
   bozzeStato.richiesta = d; salvaBozze();
+  /* 15/11 sera · il resoconto ogni 20 s anche per le bozze: se il telefono si ferma a metà, Claude vede dove */
+  const tic = setInterval(() => rapportoLavoro({messaggio: 'bozze in corso', bozze: bozzeStato.fatte}), 20000);
+  rapportoLavoro({messaggio: 'bozze partite'});
   try {
     await conLavoro('bozze', async L => {
       /* la foto di riferimento (la stanza vera), scaricata una volta */
@@ -1590,7 +1593,7 @@ async function bozzeVia(){
         bozzeStato.fatte[x.id] = {nord: urlNord, est: urlEst, chi, grande}; salvaBozze(); rapportoLavoro({bozze: bozzeStato.fatte});
       }
     });
-  } finally { rapportoLavoro({messaggio: lavoro && lavoro.errore ? 'bozze: errore ' + lavoro.errore : 'bozze pronte', bozze: bozzeStato.fatte}); }
+  } finally { clearInterval(tic); rapportoLavoro({messaggio: lavoro && lavoro.errore ? 'bozze: errore ' + lavoro.errore : 'bozze pronte', bozze: bozzeStato.fatte}); }
   if (d.opzioni.some(x => bozzeStato.fatte[x.id])) mostraBozze(d);
 }
 /* 14/11 · «prima di partire con le animazioni facciamo 6 immagini (3 per tv e 3 per finestrelle) e poi decidiamo quale
