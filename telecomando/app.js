@@ -9,7 +9,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
 const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 const euro = n => (n < .1 ? n.toFixed(3) : n.toFixed(2)).replace('.', ',') + ' $';
-const VERSIONE = '6.64';
+const VERSIONE = '6.65';
 /* 8/11 · l'app si aggiorna da sola (Maurizio: «vedo ancora il quadrato con la doppia finestra»: sul telefono restava la
    versione vecchia anche dopo averla chiusa). Quando torna in primo piano, e ogni 10 minuti, chiede al server quale
    app.js c'è adesso; se è un'altra, ricarica (mai mentre un lavoro AI è in corso) */
@@ -126,7 +126,7 @@ const gestoreCanale = {
     if (evento === 'crea'){ chiediCrea(d); return; }
     /* 15/11 · «rifaiOre2»: lo capisce solo la 6.59 in su (le versioni di prima, rifacendo una vista, toglievano le animazioni anche dell'altra) */
     if (evento === 'rifaiOre' || evento === 'rifaiOre2'){ chiediRifaiOre(d); return; }
-    if (evento === 'bozze'){ chiediBozze(d); return; }
+    if (evento === 'bozze' || evento === 'bozze2'){ chiediBozze(d); return; }   /* bozze2: solo dalla 6.65 (varianti con baseNord/baseEst) */
     if (evento === 'console'){ suConsole(d); return; }
     if (evento === 'consoleScheda'){ suScheda(d); return; }
     if (evento === 'bardOra'){ if (!suonoQui()){ bardOra = d.musica || null; if (scheda === 'bard') aggiornaBard(); } return; }
@@ -1464,7 +1464,7 @@ function rapportoLavoro(extra = {}){
 async function richiestaInRete(){
   try { const r = await fetch(SUPABASE_URL + '/storage/v1/object/public/dmaster-media/finestre/banco/richiesta-telefono.json?t=' + Date.now(), {cache: 'no-store'});
     if (!r.ok) return; const j = await r.json(); if (!j || foglioAperto === 'aggiorna' || foglioAperto === 'rifaiAnim' || foglioAperto === 'creaRichiesta' || foglioAperto === 'bozze' || foglioAperto === 'rifaiOre' || (lavoro && !lavoro.finito)) return;
-    if (j.bozze) chiediBozze(j.bozze); else if (j.crea) chiediCrea(j.crea); else if (j.rifaiOre2 || j.rifaiOre) chiediRifaiOre(j.rifaiOre2 || j.rifaiOre); else if (j.rifaiAnim) chiediRifaiAnim(j.rifaiAnim); else if (j.aggiornaVecchi) chiediAggiornaVecchi(j.aggiornaVecchi); } catch(e) {}
+    if (j.bozze2 || j.bozze) chiediBozze(j.bozze2 || j.bozze); else if (j.crea) chiediCrea(j.crea); else if (j.rifaiOre2 || j.rifaiOre) chiediRifaiOre(j.rifaiOre2 || j.rifaiOre); else if (j.rifaiAnim) chiediRifaiAnim(j.rifaiAnim); else if (j.aggiornaVecchi) chiediAggiornaVecchi(j.aggiornaVecchi); } catch(e) {}
 }
 /* 13/11 · un paesaggio nuovo chiesto da Claude (la taverna): il foglio col costo, e Avvia sul telefono */
 let creaFatti = new Set(leggi('atm-crea-fatti', []));
