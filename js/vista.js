@@ -243,6 +243,7 @@ vec3 paesaggio(sampler2D img, sampler2D imgB, float vk, sampler2D dep, vec4 crop
       vec4 F = uFiamma[i];
       vec2 q = vec2((p.x - F.x) * uAspetto, p.y - F.y) / F.z;      /* in altezze di fiamma: 0 alla base, -1 alla punta */
       float su = clamp(-q.y, 0., 1.8);
+      if (abs(q.x) > .8 || q.y > .25 || q.y < -1.9) continue;   /* fuori dalla fiamma: niente conti (in 4K sono milioni di punti) */
       float zona = smoothstep(.8, .35, abs(q.x)) * smoothstep(-.25, .05, -q.y) * smoothstep(1.9, 1.2, -q.y);
       float t = uT * 1.25 + F.w * 13.7;
       float sw = (rumore(vec2(t * 2.7, su * 1.3 + F.w * 5.)) - .5) * .55 + (rumore(vec2(t * 6.9, su * 2.9 + F.w * 9.)) - .5) * .3;
