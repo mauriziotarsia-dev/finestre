@@ -9,7 +9,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
 const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 const euro = n => (n < .1 ? n.toFixed(3) : n.toFixed(2)).replace('.', ',') + ' $';
-const VERSIONE = '6.65';
+const VERSIONE = '6.66';
 /* 8/11 · l'app si aggiorna da sola (Maurizio: «vedo ancora il quadrato con la doppia finestra»: sul telefono restava la
    versione vecchia anche dopo averla chiusa). Quando torna in primo piano, e ogni 10 minuti, chiede al server quale
    app.js c'è adesso; se è un'altra, ricarica (mai mentre un lavoro AI è in corso) */
@@ -1579,6 +1579,9 @@ async function bozzeVia(){
         passo(ke, 'ora', x.id + ' · TV…');
         const re = bE
           ? await Ai.modifica({modello, chiavi: imp.chiavi, qualita, grande, misura: 'tv', foto: await baseB(bE), riferimenti: rifs, prompt: x.promptEst || testo})
+          /* 15/11 sera · varianti libere: il TV nasce dalla bozza delle finestrelle (stessa locanda), col suo testo e le foto della stanza */
+          : x.promptEst
+          ? await Ai.modifica({modello, chiavi: imp.chiavi, qualita, grande, misura: 'tv', foto: nord, riferimenti: rifs, prompt: x.promptEst})
           : await Ai.modifica({modello, chiavi: imp.chiavi, qualita, grande, misura: 'tv', foto: nord,
           prompt: x.interno ? promptEstInterno(x.descEst, x.vista) : promptEst(x.descEst || '')});
         const est = await inJpeg(b64aBlob(re.b64, re.mime), lato);
