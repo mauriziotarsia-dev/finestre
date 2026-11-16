@@ -82,7 +82,14 @@ prima = chiedi()
 if prima is not None:
     dettagli['primaDiInstallare'] = prima
     passo('c\'era già un ricevitore acceso: lo chiudo')
-    passo('  ' + comando('wmic', 'process', 'where', "commandline like '%sensore.py%'", 'call', 'terminate').strip()[:300])
+    # 16/11: sulla Ally non c'è wmic (e PowerShell non parte): si chiude chi tiene la porta 8788, trovato con netstat
+    #     (la riga di chi ascolta: indirizzo locale …:8788, remoto 0.0.0.0:0; lo stato è scritto nella lingua di Windows)
+    pid = {c[-1] for c in (r.split() for r in comando('netstat', '-ano', '-p', 'TCP').splitlines())
+           if len(c) >= 5 and c[1].endswith(':8788') and c[2] in ('0.0.0.0:0', '[::]:0') and c[-1].isdigit()}
+    for p in pid:
+        passo('  processo %s: %s' % (p, comando('taskkill', '/F', '/PID', p).strip()[:200]))
+    if not pid:
+        passo('  nessun processo trovato sulla porta 8788')
     time.sleep(2)
 
 passo('parte adesso (se Windows chiede per la rete, decidi tu: funziona in tutti e due i casi)')
