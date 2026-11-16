@@ -69,6 +69,7 @@ FERMI = []                  # 16/11: zone (frazioni x0, y0, x1, y1) dove le cose
 CATENA_SEQ = []             # 16/11: le tappe in fila, dipinto compreso ('base', …, 'base'): il pezzo i va da CATENA_SEQ[i-1] a CATENA_SEQ[i]
 CATENA_ALLACCI = None       # 16/11: per ogni tratto da dipinto a dipinto, come lo sceglie il motore (nome, peso, ogni, noDiFila)
 CATENA_SFUMA = None         # 16/11: la sfumata fra i pezzi nell'originale lungo (dal segno; None: SFUMA_TAPPE, quella di adesso)
+CATENA_VINCOLATA = False    # 16/11: ogni pezzo ha la sua immagine di fine (segno: fineVincolata, dall'app 6.76)
 _FOTO_VIDEO = [None]        # 16/11: il dipinto alla misura del video, allineato (da fermo_dalla_foto)
 SENZA_CIELO = False         # 13/11: True mentre si cuce un interno            # 0 = tutti i processori; sul Raspberry (--casa) 2
 
@@ -532,7 +533,13 @@ def _percorso_dentro(firma, n, fps):
     fine_max = (scatti[0] - 1) if scatti else n - 1
     if fine_max - coda0 < int(fps * .5): fine_max = n - 1
     d, e, s0 = migliore(range(coda0, fine_max - W), range(W, int(2 * fps)))
-    seq = []; inizio = s0 + W
+    # ⚠ 16/11 · IL GIRO ESATTO DEI PEZZI A TAPPE. Se l'ultimo pezzo finisce sulla posa da cui parte il primo (vincolata),
+    # il giro si chiude come le giunte esatte: tutto il primo pezzo e tutto l'ultimo, e due fotogrammi a metà strada.
+    # Cercando il giro come negli altri video il file cominciava 2 s dentro il primo pezzo, lontano dalla posa: e con gli
+    # allacci a caso (ogni tratto deve cominciare e finire sulla posa dipinta) un salto verso l'inizio del file scattava
+    esatto = bool(CATENA and CATENA_SEQ and len(CATENA_SEQ) == CATENA_PEZZI + 1 and CATENA_SEQ[-1] == CATENA_SEQ[0]
+                  and (CATENA_VINCOLATA or CATENA_SEQ[-2] != CATENA_SEQ[-1]) and (CATENA_SFUMA or 0) <= 0)
+    seq = []; inizio = 0 if esatto else s0 + W
     def passaggio(a, b):                                       # K fotogrammi: a-W… del primo tratto, b-W… del secondo
         return [('x', a - W + i, b - W + i, (i + 1) / (K + 1)) for i in range(K)]
     centri = []                                                # 16/11: (giunta, dove finisce il tratto prima, dove comincia quello dopo)
@@ -540,8 +547,10 @@ def _percorso_dentro(firma, n, fps):
         seq += [('f', k) for k in range(inizio, a - W)]
         centri.append((i, len(seq), len(seq) + K))              # un salto del motore esce e arriva su fotogrammi interi, non a metà passaggio
         seq += passaggio(a, b); inizio = b + W
-    seq += [('f', k) for k in range(inizio, e - W)]
-    seq += passaggio(e, s0)
+    if esatto: seq += [('f', k) for k in range(inizio, n)] + [('m', n - 1, 0, 1 / 3), ('m', n - 1, 0, 2 / 3)]
+    else:
+        seq += [('f', k) for k in range(inizio, e - W)]
+        seq += passaggio(e, s0)
     # ⚠ 16/11 · LE GIUNTE ESATTE (controllo a fondo dell'alba della taverna). Fra due pezzi a tappe che si toccano sulla stessa
     # posa dipinta, l'ultimo fotogramma dell'uno e il primo dell'altro distano circa due passi normali (misurato: 2,8–3,1
     # contro passi di 0,7–2,3). Con la sfumata di 0,25 s fatta mettendoli in fila, alla giunta del sale la mano ancora alzata
@@ -573,7 +582,7 @@ def _percorso_dentro(firma, n, fps):
         seq[q - 1:q + 3] = [('m', k - 2, k + 3, (r + 1) / 5) for r in range(4)]
     info0 = {'salti_lisciati': [round(k / fps, 2) for k in lisci]}
     info = {'tagli': [{'da': round(a / fps, 2), 'a': round(b / fps, 2), 'passi': round(d2 / tip, 1)} for a, b, d2, i in tagli], '_centri': centri,
-            'giro': {'fine': round(e / fps, 2), 'inizio': round(s0 / fps, 2), 'passi': round(d / tip, 1)}, **info0}
+            'giro': {'esatto': True} if esatto else {'fine': round(e / fps, 2), 'inizio': round(s0 / fps, 2), 'passi': round(d / tip, 1)}, **info0}
     return seq, info
 
 
@@ -1300,8 +1309,8 @@ def metti_in_fila(pezzi, uscita, sfuma=None):
 def _cuci_uno(cart, nomi, nome, base, parte, originale, larghezza, veloce, ricuci=False):
     """ricuci: l'animazione è già cucita (con il cucitore di prima): si riparte dal video originale dell'AI, che resta
     com'è, e si rifanno video, fermo e maschera (14/11: il fermo dalla foto a piena risoluzione anche per i paesaggi vecchi)."""
-    global CATENA, CATENA_PEZZI, CATENA_LIBERE, FERMI, CATENA_SEQ, CATENA_ALLACCI, CATENA_SFUMA
-    CATENA, CATENA_PEZZI, CATENA_LIBERE, FERMI, CATENA_SEQ, CATENA_ALLACCI, CATENA_SFUMA = False, 0, [], [], [], None, None   # 16/11: vale solo per questo video
+    global CATENA, CATENA_PEZZI, CATENA_LIBERE, FERMI, CATENA_SEQ, CATENA_ALLACCI, CATENA_SFUMA, CATENA_VINCOLATA
+    CATENA, CATENA_PEZZI, CATENA_LIBERE, FERMI, CATENA_SEQ, CATENA_ALLACCI, CATENA_SFUMA, CATENA_VINCOLATA = False, 0, [], [], [], None, None, False   # 16/11: vale solo per questo video
     cj = {}
     if True:
         with tempfile.TemporaryDirectory() as d:
@@ -1316,7 +1325,7 @@ def _cuci_uno(cart, nomi, nome, base, parte, originale, larghezza, veloce, ricuc
                     cj = json.load(open(x, encoding='utf-8'))
                     seq = ['base'] + list(cj.get('tappe') or []) + ['base']
                     FERMI = [tuple(float(v) for v in z) for z in (cj.get('fermi') or []) if len(z) == 4]
-                    CATENA_PEZZI = len(seq) - 1; CATENA_SEQ = seq; CATENA_ALLACCI = cj.get('allacci')
+                    CATENA_PEZZI = len(seq) - 1; CATENA_SEQ = seq; CATENA_ALLACCI = cj.get('allacci'); CATENA_VINCOLATA = bool(cj.get('fineVincolata'))
                     # la sfumata con cui è fatto l'originale lungo: scritta nel segno; senza, quella di prima del 16/11 (0,25 s)
                     if ricuci: CATENA_SFUMA = float(cj['sfuma']) if 'sfuma' in cj else .25
                     CATENA_LIBERE = [] if cj.get('fineVincolata') else [i for i in range(1, CATENA_PEZZI) if seq[i - 1] == seq[i]]   # 16/11: dall'app 6.76 ogni pezzo ha la sua immagine di fine
