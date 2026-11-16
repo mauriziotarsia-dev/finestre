@@ -1445,6 +1445,8 @@ class Vista {
     const pCielo = cielo ? caricaImg(cielo).catch(() => null) : null;
     const pVideo = video ? apriVideo(video).catch(() => null) : null;
     const pCucito = video ? fetch(video.split('?')[0].replace(/\.mp4$/, '-originale.mp4'), {method:'HEAD', cache:'no-store'}).then(r => r.ok).catch(() => false) : null;
+    /* 16/11 · i tratti per gli allacci a caso (aggiornaTratti), se il cucitore li ha scritti accanto al video */
+    const pTratti = video ? fetch(video.split('?')[0].replace(/\.mp4$/, '-segmenti.png') + '?t=' + Date.now(), {cache:'no-store'}).then(r => r.ok ? r.json() : null).catch(() => null) : null;
     const pFermo = video && fermo && maschera && this.unita >= 10 ? Promise.all([caricaImg(fermo), caricaImg(maschera)]).catch(() => null) : null;
     const im = await caricaImg(url);
     f.img = im; f.iw = im.naturalWidth; f.ih = im.naturalHeight; f.tex = this.texture(); this.carica(f.tex, this.entro(im)); this.mip(f.tex);
@@ -1469,6 +1471,7 @@ class Vista {
     if (pVideo){ f.video = await pVideo; if (f.video) f.vtex = this.texture(); }
     /* cucito? cuci-animazione.py lascia accanto il file dell'AI, «…-originale.mp4» */
     if (f.video) f.cucito = await pCucito;
+    if (f.video && f.cucito) f.trattiGrezzi = await pTratti;   /* si controllano quando il video sa quanto dura (aggiornaVideo) */
     f.interno = !!this.internoInArrivo;   /* 15/11: il giro del video di un interno si chiude in tre fotogrammi (aggiornaVideo) */
     /* fermo + maschera in una texture sola (rgb + a); se non ci sono, il video è già cucito */
     const fm = pFermo ? await pFermo : null;
@@ -1542,6 +1545,8 @@ class Vista {
        cucchiaio doppi). Il video di un interno lo chiude già il cucitore seguendo il movimento: qui basta un passaggio
        di tre fotogrammi */
     const [a, b] = f.video, D = a.duration || 0, coda = f.cucito ? Math.min(f.interno ? .1 : .5, D * .08) : f.fTex ? Math.min(1, D * .15) : Math.min(.25, D * .05);
+    if (f.trattiGrezzi !== undefined && D > 0){ f.tratti = tratti(f.trattiGrezzi, D); f.trattiGrezzi = undefined; }
+    if (f.tratti) return this.aggiornaTratti(f, a, b);
     if (D > 2 && a.currentTime > D - coda && b.paused){ b.currentTime = 0; b.play().catch(() => {}); }
     if (!b.paused){
       const k = Math.min(1, Math.max(0, (a.currentTime - (D - coda)) / coda));
@@ -1551,6 +1556,38 @@ class Vista {
     }
     /* il fotogramma si carica sulla scheda solo quando è nuovo: il video ne ha 30 al secondo, lo schermo
        60 giri (prima lo si ricaricava a ogni giro: il doppio del lavoro, e sul Raspberry si perdevano immagini) */
+    if (a.readyState >= 2){ if (nuovoFotogramma(a) || f.vNuovo){ this.carica(f.vtex, a); f.vNuovo = false; } return true; }
+    return false;
+  }
+
+  /* ⚠ 16/11 · GLI ALLACCI A CASO (Maurizio: «tipo che butta il pane nella cesta una volta ogni 2/3 giri di altre azioni»).
+     Un'animazione a tappe (la cuoca dell'alba: impasta; sparge il sale; fa la pagnottina e la mette nella cesta) è
+     cucita in un file solo, a tratti che partono e tornano tutti sulla posa dipinta. Il cucitore scrive dove cominciano
+     («…-segmenti.png», con nome, peso, ogni quanti tratti torna quello raro, se può ripetersi di fila). Qui, a ogni ritorno
+     sulla posa, si sceglie il tratto dopo: se è quello che segue nel file non si fa niente, altrimenti il secondo lettore
+     si mette per tempo (2,5 s prima) sull'inizio di quel tratto, fermo, e alla fine del tratto di adesso parte e si
+     sfuma in un quinto di secondo (la posa è la stessa). Se il secondo lettore non è pronto, si resta sul file. */
+  aggiornaTratti(f, a, b){
+    const S = f.tratti, P = .2, t = a.currentTime;
+    if (f.tratto == null){ f.tratto = Math.max(0, S.findIndex(s => t < s.a - .05)); f.dopo = S.map(() => 0); f.soglia = S.map(s => s.ogni ? sogliaOgni(s) : 0); f.storia = []; }
+    const fine = S[f.tratto].a;
+    if (f.prossimo == null && t > fine - 2.5 && !a.paused){
+      f.prossimo = scegliTratto(f); f.salto = f.prossimo !== f.tratto + 1;          /* dall'ultimo al primo è sempre un salto: il file finisce */
+      if (f.salto){ b.pause(); b.currentTime = S[f.prossimo].da; f.bPartito = false; }
+    }
+    if (f.prossimo != null && !f.salto && t >= fine){ f.tratto = f.prossimo; f.prossimo = null; }
+    if (f.salto){
+      if (!f.bPartito && t > fine - P && b.readyState >= 2 && !b.seeking){ b.play().catch(() => {}); f.bPartito = true; f.bCaricato = false; }
+      if (f.bPartito){
+        const k = Math.min(1, Math.max(0, (t - (fine - P)) / P));
+        if (b.readyState >= 2 && nuovoFotogramma(b)){ if (!f.vtexB) f.vtexB = this.texture(); this.carica(f.vtexB, b); f.bCaricato = true; }
+        f.vk = f.bCaricato ? k : 0;
+        if (a.ended || k >= 1){ a.pause(); f.video = [b, a]; f.tratto = f.prossimo; f.prossimo = null; f.salto = f.bPartito = false; f.vNuovo = true; return this.aggiornaVideo(f); }
+      } else if (t > fine + .6 || a.ended){                                           /* il salto non riesce: si va avanti nel file */
+        f.salto = false; f.prossimo = null; f.tratto = a.ended ? 0 : Math.min(S.length - 1, f.tratto + 1); f.saltiMancati = (f.saltiMancati || 0) + 1;
+        if (a.ended){ a.currentTime = 0; a.play().catch(() => {}); }
+      }
+    }
     if (a.readyState >= 2){ if (nuovoFotogramma(a) || f.vNuovo){ this.carica(f.vtex, a); f.vNuovo = false; } return true; }
     return false;
   }
@@ -2140,6 +2177,32 @@ function nuovoFotogramma(v){
 /* ⚠ 30/10: le animazioni cucite hanno sostituito i video dell'AI con lo stesso nome, e i browser tenevano
    il vecchio in memoria (fino a un'ora). Il segno qui sotto lo fa riscaricare; la libreria aggiunge anche la data del file. */
 const VERSIONE_VIDEO = 'c3';
+/* 16/11 · i tratti scritti dal cucitore (vedi aggiornaTratti): si usano solo se tornano col video, contigui dal primo
+   all'ultimo fotogramma; altrimenti il video gira com'è, in fila */
+function tratti(j, D){
+  const S = j && Array.isArray(j.segmenti) ? j.segmenti : null;
+  if (!S || S.length < 2 || !(D > 4)) return null;
+  for (let i = 0; i < S.length; i++){ const s = S[i]; if (!(s.a - s.da >= 1.5) || (i && Math.abs(s.da - S[i - 1].a) > .05)) return null; }
+  if (Math.abs(S[0].da) > .05 || Math.abs(S[S.length - 1].a - D) > .4) return null;
+  return S.map(s => ({da: +s.da, a: +s.a, nome: String(s.nome || ''), peso: +s.peso > 0 ? +s.peso : 1, noDiFila: !!s.noDiFila,
+    ogni: Array.isArray(s.ogni) && s.ogni.length === 2 ? [Math.max(0, s.ogni[0] | 0), Math.max(s.ogni[0] | 0, s.ogni[1] | 0)] : null}));
+}
+const sogliaOgni = s => s.ogni[0] + Math.floor(Math.random() * (s.ogni[1] - s.ogni[0] + 1));
+/* il tratto dopo: quello raro quando ne sono passati abbastanza degli altri; altrimenti a caso secondo il peso,
+   senza ripetere di fila quelli che non vogliono */
+function scegliTratto(f){
+  const S = f.tratti, n = S.length;
+  const conta = i => { for (let j = 0; j < n; j++) f.dopo[j]++; f.dopo[i] = 0; if (S[i].ogni) f.soglia[i] = sogliaOgni(S[i]);
+    f.storia.push(S[i].nome || String(i)); if (f.storia.length > 16) f.storia.shift(); return i; };
+  for (let i = 0; i < n; i++) if (S[i].ogni && f.dopo[i] >= f.soglia[i]) return conta(i);
+  const c = []; for (let i = 0; i < n; i++) if (!S[i].ogni && !(S[i].noDiFila && i === f.tratto)) c.push(i);
+  if (!c.length) return conta((f.tratto + 1) % n);
+  let tot = 0; for (const i of c) tot += S[i].peso;
+  let r = Math.random() * tot;
+  for (const i of c){ r -= S[i].peso; if (r <= 0) return conta(i); }
+  return conta(c[c.length - 1]);
+}
+
 function apriVideo(url){
   url += (url.includes('?') ? '&' : '?') + VERSIONE_VIDEO;
   const fai = () => { const v = document.createElement('video'); v.crossOrigin = 'anonymous'; v.muted = v.defaultMuted = true; v.playsInline = true;

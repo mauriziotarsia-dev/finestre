@@ -395,15 +395,18 @@ Answer ONLY with JSON: {"comignoli":[{"x":<0-1000>,"y":<0-1000>,"w":<0-1000>}]} 
     let r;
     try { r = await fetch(base, {method:'POST', headers:intest, body:JSON.stringify(corpo)}); } catch(e) { throw this.rete('Google', e); }
     if (r.status === 400){
-      const e = await this.errore(r, 'Google');
+      let e = await this.errore(r, 'Google');
+      const riprova = async () => { r = await fetch(base, {method:'POST', headers:intest, body:JSON.stringify(corpo)});
+        if (r.status === 400) e = await this.errore(r, 'Google'); else if (!r.ok) throw await this.errore(r, 'Google'); };
       if (corpo.response_format.duration && /duration/i.test(e.testo || e.message || '')){   /* 16/11 · la durata non accettata: si lascia scegliere a Google */
-        delete corpo.response_format.duration;
-        r = await fetch(base, {method:'POST', headers:intest, body:JSON.stringify(corpo)});
-        if (r.ok) { /* va bene così */ } else if (r.status !== 400) throw await this.errore(r, 'Google');
+        delete corpo.response_format.duration; await riprova();
+      }
+      /* 16/11 · la stessa immagine come prima e ultima (pezzo che parte e torna sul dipinto): se Google non la accetta, una sola */
+      if (r.status === 400 && fine && o.promptSenzaFine && !/background/i.test(e.testo || '')){
+        corpo.input = [corpo.input[0], {type:'text', text:o.promptSenzaFine}]; await riprova();
       }
       if (r.status === 400){
-        const e2 = r.bodyUsed ? e : await this.errore(r, 'Google');
-        if (!/background/i.test(e2.testo || '')) throw e2;
+        if (!/background/i.test(e.testo || '')) throw e;
         delete corpo.background;                                 /* se il sottofondo non è accettato, chiamata diretta */
         r = await fetch(base, {method:'POST', headers:intest, body:JSON.stringify(corpo)});
       }

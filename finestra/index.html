@@ -28,7 +28,7 @@
 <script src="../js/accesso.js?v=8"></script>
 <script src="../js/qrcode.js?v=1"></script>
 <script src="../js/vita.js?v=5"></script>
-<script src="../js/vista.js?v=5.77"></script>
+<script src="../js/vista.js?v=5.78"></script>
 <script src="../js/inseguitore.js?v=1"></script>
 <script src="../js/uccelli.js?v=10"></script>
 <script src="../js/bard.js?v=9"></script>
@@ -908,7 +908,7 @@ async function statoRemoto(d, schedaVideo){
     fonteOk: vista.fonti[0].ok, fonteUrl: vista.fonti[0].url, inArrivo: vista.inArrivo, fonteAttesa: f,
     versione: ([...document.scripts].map(x => x.src).find(x => /vista\.js/.test(x)) || '').split('?')[1] || '',
     nebbiolina: vista.spegni ? !vista.spegni.has('nebbiolina') : true, movimento: scena.movimento !== false,
-    video: (() => { const f0 = vista.fonti[0], v = f0.video && f0.video[0]; return {c: !!v, fermo: !!f0.fTex, cucito: !!f0.cucito, unita: vista.unita, durata: v ? v.duration : null, t: v ? v.currentTime : null, w: v ? v.videoWidth : null, pronti: f0.video ? f0.video.map(x => x.readyState) : null}; })(),
+    video: (() => { const f0 = vista.fonti[0], v = f0.video && f0.video[0]; return {c: !!v, fermo: !!f0.fTex, cucito: !!f0.cucito, unita: vista.unita, durata: v ? v.duration : null, t: v ? v.currentTime : null, w: v ? v.videoWidth : null, pronti: f0.video ? f0.video.map(x => x.readyState) : null, tratti: f0.tratti ? f0.tratti.length : 0, tratto: f0.tratti ? f0.tratto : null, storia: f0.storia || null, saltiMancati: f0.saltiMancati || 0}; })(),
     scena: {acceso: scena.acceso, paesaggio: scena.paesaggio, ora: scena.ora, meteo: scena.meteo, yt: scena.yt, haImmagini: !!scena.immagini},
     pixel: (() => { try { if (!ultimoParam) return null; vista.disegna(geomGL, ultimoParam); const g = vista.gl, out = {}, b = new Uint8Array(4);
       for (const [n, x, y] of [['centro', .5, .5], ['alto', .5, .15], ['basso', .5, .85]]){ g.readPixels(Math.floor(c.width * x), Math.floor(c.height * y), 1, 1, g.RGBA, g.UNSIGNED_BYTE, b); out[n] = Array.from(b); }
