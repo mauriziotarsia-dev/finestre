@@ -65,6 +65,8 @@ FF_THREADS = '0'
 CATENA = False              # 16/11: True mentre si cuce un'animazione a tappe (…_anim-alba-catena.png)
 CATENA_PEZZI = 0            # 16/11: quanti pezzi a tappe ci sono in fila (dal segno «-catena.png»)
 CATENA_LIBERE = []          # 16/11: le giunte (dopo il pezzo i, da 1) dove il pezzo finisce dove vuole lui: vedi giunte_dei_pezzi
+FERMI = []                  # 16/11: zone (frazioni x0, y0, x1, y1) dove le cose ferme si prendono dal dipinto: vedi OggettiFermi
+_FOTO_VIDEO = [None]        # 16/11: il dipinto alla misura del video, allineato (da fermo_dalla_foto)
 SENZA_CIELO = False         # 13/11: True mentre si cuce un interno            # 0 = tutti i processori; sul Raspberry (--casa) 2
 
 
@@ -367,6 +369,7 @@ def fermo_dalla_foto(rif, alta, zone, cielo, fx=0.5):
     Mg = M.copy(); Mg[:, 2] *= W / w                                       # lo stesso allineamento a piena risoluzione
     grande = cv2.warpAffine(img, Mg, (W, H), flags=cv2.INTER_LANCZOS4 | cv2.WARP_INVERSE_MAP, borderMode=cv2.BORDER_REFLECT)
     allineata = cv2.warpAffine(piccola, M, (w, h), flags=cv2.INTER_LINEAR | cv2.WARP_INVERSE_MAP, borderMode=cv2.BORDER_REFLECT)
+    _FOTO_VIDEO[0] = allineata                                             # 16/11: per OggettiFermi
     # i colori: per ogni canale, il video (rif) portato sulla foto dove sta fermo
     sel = ferme.astype(bool)
     lut = np.zeros((1, 256, 3), np.uint8)
@@ -376,6 +379,56 @@ def fermo_dalla_foto(rif, alta, zone, cielo, fx=0.5):
         if not (.75 < g < 1.33) or abs(o) > 40: return None, None              # troppo diversi: non è la stessa scena
         lut[0, :, c] = np.clip(np.arange(256) * g + o + .5, 0, 255).astype(np.uint8)
     return grande, lut
+
+
+class OggettiFermi:
+    """⚠ 16/11 (alba della taverna, Maurizio: «Sistemiamo la cesta»). La cesta dei panetti sta attaccata alla cuoca, dentro
+    la parte viva, e il video la ridisegna a modo suo: panetti grumosi, come avvolti in un panno, e in ogni pezzo un po'
+    diversa (misurato: il contorno della cesta si sposta da un pezzo all'altro, a ogni giunta avrebbe fatto un salto).
+    Nelle zone FERMI (dal segno «-catena.png») ogni fotogramma prende il dipinto, tranne dove entra qualcosa dall'alto:
+    il braccio con la pagnottina. Che cosa entra: dove il video si scosta molto dalla sua mediana (soglia ben sopra il
+    rumore del contorno, che è sottile e sparisce con l'apertura), a macchie grandi attaccate al bordo di sopra della
+    zona (il braccio arriva da lì; il contorno della cesta e la pagnottina già lasciata non lo toccano). La pagnottina
+    lasciata cade fra le altre e sparisce in un terzo di secondo: nella cesta dipinta resta quella di sempre, e al giro
+    non salta. Il bordo della zona sfuma verso il video; la zona va tenuta fuori dalla gonna della cuoca."""
+    SOGLIA, AREA, DECADE = 28, 150, .8
+
+    def __init__(self, entrata, foto, zone, lut):
+        h, w = foto.shape[:2]; self.lut = lut; self.z = []
+        for fx0, fy0, fx1, fy1 in zone:
+            x0, y0, x1, y1 = max(0, int(fx0 * w)), max(0, int(fy0 * h)), min(w, int(round(fx1 * w))), min(h, int(round(fy1 * h)))
+            if x1 - x0 >= 24 and y1 - y0 >= 24: self.z.append((x0, y0, x1, y1))
+        campioni = [[] for _ in self.z]
+        for i, f in enumerate(fotogrammi(entrata)):
+            if i % 3: continue
+            for j, (x0, y0, x1, y1) in enumerate(self.z):
+                c = f[y0:y1, x0:x1]; campioni[j].append(cv2.LUT(c, lut) if lut is not None else c.copy())
+        self.rif = [np.median(np.stack(c), 0).astype(np.float32) for c in campioni]
+        self.foto = [foto[y0:y1, x0:x1].astype(np.float32) for x0, y0, x1, y1 in self.z]
+        self.bordo = []
+        for x0, y0, x1, y1 in self.z:                          # 1 dentro, verso 0 negli ultimi 6 punti di ogni lato
+            b = np.zeros((y1 - y0, x1 - x0), np.float32); b[6:-6, 6:-6] = 1
+            self.bordo.append(cv2.GaussianBlur(b, (0, 0), 2.5))
+        self.m = [np.zeros((y1 - y0, x1 - x0), np.float32) for x0, y0, x1, y1 in self.z]
+        self.ap = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7)); self.al = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (13, 13))
+        self.entrate = 0
+
+    def __call__(self, x):
+        x = x.copy()
+        for j, (x0, y0, x1, y1) in enumerate(self.z):
+            Z = x[y0:y1, x0:x1].astype(np.float32)
+            d = cv2.GaussianBlur(np.abs(Z - self.rif[j]).mean(2), (0, 0), 2)
+            # una soglia sola: provata anche a due soglie (la mano mossa più intera), ma appena la pagnottina tocca il mucchio la
+            # macchia bassa si allargava a tutta la cesta e tornava quella del video
+            fg = cv2.morphologyEx((d > self.SOGLIA).astype(np.uint8), cv2.MORPH_OPEN, self.ap)
+            n, lab, st, _ = cv2.connectedComponentsWithStats(fg, 8)
+            tieni = [i for i in range(1, n) if st[i][4] >= self.AREA and st[i][1] <= 2]       # attaccate al bordo di sopra
+            fg = cv2.dilate(np.isin(lab, tieni).astype(np.uint8), self.al).astype(np.float32) if tieni else np.zeros_like(d)
+            if tieni: self.entrate += 1
+            self.m[j] = np.maximum(fg, self.m[j] * self.DECADE)
+            a = (self.bordo[j] * (1 - cv2.GaussianBlur(self.m[j], (0, 0), 2.5)))[..., None]
+            x[y0:y1, x0:x1] = np.clip(Z * (1 - a) + self.foto[j] * a + .5, 0, 255).astype(np.uint8)
+        return x
 
 
 _DIS = []
@@ -498,7 +551,10 @@ def cuci(entrata, uscita, profondita=None, immagine=None, fuoco_x=0.5, larghezza
     primo = next(fotogrammi(entrata))
     cielo = maschera_cielo(w, h, profondita, immagine, fuoco_x, primo)
     sp, rif, zone, guad, sost, info, forte = analizza(entrata, n, fps, w, h, cielo)
+    _FOTO_VIDEO[0] = None
     foto, lut = fermo_dalla_foto(rif, alta, zone, cielo, fuoco_x if fx_video is None else fx_video) if alta else (None, None)
+    ferme = OggettiFermi(entrata, _FOTO_VIDEO[0], FERMI, lut) if FERMI and foto is not None and _FOTO_VIDEO[0] is not None else None
+    if FERMI: info['oggetti_fermi'] = 'dal dipinto' if ferme is not None else 'NO: il dipinto non combacia col video'
     c = int(round(fps * (sfuma or SECONDI_GIRO)))            # 14/11: coi pezzi (tutti da e verso la stessa immagine) basta 1,5 s
     lung = n - c                                               # il giro: n - c fotogrammi
     percorso = None
@@ -544,6 +600,7 @@ def cuci(entrata, uscita, profondita=None, immagine=None, fuoco_x=0.5, larghezza
     def scrivi(x):
         nonlocal scritti
         if lut is not None: x = cv2.LUT(x, lut)                   # i colori del video come la foto (fermo dalla foto)
+        if ferme is not None: x = ferme(x)                        # 16/11: la cesta (e simili) dal dipinto, tranne dove entra il braccio
         if len(testa) < 4: testa.append(x)
         ff.stdin.write(x.tobytes()); scritti += 1
 
@@ -608,6 +665,7 @@ def cuci(entrata, uscita, profondita=None, immagine=None, fuoco_x=0.5, larghezza
         cv2.imwrite(maschera, (cv2.resize(m, (270, int(round(270 * h / w))), interpolation=cv2.INTER_AREA) * 255).astype(np.uint8))
     info.update({'fermo': 'foto %dx%d' % (foto.shape[1], foto.shape[0]) if foto is not None else 'video', 'video': f'{W}x{H}', 'fotogrammi_in': n, 'fps_in': round(fps, 2), 'secondi_giro': round(lung / fps, 2),
                  'tremolio_max_px': round(float(np.abs(sp).max()), 2), 'cielo_pct': round(float(cielo.mean()) * 100, 1)})
+    if ferme is not None: info['oggetti_fermi'] += ' · qualcosa entra in %d fotogrammi' % ferme.entrate
     return info
 
 
@@ -939,9 +997,10 @@ def giro_casa(casa, larghezza=None, veloce=False, forza=1, chi='pc'):
             # senza il tremolio della cucina e con le persone intere fino a terra (segno v5), poi con i punti fermi seguiti uno
             # per uno e il passaggio del giro solo dove le pose sono diverse (segno v6), poi coi salti fra le pose più simili
             # alla giunta e al giro (segno v7), poi senza sbuffi di fumo lontano da persone e fiamme (segno v8), poi coi
-            # passaggi in cui scorrono tutti e due i tratti (segno v9), poi coi pezzi a tappe tagliati dove la fine è libera (v10)
+            # passaggi in cui scorrono tutti e due i tratti (segno v9), poi coi pezzi a tappe tagliati dove la fine è libera e con
+            # la cesta presa dal dipinto (v10, 16/11)
             dentro = 'interno' in (base.split('@', 1)[1].split('.') if '@' in base else [])
-            if originale not in nomi or f'{base}_{parte[:-4]}-' + ('v9' if dentro else 'v2') + '.png' in nomi: continue   # v10: vedi sotto (cesta)
+            if originale not in nomi or f'{base}_{parte[:-4]}-' + ('v10' if dentro else 'v2') + '.png' in nomi: continue
             _SOSPESI[0] += 1                                   # c'è un video da ricucire
             # 15/11 (Maurizio aspettava la taverna: mezz'ora a video sull'Ally, uno dopo l'altro): se il più forte è già
             # occupato con una ricucitura, il meno forte prende la successiva invece di aspettare; a priorità bassa, perché
@@ -1194,8 +1253,8 @@ def metti_in_fila(pezzi, uscita, sfuma=None):
 def _cuci_uno(cart, nomi, nome, base, parte, originale, larghezza, veloce, ricuci=False):
     """ricuci: l'animazione è già cucita (con il cucitore di prima): si riparte dal video originale dell'AI, che resta
     com'è, e si rifanno video, fermo e maschera (14/11: il fermo dalla foto a piena risoluzione anche per i paesaggi vecchi)."""
-    global CATENA, CATENA_PEZZI, CATENA_LIBERE
-    CATENA, CATENA_PEZZI, CATENA_LIBERE = False, 0, []             # 16/11: vale solo per questo video (vedi sotto)
+    global CATENA, CATENA_PEZZI, CATENA_LIBERE, FERMI
+    CATENA, CATENA_PEZZI, CATENA_LIBERE, FERMI = False, 0, [], []  # 16/11: vale solo per questo video (vedi sotto)
     if True:
         with tempfile.TemporaryDirectory() as d:
             e, u = os.path.join(d, 'e.mp4'), os.path.join(d, 'u.mp4')
@@ -1206,7 +1265,9 @@ def _cuci_uno(cart, nomi, nome, base, parte, originale, larghezza, veloce, ricuc
                 CATENA = True
                 try:
                     x = os.path.join(d, 'catena.json'); _scarica(cart, segno_catena, x)
-                    seq = ['base'] + list(json.load(open(x, encoding='utf-8')).get('tappe') or []) + ['base']
+                    cj = json.load(open(x, encoding='utf-8'))
+                    seq = ['base'] + list(cj.get('tappe') or []) + ['base']
+                    FERMI = [tuple(float(v) for v in z) for z in (cj.get('fermi') or []) if len(z) == 4]
                     CATENA_PEZZI = len(seq) - 1
                     CATENA_LIBERE = [i for i in range(1, CATENA_PEZZI) if seq[i - 1] == seq[i]]
                 except Exception as ex: print('  segno delle tappe illeggibile:', ex, file=sys.stderr, flush=True)
