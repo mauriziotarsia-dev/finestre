@@ -13,14 +13,25 @@
    arrivare dallo schermo agli occhi — così il ritardo percepito si avvicina a zero
    mentre cammini; quando ti fermi la velocità va a zero e la previsione con lei.
    La previsione non va mai oltre `orizzonte` secondi, e si spegne se il radar tace.
+
+   16/11 sera, prima prova vera col radar sotto il TV (Maurizio: «troppo nervosa l'immagine, non rimane ferma
+   neanche se io sto fermo»): a 10 letture al secondo il tremolio del radar si legge come velocità, il filtro
+   «1 euro» si apre e lascia passare tutto. Prima del filtro c'è ora una QUIETE: finché la lettura resta entro
+   `quiete` dal punto fermo, il punto non si muove (immagine ferma davvero); quando ne esce, il punto la segue
+   tenendosi a quella distanza (si muove solo l'eccedenza, senza scatto). Per asse: x (lato) e z (distanza).
    ═══════════════════════════════════════════════════════════════════════════ */
 (function (radice) {
   const DUE_PI = Math.PI * 2;
   const alfa = (taglio, dt) => { const tau = 1 / (DUE_PI * taglio); return 1 / (1 + tau / dt); };
 
   class Asse {
-    constructor(o){ this.o = o; this.x = null; this.v = 0; }
+    constructor(o, quiete){ this.o = o; this.q = quiete || 0; this.x = null; this.v = 0; this.fermo = null; }
     campione(x, dt){
+      /* la quiete: il punto fermo si sposta solo di quanto la lettura ne esce */
+      if (this.fermo == null) this.fermo = x;
+      const d = x - this.fermo;
+      if (Math.abs(d) > this.q) this.fermo += d - Math.sign(d) * this.q;
+      x = this.fermo;
       if (this.x == null || !(dt > 0)){ this.x = x; this.v = 0; return; }
       const vGrezza = (x - this.x) / dt;
       this.v += (vGrezza - this.v) * alfa(this.o.tagliaVelocita, dt);
@@ -33,8 +44,9 @@
     /* tempi in secondi; le posizioni sono quelle normalizzate della finestra (-1…1) */
     constructor(opz = {}){
       this.o = Object.assign({
-        tagliaMinimo: 1.2,       /* Hz: quanto si ammorbidisce da fermi (più basso = più fermo) */
-        beta: 7,                 /* quanto si apre col movimento */
+        quiete: [0.06, 0.05],    /* 16/11: x (6% del mezzo angolo: circa 7 cm a 2,5 m) e z (8 cm di distanza) */
+        tagliaMinimo: 1.5,       /* Hz: quanto si ammorbidisce da fermi (con la quiete davanti può stare più alto: più pronto) */
+        beta: 5,                 /* quanto si apre col movimento */
         tagliaVelocita: 2.5,     /* Hz: la velocità si stima su un respiro un po' più lungo */
         anticipo: 0.06,          /* s: il ritardo da recuperare (radar, rete, disegno, schermo) */
         orizzonte: 0.15,         /* s: oltre non si prevede */
@@ -44,7 +56,7 @@
       }, opz);
       this.reset();
     }
-    reset(){ this.ax = new Asse(this.o); this.az = new Asse(this.o); this.t = null; }
+    reset(){ const q = this.o.quiete || [0, 0]; this.ax = new Asse(this.o, q[0]); this.az = new Asse(this.o, q[1]); this.t = null; }
     /* un campione del radar: posizione e istante in cui il radar l'ha visto */
     campione(x, z, t){
       const dt = this.t == null ? 0 : t - this.t;

@@ -28,8 +28,8 @@
 <script src="../js/accesso.js?v=8"></script>
 <script src="../js/qrcode.js?v=1"></script>
 <script src="../js/vita.js?v=5"></script>
-<script src="../js/vista.js?v=5.84"></script>
-<script src="../js/inseguitore.js?v=1"></script>
+<script src="../js/vista.js?v=5.85"></script>
+<script src="../js/inseguitore.js?v=2"></script>
 <script src="../js/uccelli.js?v=10"></script>
 <script src="../js/bard.js?v=9"></script>
 <script>
@@ -605,6 +605,7 @@ const occhio = {x:0, z:0}, occhioTgt = {x:0, z:0};
 const inseguitore = new Inseguitore(q.get('anticipo') ? {anticipo: +q.get('anticipo') / 1000} : {});
 let margine = 1.04, provaFino = 0, sensore = null, ultimoSensore = 0, ultimaPresenza = 0;
 const misura = {n:0, t0:0, eta:0, intervallo:0, ultimo:0};
+const registroRadar = [];   /* [ms, quante persone, x mm, y mm, x mostrata ×1000, z mostrata ×1000] */
 const TV_POS = {x: +q.get('tvx') || 2600, y: +q.get('tvy') || 1800};
 /* ⚠ 2/11: il radar si monta accanto al TV, rivolto verso la stanza (le finestrelle staccate non lo usano più).
    Allora per il TV vale lo stesso conto delle finestrelle. Il vecchio montaggio (radar dietro una finestrella,
@@ -621,14 +622,19 @@ function verso(x, y){
     return {x: Math.max(-1, Math.min(1, ang / (Math.PI / 4))), z: Math.max(-1, Math.min(1, (2600 - d) / 1600))};
   }
   /* x in mm a destra-sinistra del sensore, y in mm di distanza: angolo di vista e vicinanza */
+  /* 16/11 sera (Maurizio: «a destra e sinistra cambia poco niente»): pieno spostamento a 30° invece di 45° */
   const ang = Math.atan2(x, y);
-  return {x: Math.max(-1, Math.min(1, ang / (Math.PI / 4))), z: Math.max(-1, Math.min(1, (2600 - y) / 1600))};
+  return {x: Math.max(-1, Math.min(1, ang / (Math.PI / 6))), z: Math.max(-1, Math.min(1, (2600 - y) / 1600))};
 }
 function daPersone(lista, etaMs = 0){
   const ora = performance.now();
   ultimoSensore = ora;
   if (ora < provaFino) return;                       /* sta provando il telefono: il radar aspetta */
   const p = (lista || []).filter(x => x && x.y > 200);
+  /* 16/11 sera: le ultime 400 letture (40 s) nello stato del TV, per regolare quiete e filtro sui dati veri */
+  const r0 = p[0] || {}, po = inseguitore.posizione(ora / 1000);
+  registroRadar.push([Math.round(ora), p.length, r0.x | 0, r0.y | 0, po ? Math.round(po.x * 1000) : null, po ? Math.round(po.z * 1000) : null]);
+  if (registroRadar.length > 400) registroRadar.shift();
   if (p.length !== 1){ occhioTgt.x = 0; occhioTgt.z = 0; return; }
   const v = verso(p[0].x, p[0].y), quando = ora - Math.max(0, etaMs || 0);
   inseguitore.campione(v.x, v.z, quando / 1000);
@@ -908,7 +914,7 @@ async function statoRemoto(d, schedaVideo){
     try { const ac = new AbortController(); const t = setTimeout(() => ac.abort(), 2500);
       radar = await (await fetch('http://localhost:8788/stato', {cache: 'no-store', signal: ac.signal})).json(); clearTimeout(t);
     } catch(e) { radar = {errore: String(e && (e.name + ': ' + e.message) || e)}; }
-    radar.pagina = {aperto: !!sensore, letture: misura.n, ogniMs: Math.round(misura.intervallo), etaMs: Math.round(misura.eta), specchio: specchio < 0, viva: !!scena.prospettivaViva};
+    radar.pagina = {aperto: !!sensore, letture: misura.n, ogniMs: Math.round(misura.intervallo), etaMs: Math.round(misura.eta), specchio: specchio < 0, viva: !!scena.prospettivaViva, registro: d.registro ? registroRadar.slice() : undefined};
   }
   const mq = d => { try { return matchMedia(d).matches; } catch(e) { return null; } };
   const st = {chi: mio, quando: new Date().toISOString(), gl: schedaVideo(), schermo: {w: innerWidth, h: innerHeight, dpr: devicePixelRatio, visibile: document.visibilityState,
@@ -1186,7 +1192,7 @@ function giro(ora){
   if (radarQui() && scena.prospettivaViva) apriSensore(); else chiudiSensore();
   const presente = viva && ora - ultimaPresenza < 600;
   const pos = presente ? inseguitore.posizione(ora / 1000) : null;
-  if (pos){ occhio.x = Math.max(-1.1, Math.min(1.1, pos.x)); occhio.z = Math.max(-1.1, Math.min(1.1, pos.z)); }
+  if (pos){ occhio.x = Math.max(-1, Math.min(1, pos.x)); occhio.z = Math.max(-1.1, Math.min(1.1, pos.z)); }
   else {   /* nessuno (o più persone): si torna al centro, piano */
     if (!presente){ occhioTgt.x = 0; occhioTgt.z = 0; }
     const ko = 1 - Math.exp(-dt * 2.2);

@@ -224,7 +224,7 @@ vec3 paesaggio(sampler2D img, sampler2D imgB, float vk, sampler2D dep, vec4 crop
   vec2 p = uv; p.x += uLato * .012 * (n - .35);
   /* prospettiva viva: chi si sposta a destra vede più paesaggio a sinistra (il lontano scorre con lui, il vicino meno);
      chi si avvicina alla finestra vede un po' più di paesaggio */
-  p.x += uOcchio.x * .065 * (1. - .7 * n);
+  p.x += uOcchio.x * .08 * (1. - .7 * n);
   /* ⚠ 15/11 sera (Maurizio: «avvicinarsi alla finestra o allontanarsi dovrebbe cambiare cosa si vede, ampliando o restringendo
      la visuale»): c'era già ma si vedeva appena (7%). Ora il doppio: a un metro dal TV si vede il 15% di paesaggio in più, oltre
      i quattro metri il 15% in meno. Una finestra vera farebbe molto di più, ma serve immagine oltre i bordi: con la prospettiva
@@ -748,7 +748,7 @@ float fumo(vec2 uv){
     vec4 F = uFumo[i];
     float forzaF = uFumoI[i];
     /* dove appare il comignolo con la prospettiva (lo stesso spostamento del paesaggio a quella profondità) */
-    vec2 s = F.xy; float sh = uLato * .012 * (F.w - .35) + uOcchio.x * .065 * (1. - .7 * F.w);
+    vec2 s = F.xy; float sh = uLato * .012 * (F.w - .35) + uOcchio.x * .08 * (1. - .7 * F.w);
     s = (s - .5) / k + .5; s.x -= sh;
     /* ⚠ 11/11 (Maurizio: «sistemerei i fumi che escono dalle case per renderli più realistici»). Prima la «canna» era un
        decimo del tetto senza limite: su una casa grande (tetto 0,1 dell'immagine) il pennacchio saliva per 600 pixel,
@@ -1603,7 +1603,7 @@ class Vista {
         if (b.modo !== modo || n >= 96 * 6) continue;
         let u = (b.x - ci[0]) / ci[2], v = (b.y - ci[1]) / ci[3];
         u = (u - .5) / kz + .5; v = (v - .5) / kz + .5;
-        u -= lato * .012 * (b.n - .35) + (oc.x || 0) * .065 * (1 - .7 * b.n);
+        u -= lato * .012 * (b.n - .35) + (oc.x || 0) * .08 * (1 - .7 * b.n);
         const px = (u - map[0]) / map[2] * foro.w, py = (v - map[1]) / map[3] * foro.h;
         const R = Math.max(2, b.alone * scala), cr = Math.min(1, Math.max(.6, b.core * scala) / R);
         if (px < -R || py < -R || px > foro.w + R || py > foro.h + R) continue;
