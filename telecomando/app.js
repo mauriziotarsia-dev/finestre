@@ -9,7 +9,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
 const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 const euro = n => (n < .1 ? n.toFixed(3) : n.toFixed(2)).replace('.', ',') + ' $';
-const VERSIONE = '6.78';
+const VERSIONE = '6.79';
 /* 8/11 · l'app si aggiorna da sola (Maurizio: «vedo ancora il quadrato con la doppia finestra»: sul telefono restava la
    versione vecchia anche dopo averla chiusa). Quando torna in primo piano, e ogni 10 minuti, chiede al server quale
    app.js c'è adesso; se è un'altra, ricarica (mai mentre un lavoro AI è in corso) */
@@ -1675,6 +1675,8 @@ function mostraBozze(d){
       ${b.est ? `<a class="bozza-est" href="${esc(b.est)}" target="_blank" rel="noopener"><img alt="TV ${esc(x.id)}" src="${esc(b.est)}"><span>TV</span></a>` : ''}
       ${d.coppia ? `<button class="btn ${coppia[x.per === 'tv' ? 't' : 'f'] === x.id ? 'oro' : ''} piena" data-fai="bozzaCoppia" data-v="${esc(x.id)}" aria-pressed="${coppia[x.per === 'tv' ? 't' : 'f'] === x.id}">${icona(x.per === 'tv' ? 'tv' : 'monofora', 18)}${coppia[x.per === 'tv' ? 't' : 'f'] === x.id ? 'Scelta per ' : 'Scelgo questa per '}${x.per === 'tv' ? 'il TV' : 'le finestrelle'}</button>`
         : d.scopo === 'stile' ? `<button class="btn oro piena" data-fai="bozzaStile" data-v="${esc(x.id)}">${icona('pennello', 18)}${esc(d.bottone || 'Uso questo stile')}</button>`
+        /* 16/11 sera · «ritocco»: la bozza è solo da guardare; il pezzo che serve lo mette Claude nel dipinto (niente da creare qui) */
+        : d.scopo === 'ritocco' ? `<p class="nota" style="margin:6px 0 0">${esc(d.bottone || 'Dimmi in chat se ti piace: il pezzo nuovo lo mette Claude nel dipinto.')}</p>`
         : `<button class="btn oro piena" data-fai="bozzaScelta" data-v="${esc(x.id)}">${icona('scintilla', 18)}Scelgo questa · ≈ ${euro(costoDi(x))}</button>`}` : '<p class="nota">Non riuscita: ' + esc((lavoro && lavoro.errore) || 'riprova') + '</p>'}
     </div>`; }).join('')}
     ${d.coppia ? `<div class="bozza"><b>La coppia</b><p class="nota" style="margin:0 0 8px">Finestrelle: ${esc(coppia.f || 'da scegliere')} · TV: ${esc(coppia.t || 'da scegliere')}. Da queste due faccio le altre luci (giorno, alba, tramonto) e le ${MODELLI_VIDEO.length ? 8 : 0} animazioni con il giro di ${d.giro || giroVideo()} s.</p>
