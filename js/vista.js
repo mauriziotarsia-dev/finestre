@@ -84,7 +84,7 @@ uniform float uNFiamma;
 uniform sampler2D uIns0, uIns1;   /* 16/11 sera · i video «inserto» (il gatto, i fuochi): video corti messi in un riquadro dell'immagine */
 uniform vec4 uRiqBox[4];      /* fino a quattro riquadri: dove stanno nell'immagine intera (x0, y0, x1, y1) */
 uniform vec4 uRiqTile[4];     /* da quale parte del loro video (u0, v0, u1, v1) */
-uniform vec4 uRiqSam;         /* per ognuno: 0 = primo video, 1 = secondo, -1 = spento */
+uniform vec4 uRiqSam;         /* per ognuno: 0 = primo video, 1 = secondo, -1 = spento; +2 = col suo «alfa» nella metà di sotto del video */
 float gIns;                   /* 1 mentre si disegna il paesaggio che si vede (non quello da cui si sfuma) */
 uniform vec4 uParte[9];       /* 16/11 sera · parti di animali che si muovono da sole (la testa e la coda del gatto): per ognuna tre: (perno x, y, centro x, y nella vista), (raggi x, y in altezze, rotazione in radianti, spostamento in altezze), (tipo 0 testa 1 coda, seme, periodo in secondi, lunghezza della coda) */
 uniform float uNParte;
@@ -212,8 +212,11 @@ vec3 riquadro(vec3 c, vec2 ti, vec4 box, vec4 tile, float sam){
   vec2 q = (ti - box.xy) / (box.zw - box.xy);
   if (q.x <= 0. || q.y <= 0. || q.x >= 1. || q.y >= 1.) return c;
   vec2 ut = mix(tile.xy, tile.zw, q);
-  vec3 v = sam < .5 ? texture2D(uIns0, ut).rgb : texture2D(uIns1, ut).rgb;
-  return mix(c, v, smoothstep(0., .03, min(min(q.x, 1. - q.x), min(q.y, 1. - q.y))));
+  float s1 = mod(sam, 2.), a = smoothstep(0., .03, min(min(q.x, 1. - q.x), min(q.y, 1. - q.y)));
+  vec3 v = s1 < .5 ? texture2D(uIns0, ut).rgb : texture2D(uIns1, ut).rgb;
+  /* con l'alfa (la metà di sotto del video, grigia: quanto la clip si muove lì) due riquadri vicini non si coprono */
+  if (sam > 1.5) a *= s1 < .5 ? texture2D(uIns0, ut + vec2(0., .5)).g : texture2D(uIns1, ut + vec2(0., .5)).g;
+  return mix(c, v, a);
 }
 vec3 paesaggio(sampler2D img, sampler2D imgB, float vk, sampler2D dep, vec4 crop, vec4 cropD, float haDep, float mov, sampler2D cie, vec4 cm, sampler2D fer, float haF, sampler2D rap, float haR, vec2 uv, out float n, out float sky){
   n = prof(dep, cropD, uv, haDep);
@@ -1556,7 +1559,7 @@ class Vista {
       const io = ora && j.insertiOre && j.insertiOre[ora];
       f.inserti = (io || []).slice(0, 2).filter(q => q && typeof q.video === 'string' && Array.isArray(q.riquadri)).map(q => ({url: new URL(q.video, String(url).split('#')[0]).href,
         modo: q.modo === 'continuo' ? 'continuo' : 'riposo', tratti: (q.tratti || []).filter(t => Array.isArray(t) && t[1] > t[0]), attesa: Array.isArray(q.attesa) ? q.attesa.map(Number) : [6, 20],
-        riquadri: q.riquadri.filter(r => r && Array.isArray(r.box) && r.box.length === 4).map(r => ({box: r.box.map(Number), tile: Array.isArray(r.tile) && r.tile.length === 4 ? r.tile.map(Number) : [0, 0, 1, 1]}))}));
+        riquadri: q.riquadri.filter(r => r && Array.isArray(r.box) && r.box.length === 4).map(r => ({box: r.box.map(Number), tile: Array.isArray(r.tile) && r.tile.length === 4 ? r.tile.map(Number) : [0, 0, 1, 1], alfa: !!r.alfa}))}));
       const lo = ora && j.legnoOre && j.legnoOre[ora];
       f.legno = lo && typeof lo.maschera === 'string' ? {k: Math.max(0, Math.min(1, +lo.k || .8)), url: new URL(lo.maschera, String(url).split('#')[0]).href} : null;
     } catch(e) { f.fumi = []; f.fuochi = []; f.fiamme = []; f.camini = []; f.parti = []; f.inserti = []; f.fasciAng = null; f.scuro = 0; f.pavimento = null; f.legno = null; }
@@ -2084,7 +2087,7 @@ class Vista {
       { const sam = [-1, -1, -1, -1], box = this.riqBox || (this.riqBox = new Float32Array(16)), tile = this.riqTile || (this.riqTile = new Float32Array(16)); let n = 0;
         if (haImg && f0.ok && s.movimento && !sp.has('inserti') && this.unita >= 16){
           (f0.ins || []).forEach((I, j) => { if (!I || !I.ok || n >= 4) return; lega(14 + j, I.tex);
-            for (const r of I.q.riquadri){ if (n >= 4) break; box.set(r.box, n * 4); tile.set(r.tile, n * 4); sam[n++] = j; } });
+            for (const r of I.q.riquadri){ if (n >= 4) break; box.set(r.box, n * 4); tile.set(r.tile, n * 4); sam[n++] = j + (r.alfa ? 2 : 0); } });
         }
         gl.uniform4fv(u.uRiqBox, box); gl.uniform4fv(u.uRiqTile, tile); gl.uniform4f(u.uRiqSam, sam[0], sam[1], sam[2], sam[3]); }
       gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
