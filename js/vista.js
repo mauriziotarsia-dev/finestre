@@ -1032,14 +1032,22 @@ void main(){
   /* (pioggia e neve sono disegnate dopo, goccia per goccia e fiocco per fiocco: vedi PART_VERT) */
 
 #ifndef SENZA_NUVOLE
-  /* ⚠ 16/11 sera (Maurizio: «rendi più buia l'immagine, tipo la mia stanza» e «rendi più scuro il parquet»): dentro, dal
-     file dei punti, la stanza più buia nelle ombre e nei mezzi toni mentre le luci (fiamme, vetri, i fasci più chiari)
-     restano com'erano, come in una stanza vera poco illuminata; e il pavimento (un poligono per ora, nel blu del vento)
-     più scuro, i suoi riflessi più chiari un po' meno */
+  /* ⚠ 16/11 sera (Maurizio: «rendi più buia l'immagine, tipo la mia stanza» e «rendi più scuro il parquet»; alle 19:15: «più
+     che buia deve essere scura. Anche i legni più tipo noce. Anche il parquet»). Dentro, dal file dei punti:
+     · la stanza scura, non poco illuminata: una curva (potenza) che scende di più negli scuri e lascia le luci, e i colori
+       restano pieni (prima si abbassava tutto, e sembrava solo spenta);
+     · i legni e il parquet (la maschera nel blu del vento) color noce: bruno profondo e meno arancio, il legno chiaro
+       scurisce molto, quello già scuro poco, i riflessi restano */
   if (uDentro > .5 && uScuro.x + uScuro.y > .001){
-    float lS = dot(col, vec3(.299, .587, .114));
-    col *= mix(1. - uScuro.x, 1., smoothstep(.45, .95, lS));
-    col *= 1. - uScuro.y * gVentoRG.z * (1. - .5 * smoothstep(.55, .95, lS));
+    if (uScuro.x > .001) col = pow(max(col, vec3(0.)), vec3(1. + uScuro.x));
+    float mL = uScuro.y * gVentoRG.z;
+    if (mL > .004){
+      float lS = dot(col, vec3(.299, .587, .114));
+      float sc = mix(.6, .9, smoothstep(.2, .05, lS));
+      sc = mix(sc, 1., .6 * smoothstep(.45, .8, lS));
+      vec3 noce = mix(vec3(1., .67, .48) * (lS / .747), col, .3) * sc;
+      col = mix(col, noce, mL);
+    }
   }
 #endif
   /* luce dello schermo, buio dei cambi, rumore finissimo contro le fasce */
@@ -1517,8 +1525,11 @@ class Vista {
       const bo = ora && j.buioOre ? j.buioOre[ora] : null, bv = bo != null ? bo : j.buio;
       f.scuro = typeof bv === 'number' && isFinite(bv) ? Math.max(0, Math.min(.8, bv)) : 0;
       const po = ora && j.pavimentoOre ? j.pavimentoOre[ora] : null;
-      f.pavimento = po && Array.isArray(po.poli) && po.poli.length >= 3 ? {poli: po.poli.map(q => [+q[0], +q[1]]), k: Math.max(0, Math.min(.8, +po.k || .3))} : null;
-    } catch(e) { f.fumi = []; f.fuochi = []; f.fiamme = []; f.camini = []; f.parti = []; f.fasciAng = null; f.scuro = 0; f.pavimento = null; }
+      f.pavimento = po && Array.isArray(po.poli) && po.poli.length >= 3 ? {poli: po.poli.map(q => [+q[0], +q[1]]), k: Math.max(0, Math.min(1, +po.k || .3))} : null;
+      /* 19:30 · i legni (e il parquet) da fare noce: «legnoOre» {ora: {k: quanto, maschera: file accanto a questo}} */
+      const lo = ora && j.legnoOre && j.legnoOre[ora];
+      f.legno = lo && typeof lo.maschera === 'string' ? {k: Math.max(0, Math.min(1, +lo.k || .8)), url: new URL(lo.maschera, String(url).split('#')[0]).href} : null;
+    } catch(e) { f.fumi = []; f.fuochi = []; f.fiamme = []; f.camini = []; f.parti = []; f.fasciAng = null; f.scuro = 0; f.pavimento = null; f.legno = null; }
   }
   /* 9/11 · luci delle case (dall'immagine della notte) e prati delle lucciole (dalla profondità): js/vita.js.
      Le finestre accese si cercano una volta sola per immagine */
@@ -1613,11 +1624,26 @@ class Vista {
     if (this.internoInArrivo && f.aTex && mA){
       if (f.fasciAng != null) try { const fz = mascheraFasci(im, f.fasciAng, mA.width, mA.height, f.fasciVetri);
         if (fz){ for (let i = 0; i < fz.a.length; i++) mA.data[i * 4 + 3] = 255 - fz.a[i]; f.fascio = fz; } } catch(e) { f.fascio = null; }
-      /* 16/11 sera · dentro il rosso (le chiome, che non ci sono) porta il pavimento da scurire: il passaggio del vento lo passa al disegno */
-      let pm = null; if (f.pavimento) try { pm = mascheraPoligono(f.pavimento.poli, mA.width, mA.height); } catch(e) { pm = null; }
-      for (let i = 0, n = mA.width * mA.height; i < n; i++) mA.data[i * 4] = pm ? pm[i] : 0;
-      f.pavimentoOk = !!pm;
-      this.carica(f.aTex, mA);
+      /* 16/11 sera · dentro il rosso (le chiome, che non ci sono) porta i legni e il pavimento da fare noce: il passaggio del
+         vento lo passa al disegno. ⚠ Dalle 19:30 (Maurizio: «anche i legni più tipo noce, anche il parquet») i legni vengono
+         da una maschera fatta da Claude sull'immagine (rosso, 1024 di larghezza): allora la maschera intera si rifà a 1024,
+         col fascio ingrandito nel quarto canale */
+      let lg = null; if (f.legno) try { lg = await caricaImg(f.legno.url); } catch(e) { lg = null; }
+      let M = mA;
+      if (lg){
+        const LW = 1024, LH = Math.max(8, Math.round(LW * mA.height / mA.width)), cv = document.createElement('canvas'); cv.width = LW; cv.height = LH;
+        const cx = cv.getContext('2d', {willReadFrequently: true}); cx.drawImage(lg, 0, 0, LW, LH); const ld = cx.getImageData(0, 0, LW, LH);
+        M = new ImageData(LW, LH);
+        for (let y = 0; y < LH; y++) for (let x = 0; x < LW; x++){
+          const k = (y * LW + x) * 4, fx = Math.min(mA.width - 1.001, (x + .5) * mA.width / LW - .5), fy = Math.min(mA.height - 1.001, (y + .5) * mA.height / LH - .5);
+          const x0 = Math.max(0, Math.floor(fx)), y0 = Math.max(0, Math.floor(fy)), ax = Math.max(0, fx - x0), ay = Math.max(0, fy - y0), A = (xx, yy) => mA.data[(yy * mA.width + xx) * 4 + 3];
+          M.data[k] = ld.data[k]; M.data[k + 3] = Math.round(A(x0, y0) * (1 - ax) * (1 - ay) + A(x0 + 1, y0) * ax * (1 - ay) + A(x0, y0 + 1) * (1 - ax) * ay + A(x0 + 1, y0 + 1) * ax * ay);
+        }
+      }
+      let pm = null; if (f.pavimento) try { pm = mascheraPoligono(f.pavimento.poli, M.width, M.height); } catch(e) { pm = null; }
+      for (let i = 0, n = M.width * M.height; i < n; i++){ M.data[i * 4] = Math.max(lg ? M.data[i * 4] : 0, pm ? pm[i] : 0); M.data[i * 4 + 1] = M.data[i * 4 + 2] = 0; }
+      f.pavimentoOk = !!pm || !!lg; f.legnoOk = !!lg;
+      this.carica(f.aTex, M);
     }
     /* ⚠ 16/11 sera (Maurizio: «elimina quei puntini luminosi in alto a sinistra accanto allo stemma sopra il camino»): erano le
        «luci delle case» di js/vita.js, cercate nell'immagine della notte. In un interno la notte è un altro dipinto (torce
@@ -1874,7 +1900,7 @@ class Vista {
     /* 16/11 · i fasci di luce delle finestre (mascheraFasci); la larghezza del foro si mette foro per foro */
     const fasci = dentro === 1 && f0.fascio && !sp.has('fasci') ? f0.fascio : null;
     gl.uniform3fv(u.uFascioC, fasci ? fasci.col : [1, .96, .86]);
-    gl.uniform2f(u.uScuro, dentro === 1 ? (f0.scuro || 0) : 0, dentro === 1 && f0.pavimento && f0.pavimentoOk ? f0.pavimento.k : 0);   /* 16/11 sera */
+    gl.uniform2f(u.uScuro, dentro === 1 ? (f0.scuro || 0) : 0, dentro === 1 && f0.pavimentoOk ? (f0.legnoOk && f0.legno ? f0.legno.k : f0.pavimento ? f0.pavimento.k : 0) : 0);   /* 16/11 sera */
     const me = s.meteora || null;
     gl.uniform4fv(u.uMeteora, me ? me.da : [0,0,0,0]); gl.uniform1f(u.uMeteoraK, me ? me.k : 0);
     const oc = s.occhio || {x:0, z:0}; gl.uniform3f(u.uOcchio, oc.x || 0, 0, oc.z || 0);
