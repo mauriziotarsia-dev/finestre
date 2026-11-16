@@ -21,6 +21,10 @@ const MODELLI_IMMAGINE = [
 const MODELLI_VIDEO = [
   /* 10/11 (Maurizio: «mettiamo sempre 1080p, non ci deve essere scelta»): un modello solo, il 720p è tolto */
   {id:'omni-1080p', modello:'gemini-omni-1.1-flash', risoluzione:'1080p', nome:'Gemini Omni Flash · 1080p', euroSecondo:.15, note:'Più definito (ingrandito dall\'AI): si vede meglio da vicino. Costo stimato.'},
+  /* 16/11 · la 1.2 (uscita il 5/11; dal 3/12 Google ci manda comunque anche le richieste alla 1.1): costa circa il 30% in meno
+     (0,104 $ al secondo a 1080p) e fa pezzi fino a 15 s, ma con primo E ultimo fotogramma resta a 10 s. Per ora la usa solo
+     chi la chiede (una richiesta di Claude con «video»), non è una scelta delle Impostazioni */
+  {id:'omni12-1080p', modello:'gemini-omni-1.2-flash', risoluzione:'1080p', nome:'Gemini Omni 1.2 Flash · 1080p', euroSecondo:.104, durata:true, soloSuRichiesta:true, note:'Pezzi fino a 10 s fra due immagini (15 s con una sola).'},
 ];
 
 const Ai = {
@@ -369,7 +373,8 @@ Answer ONLY with JSON: {"comignoli":[{"x":<0-1000>,"y":<0-1000>,"w":<0-1000>}]} 
   },
 
   /* ── animazioni con Gemini Omni Flash ────────────────────────────────────── */
-  /* anima({chiave, modello, foto:Blob, prompt, fuoco, progresso(p, stato)}) → Blob mp4.
+  /* anima({chiave, modello, foto:Blob, fotoFine?:Blob, secondi?, prompt, fuoco, progresso(p, stato)}) → Blob mp4.
+     16/11 · fotoFine: il pezzo va da una posa all'altra (Image1 → Image2); secondi: la durata chiesta (solo i modelli con «durata»).
      Si chiede in sottofondo (background) e si chiede a che punto è ogni pochi secondi:
      così la connessione non resta muta per minuti (Safari la chiuderebbe). */
   async anima(o){
@@ -381,18 +386,27 @@ Answer ONLY with JSON: {"comignoli":[{"x":<0-1000>,"y":<0-1000>,"w":<0-1000>}]} 
     const rif = await adatta(o.foto, lato[0], lato[1], 'image/jpeg', .92, o.tv ? .5 : o.fuoco && o.fuoco.x != null ? o.fuoco.x : .5);
     const base = 'https://generativelanguage.googleapis.com/v1beta/interactions';
     const intest = {'Content-Type':'application/json', 'x-goog-api-key':o.chiave};
+    const fine = o.fotoFine ? await adatta(o.fotoFine, lato[0], lato[1], 'image/jpeg', .92, o.tv ? .5 : o.fuoco && o.fuoco.x != null ? o.fuoco.x : .5) : null;
     const corpo = {model: mv.modello,
-      input: [{type:'image', data: await this.inBase64(rif), mime_type:'image/jpeg'}, {type:'text', text:o.prompt}],
-      response_format: {type:'video', aspect_ratio: o.tv ? '16:9' : '9:16', resolution: mv.risoluzione},
+      input: [{type:'image', data: await this.inBase64(rif), mime_type:'image/jpeg'}, ...(fine ? [{type:'image', data: await this.inBase64(fine), mime_type:'image/jpeg'}] : []), {type:'text', text:o.prompt}],
+      response_format: {type:'video', aspect_ratio: o.tv ? '16:9' : '9:16', resolution: mv.risoluzione, ...(mv.durata && o.secondi ? {duration: Math.round(o.secondi) + 's'} : {})},
       background: true};
     o.progresso && o.progresso(2, 'invio');
     let r;
     try { r = await fetch(base, {method:'POST', headers:intest, body:JSON.stringify(corpo)}); } catch(e) { throw this.rete('Google', e); }
     if (r.status === 400){
       const e = await this.errore(r, 'Google');
-      if (!/background/i.test(e.testo || '')) throw e;
-      delete corpo.background;                                   /* se il sottofondo non è accettato, chiamata diretta */
-      r = await fetch(base, {method:'POST', headers:intest, body:JSON.stringify(corpo)});
+      if (corpo.response_format.duration && /duration/i.test(e.testo || e.message || '')){   /* 16/11 · la durata non accettata: si lascia scegliere a Google */
+        delete corpo.response_format.duration;
+        r = await fetch(base, {method:'POST', headers:intest, body:JSON.stringify(corpo)});
+        if (r.ok) { /* va bene così */ } else if (r.status !== 400) throw await this.errore(r, 'Google');
+      }
+      if (r.status === 400){
+        const e2 = r.bodyUsed ? e : await this.errore(r, 'Google');
+        if (!/background/i.test(e2.testo || '')) throw e2;
+        delete corpo.background;                                 /* se il sottofondo non è accettato, chiamata diretta */
+        r = await fetch(base, {method:'POST', headers:intest, body:JSON.stringify(corpo)});
+      }
     }
     if (!r.ok) throw await this.errore(r, 'Google');
     let it = await r.json();

@@ -62,6 +62,7 @@ SECONDI_GIRO = 3.0          # quanto dura la sfumatura fra la fine e l'inizio (n
 SECONDI_RIFERIMENTO = 2.0   # da quanti secondi iniziali nasce l'immagine ferma
 FPS_USCITA = 30
 FF_THREADS = '0'
+CATENA = False              # 16/11: True mentre si cuce un'animazione a tappe (…_anim-alba-catena.png)
 SENZA_CIELO = False         # 13/11: True mentre si cuce un interno            # 0 = tutti i processori; sul Raspberry (--casa) 2
 
 
@@ -406,7 +407,10 @@ def _tramezzo(a, b, t):
 
 def giunte_dei_pezzi(n, fps):
     """15/11 · dove l'originale è fatto di più pezzi messi in fila (metti_in_fila: pezzi lunghi uguale, un numero intero
-    di secondi, sfumati per SFUMA_PEZZI): i fotogrammi [inizio, fine) di ogni sfumata. Vuoto se non torna."""
+    di secondi, sfumati per SFUMA_PEZZI): i fotogrammi [inizio, fine) di ogni sfumata. Vuoto se non torna.
+    16/11 · vuoto anche per i pezzi «a tappe» (CATENA): ognuno finisce sulla stessa posa dipinta da cui parte il successivo,
+    la giunta è già esatta e non va cercata né tagliata."""
+    if CATENA: return []
     D = n / fps
     for k in (2, 3, 4):
         Lp = (D + (k - 1) * SFUMA_PEZZI) / k
@@ -1146,9 +1150,10 @@ def aggiornati():
 
 
 SFUMA_PEZZI = 0.6
+SFUMA_TAPPE = 0.25          # 16/11: fra due pezzi a tappe la posa è la stessa immagine: basta un soffio di dissolvenza
 
 
-def metti_in_fila(pezzi, uscita):
+def metti_in_fila(pezzi, uscita, sfuma=None):
     """13/11 notte · il giro lungo: più video da 10 s, ognuno con un movimento diverso, che partono e finiscono tutti
     sulla stessa immagine, messi uno dopo l'altro (ricodificati insieme: stessi fotogrammi al secondo e stessa misura)."""
     n, fps, w, h = leggi_info(pezzi[0])
@@ -1161,12 +1166,13 @@ def metti_in_fila(pezzi, uscita):
     # 14/11 · fra un pezzo e l'altro una dissolvenza di 0,6 s: l'AI non torna mai esattamente all'immagine, e col
     # semplice accodamento a metà giro il fuoco della taverna (e la nebbia dell'abbazia) facevano uno scatto
     dur = [i[0] / max(1, i[1]) for i in map(leggi_info, pezzi)]
+    sf = SFUMA_PEZZI if sfuma is None else sfuma
     filtro = ''.join(f'[{i}:v]fps={fps:.3f},scale={w}:{h}:flags=lanczos,setsar=1,format=yuv420p,settb=AVTB[v{i}];' for i in range(len(pezzi)))
     prima, fino = 'v0', 0.0
     for i in range(1, len(pezzi)):
-        fino += dur[i - 1] - SFUMA_PEZZI
+        fino += dur[i - 1] - sf
         dopo = 'out' if i == len(pezzi) - 1 else f'x{i}'
-        filtro += f'[{prima}][v{i}]xfade=transition=fade:duration={SFUMA_PEZZI}:offset={fino:.3f}[{dopo}];'
+        filtro += f'[{prima}][v{i}]xfade=transition=fade:duration={sf}:offset={fino:.3f}[{dopo}];'
         prima = dopo
     if len(pezzi) == 1: filtro += '[v0]null[out];'
     cmd += ['-filter_complex', filtro.rstrip(';'), '-map', '[out]', '-an', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '14',
@@ -1177,6 +1183,8 @@ def metti_in_fila(pezzi, uscita):
 def _cuci_uno(cart, nomi, nome, base, parte, originale, larghezza, veloce, ricuci=False):
     """ricuci: l'animazione è già cucita (con il cucitore di prima): si riparte dal video originale dell'AI, che resta
     com'è, e si rifanno video, fermo e maschera (14/11: il fermo dalla foto a piena risoluzione anche per i paesaggi vecchi)."""
+    global CATENA
+    CATENA = False                                                 # 16/11: vale solo per questo video (vedi sotto)
     if True:
         with tempfile.TemporaryDirectory() as d:
             e, u = os.path.join(d, 'e.mp4'), os.path.join(d, 'u.mp4')
@@ -1188,8 +1196,9 @@ def _cuci_uno(cart, nomi, nome, base, parte, originale, larghezza, veloce, ricuc
                 pz = [e]
                 for i, pn in enumerate(pezzi_n):
                     x = os.path.join(d, f'p{i + 2}.mp4'); _scarica(cart, pn, x); pz.append(x)
-                tutta = os.path.join(d, 'tutta.mp4'); metti_in_fila(pz, tutta); e = tutta
-                print('  in fila', len(pz), 'pezzi', flush=True)
+                CATENA = f'{base}_{parte[:-4]}-catena.png' in nomi          # 16/11: i pezzi a tappe (vedi giunte_dei_pezzi)
+                tutta = os.path.join(d, 'tutta.mp4'); metti_in_fila(pz, tutta, SFUMA_TAPPE if CATENA else None); e = tutta
+                print('  in fila', len(pz), 'pezzi' + (' a tappe' if CATENA else ''), flush=True)
             prof = imm = None
             pre = 'est-' if parte.startswith('est-') else ''                 # la vista del TV ha la sua profondità
             if f'{base}_{pre}profondita.png' in nomi and f'{base}_{pre}giorno.jpg' in nomi:
