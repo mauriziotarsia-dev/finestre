@@ -9,7 +9,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
 const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 const euro = n => (n < .1 ? n.toFixed(3) : n.toFixed(2)).replace('.', ',') + ' $';
-const VERSIONE = '6.73';
+const VERSIONE = '6.74';
 /* 8/11 · l'app si aggiorna da sola (Maurizio: «vedo ancora il quadrato con la doppia finestra»: sul telefono restava la
    versione vecchia anche dopo averla chiusa). Quando torna in primo piano, e ogni 10 minuti, chiede al server quale
    app.js c'è adesso; se è un'altra, ricarica (mai mentre un lavoro AI è in corso) */
@@ -130,7 +130,8 @@ const gestoreCanale = {
     /* 16/11 · «rifaiOre3»: solo dalla 6.71 (porta le mosse su misura dell'animazione: una versione di prima le ignorerebbe e spenderebbe uguale) */
     /* 16/11 · «rifaiOre4»: solo dalla 6.72 (il giro di 30 s in tre pezzi: la 6.71 lo farebbe in quattro da 8 s) */
     /* 16/11 · «rifaiOre5»: solo dalla 6.73 (le pose: una versione di prima farebbe i pezzi dalla sola immagine) */
-    if (evento === 'rifaiOre' || evento === 'rifaiOre2' || evento === 'rifaiOre3' || evento === 'rifaiOre4' || evento === 'rifaiOre5'){ chiediRifaiOre(d); return; }
+    /* 16/11 · «rifaiOre6»: solo dalla 6.74 («base» fra le pose) */
+    if (evento === 'rifaiOre' || evento === 'rifaiOre2' || evento === 'rifaiOre3' || evento === 'rifaiOre4' || evento === 'rifaiOre5' || evento === 'rifaiOre6'){ chiediRifaiOre(d); return; }
     if (evento === 'bozze' || evento === 'bozze2'){ chiediBozze(d); return; }   /* bozze2: solo dalla 6.65 (varianti con baseNord/baseEst) */
     if (evento === 'console'){ suConsole(d); return; }
     if (evento === 'consoleScheda'){ suScheda(d); return; }
@@ -1382,16 +1383,22 @@ async function faiAnimazione(p, foto, ora, elementi, tv = false){
      dettaglio). Con le pose della richiesta ogni pezzo va da un'immagine dipinta in 4K a un'altra: immagine → posa 2 →
      posa 3 → immagine. Ogni giunta cade su un'immagine identica (niente pose «simili» da cercare) e nessun pezzo parte
      da un fotogramma sfocato. Il cucitore li mette in fila senza tagli (il segno «…-catena.png») */
+  /* 16/11 · «base» fra le pose è l'immagine stessa: così i pezzi si fanno «a stella» attorno al dipinto (dipinto → dipinto,
+     dipinto → sale, sale → dipinto, dipinto → pagnottina, pagnottina → dipinto) e gli schermi li possono alternare a caso */
   const tappe = Array.isArray(creaCon.pose && creaCon.pose[pre + ora]) && creaCon.pose[pre + ora].length ? [foto] : null;
-  if (tappe){ for (const u of creaCon.pose[pre + ora]){ let r; try { r = await fetch(u, {cache: 'no-store'}); } catch(e) { r = null; }
-      if (!r || !r.ok) throw new Error('Non trovo una delle pose (' + (r ? r.status : 'rete') + ')'); tappe.push(await r.blob()); }
+  if (tappe){ const prese = {};
+    for (const u of creaCon.pose[pre + ora]){ if (u === 'base'){ tappe.push(foto); continue; }
+      if (!prese[u]){ let r; try { r = await fetch(u, {cache: 'no-store'}); } catch(e) { r = null; }
+        if (!r || !r.ok) throw new Error('Non trovo una delle pose (' + (r ? r.status : 'rete') + ')'); prese[u] = await r.blob(); }
+      tappe.push(prese[u]); }
     tappe.push(foto); }
   const n = tappe ? tappe.length - 1 : pezziVideo(), sec = tappe ? 10 : secondiPezzo(), pc = Array(n).fill(0);
   /* 14/11 · se Google dice «troppe richieste insieme» si aspetta e si riprova solo quel pezzo (due animazioni su otto perse così) */
   let fallita = false;
   const unPezzo = async k => { for (let giro = 0; ; giro++){
-    try { return await Ai.anima({chiave:imp.chiavi.google, modello:mv.id, foto: tappe ? tappe[k] : foto, fotoFine: tappe ? tappe[k + 1] : null, secondi: sec, fuoco:p.fuoco, tv: tv || largo,
-      prompt: eInterno(p) ? promptAnimaInterno(sec, ora, k, creaCon.mosse && creaCon.mosse[pre + ora], !!tappe) : promptAnima(elementi, sec, ora),
+    const due = !!tappe && tappe[k] !== tappe[k + 1];                    /* dipinto → dipinto: una sola immagine, come prima */
+    try { return await Ai.anima({chiave:imp.chiavi.google, modello:mv.id, foto: tappe ? tappe[k] : foto, fotoFine: due ? tappe[k + 1] : null, secondi: sec, fuoco:p.fuoco, tv: tv || largo,
+      prompt: eInterno(p) ? promptAnimaInterno(sec, ora, k, creaCon.mosse && creaCon.mosse[pre + ora], due) : promptAnima(elementi, sec, ora),
       progresso:(x, st) => { if (fallita) return; pc[k] = x; const m = pc.reduce((a, b) => a + b, 0) / n; lavoro.av = m;
         passo(ka, 'ora', `${eti}Animazione con ${mv.nome}${n > 1 ? ' (' + n + ' pezzi da ' + sec + ' s)' : ''}: ${st === 'invio' ? 'la mando' : st === 'scarico' ? 'la scarico' : 'la sta girando'}… ${Math.round(m)}%`); }}); }
     catch(e) { if (e.tipo !== 'troppe' || giro >= 4) throw e;
@@ -1409,7 +1416,7 @@ async function faiAnimazione(p, foto, ora, elementi, tv = false){
      (senza, il video nuovo restava com'era uscito dall'AI, col salto al giro) */
   { const vecchi = (p.file || []).filter(n => n.endsWith('_' + pre + 'anim-' + ora + '-originale.mp4') || (!tappe && n.endsWith('_' + pre + 'anim-' + ora + '-catena.png')));
     if (vecchi.length) try { await togliFile(casa, p, vecchi); } catch(e) { passo(ka, 'errore', eti + 'Animazione: la vecchia copia non si toglie, il cucitore non la rifarà (' + e.message + ')'); } }
-  lavoro.av = null; passo(ka, 'fatto', eti + 'Animazione (' + (tappe ? n + ' pezzi da ' + sec + ' s fra ' + (n - 1) + ' pose, giro di ' + n * sec + ' s' : n > 1 ? n + ' pezzi da ' + sec + ' s, giro di ' + giroVideo() + ' s' : sec + ' s') + ', in loop)');
+  lavoro.av = null; passo(ka, 'fatto', eti + 'Animazione (' + (tappe ? n + ' pezzi da ' + sec + ' s a tappe, giro di ' + n * sec + ' s' : n > 1 ? n + ' pezzi da ' + sec + ' s, giro di ' + giroVideo() + ' s' : sec + ' s') + ', in loop)');
   /* subito: che cosa resta fermo e che cosa si muove (così le finestre non tremano mai); il video a piena
      qualità lo rifà poi il Raspberry, con calma */
   passo(kf, 'ora', eti + 'Animazione: separo quello che si muove da quello che sta fermo…');
@@ -1485,7 +1492,7 @@ function rapportoLavoro(extra = {}){
 async function richiestaInRete(){
   try { const r = await fetch(SUPABASE_URL + '/storage/v1/object/public/dmaster-media/finestre/banco/richiesta-telefono.json?t=' + Date.now(), {cache: 'no-store'});
     if (!r.ok) return; const j = await r.json(); if (!j || foglioAperto === 'aggiorna' || foglioAperto === 'rifaiAnim' || foglioAperto === 'creaRichiesta' || foglioAperto === 'bozze' || foglioAperto === 'rifaiOre' || (lavoro && !lavoro.finito)) return;
-    if (j.bozze2 || j.bozze) chiediBozze(j.bozze2 || j.bozze); else if (j.crea) chiediCrea(j.crea); else if (j.rifaiOre5 || j.rifaiOre4 || j.rifaiOre3 || j.rifaiOre2 || j.rifaiOre) chiediRifaiOre(j.rifaiOre5 || j.rifaiOre4 || j.rifaiOre3 || j.rifaiOre2 || j.rifaiOre); else if (j.rifaiAnim) chiediRifaiAnim(j.rifaiAnim); else if (j.aggiornaVecchi) chiediAggiornaVecchi(j.aggiornaVecchi); } catch(e) {}
+    if (j.bozze2 || j.bozze) chiediBozze(j.bozze2 || j.bozze); else if (j.crea) chiediCrea(j.crea); else if (j.rifaiOre6 || j.rifaiOre5 || j.rifaiOre4 || j.rifaiOre3 || j.rifaiOre2 || j.rifaiOre) chiediRifaiOre(j.rifaiOre6 || j.rifaiOre5 || j.rifaiOre4 || j.rifaiOre3 || j.rifaiOre2 || j.rifaiOre); else if (j.rifaiAnim) chiediRifaiAnim(j.rifaiAnim); else if (j.aggiornaVecchi) chiediAggiornaVecchi(j.aggiornaVecchi); } catch(e) {}
 }
 /* 13/11 · un paesaggio nuovo chiesto da Claude (la taverna): il foglio col costo, e Avvia sul telefono */
 let creaFatti = new Set(leggi('atm-crea-fatti', []));
