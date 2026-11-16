@@ -9,7 +9,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
 const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 const euro = n => (n < .1 ? n.toFixed(3) : n.toFixed(2)).replace('.', ',') + ' $';
-const VERSIONE = '6.79';
+const VERSIONE = '6.80';
 /* 8/11 · l'app si aggiorna da sola (Maurizio: «vedo ancora il quadrato con la doppia finestra»: sul telefono restava la
    versione vecchia anche dopo averla chiusa). Quando torna in primo piano, e ogni 10 minuti, chiede al server quale
    app.js c'è adesso; se è un'altra, ricarica (mai mentre un lavoro AI è in corso) */
@@ -1947,10 +1947,11 @@ let rifaiAnimFatti = new Set(leggi('atm-rifai-anim-fatti', []));
 /* ⚠ 16/11 sera · «clip» (Maurizio: «dobbiamo far muovere di più il gatto, a costo di rifare animazioni»): un video corto da
    un'immagine qualsiasi preparata da Claude (un ritaglio del dipinto, il gatto in grande), che parte e torna sulla stessa
    immagine. Non tocca il paesaggio: va in «finestre/banco/clip-<chiave>-<n>.mp4» e Claude lo mette nel video.
-   {chiave, titolo, perche, immagine (indirizzo), fine ('stessa' o indirizzo), secondi, pezzi: [{prompt}]} */
+   {chiave, titolo, perche, immagine (indirizzo), fine ('stessa' o indirizzo), secondi, pezzi: [{prompt, immagine?}]}
+   (6.80: ogni pezzo può avere la sua immagine: i due camini, il gatto, nella stessa richiesta) */
 let clipFatti = new Set(leggi('atm-clip-fatti', []));
 function chiediClip(d){
-  if (!d || !d.chiave || !d.immagine || !Array.isArray(d.pezzi) || !d.pezzi.length || clipFatti.has(d.chiave)) return;
+  if (!d || !d.chiave || !Array.isArray(d.pezzi) || !d.pezzi.length || !(d.immagine || d.pezzi.every(x => x.immagine)) || clipFatti.has(d.chiave)) return;
   if (lavoro && !lavoro.finito) return;
   const mv = MODELLI_VIDEO.find(x => x.id === (d.modello || 'omni12-1080p')) || MODELLI_VIDEO.find(x => x.id === imp.video.modello) || MODELLI_VIDEO[0]; if (!mv) return;
   const sec = Math.max(4, Math.min(10, +d.secondi || 10)), tot = mv.euroSecondo * sec * d.pezzi.length;
@@ -1971,10 +1972,11 @@ async function clipVia(){
   try {
     await conLavoro('clip', async L => {
       const prendi = async u => { const r = await fetch(u, {cache: 'no-store'}); if (!r.ok) throw new Error('Non trovo l\'immagine di partenza (' + r.status + ')'); return await r.blob(); };
-      const foto = await prendi(d.immagine), fine = d.fine === 'stessa' ? foto : d.fine ? await prendi(d.fine) : null;
+      const prese = {}, prendiUna = async u => prese[u] || (prese[u] = await prendi(u));
       const pc = d.pezzi.map(() => 0);
       const uno = async k => {
         const x = d.pezzi[k], kp = 'clip-' + (k + 1), eti = (d.titolo || 'Video') + ' · ' + (k + 1) + (x.nome ? ' ' + x.nome : '');
+        const foto = await prendiUna(x.immagine || d.immagine), fF = x.fine || d.fine, fine = fF === 'stessa' ? foto : fF ? await prendiUna(fF) : null;
         passo(kp, 'ora', eti + ': in coda…');
         let senzaFine = false;
         for (let giro = 0; ; giro++){
