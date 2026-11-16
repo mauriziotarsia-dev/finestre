@@ -9,7 +9,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
 const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 const euro = n => (n < .1 ? n.toFixed(3) : n.toFixed(2)).replace('.', ',') + ' $';
-const VERSIONE = '6.71';
+const VERSIONE = '6.72';
 /* 8/11 · l'app si aggiorna da sola (Maurizio: «vedo ancora il quadrato con la doppia finestra»: sul telefono restava la
    versione vecchia anche dopo averla chiusa). Quando torna in primo piano, e ogni 10 minuti, chiede al server quale
    app.js c'è adesso; se è un'altra, ricarica (mai mentre un lavoro AI è in corso) */
@@ -72,9 +72,11 @@ Object.assign(imp, {qualita:'alta', tv:true, cielo:true, anima: !!MODELLI_VIDEO.
    Un video di Gemini Omni Flash arriva al massimo a 10 s; il giro si allunga mettendo in fila più video da 10 s («pezzi»),
    ognuno con un movimento diverso, che partono e finiscono tutti sulla stessa immagine: le giunte non si vedono.
    I pezzi li mette in fila il cucitore (pi/cuci-animazione.py); finché non l'ha fatto gira il primo.
-   14/11 · «48 dollari troppi… non si possono fare di 15 secondi?»: si sceglie il giro (10, 15, 20, 40 s); 15 s = 2 pezzi da 8 s */
+   14/11 · «48 dollari troppi… non si possono fare di 15 secondi?»: si sceglie il giro (10, 15, 20, 40 s); 15 s = 2 pezzi da 8 s
+   16/11 · «una via di mezzo, al posto di 40 qualcosa in meno»: anche 30 s = 3 pezzi da 10 s (il cucitore toglie a ogni pezzo
+   il ritorno alla posa di partenza, circa 2,5 s: coi pezzi da 10 s se ne perde meno che con 4 da 8) */
 imp.video.secondi = 10;
-if (![10, 15, 20, 40].includes(imp.video.giro)) imp.video.giro = 15;
+if (![10, 15, 20, 30, 40].includes(imp.video.giro)) imp.video.giro = 15;
 const salvaImp = () => scrivi('finestre-impostazioni', imp);
 
 /* ── la scena e i fori ───────────────────────────────────────────────────── */
@@ -126,7 +128,8 @@ const gestoreCanale = {
     if (evento === 'crea'){ chiediCrea(d); return; }
     /* 15/11 · «rifaiOre2»: lo capisce solo la 6.59 in su (le versioni di prima, rifacendo una vista, toglievano le animazioni anche dell'altra) */
     /* 16/11 · «rifaiOre3»: solo dalla 6.71 (porta le mosse su misura dell'animazione: una versione di prima le ignorerebbe e spenderebbe uguale) */
-    if (evento === 'rifaiOre' || evento === 'rifaiOre2' || evento === 'rifaiOre3'){ chiediRifaiOre(d); return; }
+    /* 16/11 · «rifaiOre4»: solo dalla 6.72 (il giro di 30 s in tre pezzi: la 6.71 lo farebbe in quattro da 8 s) */
+    if (evento === 'rifaiOre' || evento === 'rifaiOre2' || evento === 'rifaiOre3' || evento === 'rifaiOre4'){ chiediRifaiOre(d); return; }
     if (evento === 'bozze' || evento === 'bozze2'){ chiediBozze(d); return; }   /* bozze2: solo dalla 6.65 (varianti con baseNord/baseEst) */
     if (evento === 'console'){ suConsole(d); return; }
     if (evento === 'consoleScheda'){ suScheda(d); return; }
@@ -1151,7 +1154,7 @@ const LUCI_LUME = {
    di realismo della bozza (creaCon vale solo mentre si crea) */
 let creaCon = {};
 const giroVideo = () => creaCon.giro || imp.video.giro || 10;
-const pezziDi = g => g <= 10 ? 1 : g <= 20 ? 2 : 4;
+const pezziDi = g => g <= 10 ? 1 : g <= 20 ? 2 : g <= 30 ? 3 : 4;
 const pezziVideo = () => pezziDi(giroVideo());
 const secondiPezzo = () => Math.min(10, Math.round(giroVideo() / pezziVideo()));
 const secondiGiro = () => secondiPezzo() * pezziVideo();
@@ -1471,7 +1474,7 @@ function rapportoLavoro(extra = {}){
 async function richiestaInRete(){
   try { const r = await fetch(SUPABASE_URL + '/storage/v1/object/public/dmaster-media/finestre/banco/richiesta-telefono.json?t=' + Date.now(), {cache: 'no-store'});
     if (!r.ok) return; const j = await r.json(); if (!j || foglioAperto === 'aggiorna' || foglioAperto === 'rifaiAnim' || foglioAperto === 'creaRichiesta' || foglioAperto === 'bozze' || foglioAperto === 'rifaiOre' || (lavoro && !lavoro.finito)) return;
-    if (j.bozze2 || j.bozze) chiediBozze(j.bozze2 || j.bozze); else if (j.crea) chiediCrea(j.crea); else if (j.rifaiOre3 || j.rifaiOre2 || j.rifaiOre) chiediRifaiOre(j.rifaiOre3 || j.rifaiOre2 || j.rifaiOre); else if (j.rifaiAnim) chiediRifaiAnim(j.rifaiAnim); else if (j.aggiornaVecchi) chiediAggiornaVecchi(j.aggiornaVecchi); } catch(e) {}
+    if (j.bozze2 || j.bozze) chiediBozze(j.bozze2 || j.bozze); else if (j.crea) chiediCrea(j.crea); else if (j.rifaiOre4 || j.rifaiOre3 || j.rifaiOre2 || j.rifaiOre) chiediRifaiOre(j.rifaiOre4 || j.rifaiOre3 || j.rifaiOre2 || j.rifaiOre); else if (j.rifaiAnim) chiediRifaiAnim(j.rifaiAnim); else if (j.aggiornaVecchi) chiediAggiornaVecchi(j.aggiornaVecchi); } catch(e) {}
 }
 /* 13/11 · un paesaggio nuovo chiesto da Claude (la taverna): il foglio col costo, e Avvia sul telefono */
 let creaFatti = new Set(leggi('atm-crea-fatti', []));
@@ -1490,7 +1493,7 @@ function chiediCrea(d){
       <li><span><b>Le quattro luci</b><small>${d.interno ? 'giorno dalle finestrelle della sala, alba, tramonto, notte a lume di candela' : 'giorno, alba, tramonto, notte'}</small></span></li>
       ${nVideo ? `<li><span><b>${nVideo} animazioni · giro di ${giroVideo()} s</b><small>${d.interno ? 'tutte e quattro le luci, finestrelle e TV: fuoco, candele, torce, fumo, gli avventori che bevono, parlano, ridono' : 'giorno e tramonto, finestrelle e TV'}</small></span></li>` : ''}
     </ul>
-    ${nVideo ? `<div class="blocco" style="margin-top:10px"><span>Quanto dura il giro delle animazioni</span><div class="scelte">${[10, 15, 20, 40].map(g => { const n = pezziDi(g), sec = Math.min(10, Math.round(g / n)) * n; return `<button class="scelta" data-fai="giroVideo" data-v="${g}" aria-pressed="${giroVideo() === g}">${g} s<small>≈ ${euro(mv.euroSecondo * sec * nVideo)}</small></button>`; }).join('')}</div>
+    ${nVideo ? `<div class="blocco" style="margin-top:10px"><span>Quanto dura il giro delle animazioni</span><div class="scelte">${[10, 15, 20, 30, 40].map(g => { const n = pezziDi(g), sec = Math.min(10, Math.round(g / n)) * n; return `<button class="scelta" data-fai="giroVideo" data-v="${g}" aria-pressed="${giroVideo() === g}">${g} s<small>≈ ${euro(mv.euroSecondo * sec * nVideo)}</small></button>`; }).join('')}</div>
       <p class="nota" style="margin-top:6px">Un video arriva al massimo a 10 s: oltre, il giro è fatto di più video (15 s = 2 da 8 s), ognuno con un movimento diverso, che partono e finiscono sulla stessa immagine. Li mette in fila il mini PC; finché non l'ha fatto gira il primo.</p></div>` : ''}
     ${d.bozzaNord ? `<div class="bozza-nord" style="margin-top:10px"><img alt="La bozza scelta" src="${esc(d.bozzaNord)}"><span>La bozza scelta</span></div>` : ''}
     <button class="btn oro piena" style="margin-top:14px" data-fai="creaRichiestaVia" ${!imp.chiavi[m.fornitore] ? 'disabled' : ''}>${icona('scintilla', 18)}Avvia · ≈ ${euro(costo)}</button>
