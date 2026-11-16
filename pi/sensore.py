@@ -11,7 +11,12 @@ TEMPO REALE (30/10, obiettivo di Maurizio: al massimo 80 ms dal movimento all'im
 
 Da dove arrivano le letture:
   1. dal Wi-Fi (normale): la schedina ESP32 accanto al radar le manda in broadcast UDP sulla porta
-     47250 (programma in esp32/radar-udp). Il radar può stare nella stanza, il Raspberry in cantina.
+     47250 (programma in esp32/radar-udp). Il radar può stare nella stanza, il computer altrove.
+     16/11: gira su qualunque computer di casa con Python (oggi la ROG Ally del TV, Windows).
+     Se il broadcast non arriva (Windows che blocca la porta in ingresso, router che non lo inoltra),
+     dopo 3 secondi di silenzio il ricevitore cerca la schedina nella rete di casa e le si collega lui
+     (TCP, porta 47251): una connessione in uscita, che Windows lascia passare senza chiedere niente.
+     Ogni pacchetto ha il suo numero: se arriva per tutte e due le strade, passa una volta sola.
   2. dalla seriale (prove): il radar collegato al Raspberry con l'adattatore USB (/dev/ttyUSB0)
      oppure ai pin (/dev/serial0). Si accende con --seriale.
   3. --prova: una persona finta che passeggia, 20 letture al secondo, senza radar.
@@ -26,10 +31,13 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 PORTA_HTTP = 8788
 PORTA_UDP = 47250
+PORTA_TCP = 47251                     # la stessa lettura, chiesta dal ricevitore (vedi cerca_schedina)
 VELOCITA = 256000                    # baud del LD2450
 MAGIA = b'LD24'                      # pacchetto dell'ESP32: LD24 · id radar · numero · millis · 24 byte dei bersagli
 
-stato = {'persone': [], 'quando': 0.0, 'radar': None, 'n': 0}
+stato = {'persone': [], 'quando': 0.0, 'radar': None, 'n': 0, 'via': None, 'schedina': None}
+ultimo_udp = [0.0]                   # quando è arrivato l'ultimo pacchetto in broadcast
+numeri = {}                          # radar → numero dell'ultimo pacchetto passato
 cambio = threading.Condition()
 
 
@@ -50,9 +58,29 @@ def bersagli(b24):
     return trovate
 
 
-def pubblica(lista, radar=None):
+def nuovo(radar, numero):
+    """Vero se il pacchetto non è già passato per l'altra strada (i numeri ricominciano dopo 65535)."""
+    prima = numeri.get(radar)
+    if prima is not None and not (0 < (numero - prima) % 65536 < 32768):
+        return False
+    numeri[radar] = numero
+    return True
+
+
+def pacchetto(dati, via):
+    """Un pacchetto dell'ESP32: LD24 · id radar · numero (2 byte) · millis (4 byte) · 24 byte dei bersagli."""
+    if len(dati) < 35 or dati[:4] != MAGIA:
+        return
+    radar, numero = dati[4], dati[5] | (dati[6] << 8)
     with cambio:
-        stato['persone'], stato['quando'], stato['radar'] = lista, time.monotonic(), radar
+        if not nuovo(radar, numero):
+            return
+    pubblica(bersagli(dati[11:35]), radar, via)
+
+
+def pubblica(lista, radar=None, via=None):
+    with cambio:
+        stato['persone'], stato['quando'], stato['radar'], stato['via'] = lista, time.monotonic(), radar, via
         stato['n'] += 1
         cambio.notify_all()          # chi aspetta (la pagina) riparte subito
 
@@ -63,11 +91,99 @@ def ascolta_wifi():
     s.bind(('', PORTA_UDP))
     print('In ascolto del radar sul Wi-Fi, porta UDP', PORTA_UDP)
     while True:
-        dati, _ = s.recvfrom(256)
-        if len(dati) < 35 or dati[:4] != MAGIA:
+        dati, chi = s.recvfrom(256)
+        if len(dati) >= 35 and dati[:4] == MAGIA:
+            ultimo_udp[0] = time.monotonic()
+            stato['schedina'] = chi[0]
+            pacchetto(dati, 'udp')
+
+
+def miei_indirizzi():
+    """Gli indirizzi di questo computer nella rete di casa (senza mandare niente a nessuno)."""
+    ips = set()
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM); s.connect(('10.255.255.255', 1))
+        ips.add(s.getsockname()[0]); s.close()
+    except OSError:
+        pass
+    try:
+        ips.update(socket.gethostbyname_ex(socket.gethostname())[2])
+    except OSError:
+        pass
+    return [ip for ip in ips if not ip.startswith(('127.', '169.254.'))]
+
+
+def prova(ip):
+    try:
+        return socket.create_connection((ip, PORTA_TCP), timeout=0.5)
+    except OSError:
+        return None
+
+
+def trova_schedina():
+    """Prima l'indirizzo dell'ultima volta e il nome della schedina, poi tutta la rete di casa (254 indirizzi, mezzo secondo)."""
+    from concurrent.futures import ThreadPoolExecutor
+    for ip in [stato['schedina']] if stato['schedina'] else []:
+        c = prova(ip)
+        if c:
+            return c, ip
+    try:
+        ip = socket.gethostbyname('radar-dmaster.local')
+        c = prova(ip)
+        if c:
+            return c, ip
+    except OSError:
+        pass
+    candidati = []
+    for mio in miei_indirizzi():
+        base = mio.rsplit('.', 1)[0]
+        candidati += [base + '.' + str(k) for k in range(1, 255) if base + '.' + str(k) != mio]
+    trovata = None
+    with ThreadPoolExecutor(max_workers=128) as ex:
+        for ip, c in zip(candidati, ex.map(prova, candidati)):
+            if c and not trovata:
+                trovata = (c, ip)
+            elif c:
+                c.close()
+    return trovata or (None, None)
+
+
+def cerca_schedina():
+    """Se il broadcast tace da 3 secondi, ci si collega noi alla schedina (TCP). Windows lascia passare le
+    connessioni in uscita senza chiedere: niente avviso del firewall, niente impostazioni di rete."""
+    while True:
+        time.sleep(1)
+        if time.monotonic() - ultimo_udp[0] < 3:
             continue
-        radar = dati[4]
-        pubblica(bersagli(dati[11:35]), radar)
+        c, ip = trova_schedina()
+        if not c:
+            time.sleep(15)
+            continue
+        print('Collegato alla schedina del radar', ip)
+        stato['schedina'] = ip
+        c.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        c.settimeout(5)
+        resto = b''
+        try:
+            while True:
+                dati = c.recv(512)
+                if not dati:
+                    break
+                resto += dati
+                while True:
+                    i = resto.find(MAGIA)
+                    if i < 0:
+                        resto = resto[-3:]
+                        break
+                    if len(resto) < i + 35:
+                        resto = resto[i:]
+                        break
+                    pacchetto(resto[i:i + 35], 'tcp')
+                    resto = resto[i + 35:]
+        except OSError:
+            pass
+        c.close()
+        print('Schedina del radar persa: la cerco di nuovo')
 
 
 def leggi_seriale(porta):
@@ -109,7 +225,8 @@ class Servizio(BaseHTTPRequestHandler):
         if self.path.startswith('/stato'):
             with cambio:
                 corpo = json.dumps({'persone': stato['persone'], 'radar': stato['radar'], 'letture': stato['n'],
-                                    'eta_ms': round((time.monotonic() - stato['quando']) * 1000)}).encode()
+                                    'eta_ms': round((time.monotonic() - stato['quando']) * 1000) if stato['n'] else None,
+                                    'via': stato['via'], 'schedina': stato['schedina']}).encode()
             self.send_response(200); self.intestazioni()
             self.send_header('Content-Type', 'application/json'); self.end_headers(); self.wfile.write(corpo); return
         if not self.path.startswith('/persone'):
@@ -138,6 +255,7 @@ def main():
         threading.Thread(target=finta, daemon=True).start()
     else:
         threading.Thread(target=ascolta_wifi, daemon=True).start()
+        threading.Thread(target=cerca_schedina, daemon=True).start()
         if '--seriale' in sys.argv:
             porte = glob.glob('/dev/ttyUSB*') + glob.glob('/dev/ttyACM*') + ['/dev/serial0']
             porta = next((p for p in porte if glob.glob(p)), None)
