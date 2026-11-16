@@ -1319,7 +1319,7 @@ def _cuci_uno(cart, nomi, nome, base, parte, originale, larghezza, veloce, ricuc
                     CATENA_PEZZI = len(seq) - 1; CATENA_SEQ = seq; CATENA_ALLACCI = cj.get('allacci')
                     # la sfumata con cui è fatto l'originale lungo: scritta nel segno; senza, quella di prima del 16/11 (0,25 s)
                     if ricuci: CATENA_SFUMA = float(cj['sfuma']) if 'sfuma' in cj else .25
-                    CATENA_LIBERE = [i for i in range(1, CATENA_PEZZI) if seq[i - 1] == seq[i]]
+                    CATENA_LIBERE = [] if cj.get('fineVincolata') else [i for i in range(1, CATENA_PEZZI) if seq[i - 1] == seq[i]]   # 16/11: dall'app 6.76 ogni pezzo ha la sua immagine di fine
                 except Exception as ex: print('  segno delle tappe illeggibile:', ex, file=sys.stderr, flush=True)
             # i pezzi in più del giro lungo (…_anim-notte-pezzo2.mp4 …): in fila dopo il primo
             # 14/11 · anche quando si ricuce: se i pezzi sono ancora lì, l'ha cucita un cucitore vecchio col solo primo pezzo

@@ -9,7 +9,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
 const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 const euro = n => (n < .1 ? n.toFixed(3) : n.toFixed(2)).replace('.', ',') + ' $';
-const VERSIONE = '6.76';
+const VERSIONE = '6.77';
 /* 8/11 · l'app si aggiorna da sola (Maurizio: «vedo ancora il quadrato con la doppia finestra»: sul telefono restava la
    versione vecchia anche dopo averla chiusa). Quando torna in primo piano, e ogni 10 minuti, chiede al server quale
    app.js c'è adesso; se è un'altra, ricarica (mai mentre un lavoro AI è in corso) */
@@ -133,7 +133,8 @@ const gestoreCanale = {
     /* 16/11 · «rifaiOre6»: solo dalla 6.74 («base» fra le pose) */
     /* 16/11 · «rifaiOre7»: solo dalla 6.75 (con «solo animazioni» rifà anche le ore che un'animazione l'hanno già: la 6.74 le saltava
        e finiva subito senza far niente) */
-    if (evento === 'rifaiOre' || evento === 'rifaiOre2' || evento === 'rifaiOre3' || evento === 'rifaiOre4' || evento === 'rifaiOre5' || evento === 'rifaiOre6' || evento === 'rifaiOre7'){ chiediRifaiOre(d); return; }
+    /* 16/11 · «rifaiOre8»: solo dalla 6.77 (soloPezzi: rifà solo alcuni pezzi a tappe; una versione di prima li rifarebbe tutti) */
+    if (evento === 'rifaiOre' || evento === 'rifaiOre2' || evento === 'rifaiOre3' || evento === 'rifaiOre4' || evento === 'rifaiOre5' || evento === 'rifaiOre6' || evento === 'rifaiOre7' || evento === 'rifaiOre8'){ chiediRifaiOre(d); return; }
     if (evento === 'bozze' || evento === 'bozze2'){ chiediBozze(d); return; }   /* bozze2: solo dalla 6.65 (varianti con baseNord/baseEst) */
     if (evento === 'console'){ suConsole(d); return; }
     if (evento === 'consoleScheda'){ suScheda(d); return; }
@@ -1395,6 +1396,11 @@ async function faiAnimazione(p, foto, ora, elementi, tv = false){
       tappe.push(prese[u]); }
     tappe.push(foto); }
   const n = tappe ? tappe.length - 1 : pezziVideo(), sec = tappe ? 10 : secondiPezzo(), pc = Array(n).fill(0);
+  /* ⚠ 16/11 · UN PEZZO SOLO (Maurizio: «Ok» a rifare il solo pezzo 1 dell'alba, circa 1 $ invece di 5,20). soloPezzi
+     {'est-alba': [1]}: si rifanno solo quei pezzi (contati da 1) e si mettono in «finestre/banco/pezzo-<chiave>-<n>.mp4»;
+     il paesaggio non si tocca (video, fermo, segni restano): il video nuovo lo cuce Claude coi pezzi che ha */
+  const solo = tappe && creaCon.soloPezzi && Array.isArray(creaCon.soloPezzi[pre + ora]) ? creaCon.soloPezzi[pre + ora].map(x => (x | 0) - 1).filter(k => k >= 0 && k < n) : null;
+  const quali = solo && solo.length ? solo : [...Array(n).keys()], quanti = quali.length;
   /* 14/11 · se Google dice «troppe richieste insieme» si aspetta e si riprova solo quel pezzo (due animazioni su otto perse così) */
   let fallita = false;
   const unPezzo = async k => { for (let giro = 0; ; giro++){
@@ -1404,19 +1410,31 @@ async function faiAnimazione(p, foto, ora, elementi, tv = false){
     const due = !!tappe, stessa = !!tappe && tappe[k] === tappe[k + 1];
     const mie = creaCon.mosse && creaCon.mosse[pre + ora];
     try { return await Ai.anima({chiave:imp.chiavi.google, modello:mv.id, foto: tappe ? tappe[k] : foto, fotoFine: due ? tappe[k + 1] : null, secondi: sec, fuoco:p.fuoco, tv: tv || largo,
+      senzaFine: () => { unPezzo.senzaFine = true; },
       prompt: eInterno(p) ? promptAnimaInterno(sec, ora, k, mie, due, stessa) : promptAnima(elementi, sec, ora),
       promptSenzaFine: stessa && eInterno(p) ? promptAnimaInterno(sec, ora, k, mie, false) : null,
-      progresso:(x, st) => { if (fallita) return; pc[k] = x; const m = pc.reduce((a, b) => a + b, 0) / n; lavoro.av = m;
-        passo(ka, 'ora', `${eti}Animazione con ${mv.nome}${n > 1 ? ' (' + n + ' pezzi da ' + sec + ' s)' : ''}: ${st === 'invio' ? 'la mando' : st === 'scarico' ? 'la scarico' : 'la sta girando'}… ${Math.round(m)}%`); }}); }
+      progresso:(x, st) => { if (fallita) return; pc[k] = x; const m = pc.reduce((a, b) => a + b, 0) / quanti; lavoro.av = m;
+        passo(ka, 'ora', `${eti}Animazione con ${mv.nome}${quanti > 1 ? ' (' + quanti + ' pezzi da ' + sec + ' s)' : solo ? ' (pezzo ' + (k + 1) + ', ' + sec + ' s)' : ''}: ${st === 'invio' ? 'la mando' : st === 'scarico' ? 'la scarico' : 'la sta girando'}… ${Math.round(m)}%`); }}); }
     catch(e) { if (e.tipo !== 'troppe' || giro >= 4) throw e;
       for (let s = 60 + 30 * giro; s > 0; s -= 5){ if (fallita) throw e; passo(ka, 'ora', eti + 'Animazione: Google chiede di rallentare, riprovo fra ' + s + ' s…'); await new Promise(ok => setTimeout(ok, 5000)); } } } };
   const pezzi = [];
-  for (let k = 0; k < n && !fallita; k++){ const pr = unPezzo(k); pr.catch(() => { fallita = true; }); pezzi.push(pr); if (k < n - 1) await new Promise(ok => setTimeout(ok, 8000)); }   /* partenze sfalsate */
+  for (let j = 0; j < quanti && !fallita; j++){ const pr = unPezzo(quali[j]); pr.catch(() => { fallita = true; }); pezzi.push(pr); if (j < quanti - 1) await new Promise(ok => setTimeout(ok, 8000)); }   /* partenze sfalsate */
   await Promise.all(pezzi).then(v => v.forEach((x, i) => pezzi[i] = x));
+  if (solo && solo.length){
+    for (let j = 0; j < quanti; j++){
+      const nome = 'pezzo-' + bardSlug(creaCon.chiave || 'animazione') + '-' + (quali[j] + 1) + '.mp4';
+      const r = await fetch(SUPABASE_URL + '/storage/v1/object/dmaster-media/finestre/banco/' + nome, {method: 'POST',
+        headers: {apikey: SUPABASE_CHIAVE_PUBBLICA, Authorization: 'Bearer ' + SUPABASE_CHIAVE_PUBBLICA, 'Content-Type': 'video/mp4', 'x-upsert': 'true'}, body: pezzi[j]});
+      if (!r.ok) throw new Error('Pezzo non salvato (' + r.status + ')');
+    }
+    lavoro.av = null; passo(ka, 'fatto', eti + 'Rifatt' + (quanti > 1 ? 'i i pezzi ' : 'o il pezzo ') + quali.map(k => k + 1).join(', ') + ' (' + sec + ' s): Claude lo mette nel video');
+    return;
+  }
   const mp4 = pezzi[0];
   passo(ka, 'ora', eti + 'Animazione: la salvo…');
   /* prima i pezzi in più (…_anim-notte-pezzo2.mp4 …), poi il primo: quando il cucitore vede il video ci sono già tutti */
-  if (tappe) await carica(casa, p, pre + 'anim-' + ora + '-catena', new Blob([JSON.stringify({tappe: creaCon.pose[pre + ora], secondi: sec})], {type: 'image/png'}), 'png');
+  /* fineVincolata: dalla 6.76 ogni pezzo a tappe ha la sua immagine di fine (il cucitore non deve cercare dove tagliarlo) */
+  if (tappe) await carica(casa, p, pre + 'anim-' + ora + '-catena', new Blob([JSON.stringify({tappe: creaCon.pose[pre + ora], secondi: sec, fineVincolata: !unPezzo.senzaFine})], {type: 'image/png'}), 'png');
   for (let k = 1; k < n; k++) await carica(casa, p, pre + 'anim-' + ora + '-pezzo' + (k + 1), pezzi[k], 'mp4');
   p.animati[pre + ora] = tv ? await caricaEstAnimazione(casa, p, ora, mp4) : await caricaAnimazione(casa, p, ora, mp4);
   /* 11/11 · un video rifatto: via la copia «…-originale.mp4» di quello vecchio, che per il cucitore vuol dire «già cucito»
@@ -1499,7 +1517,7 @@ function rapportoLavoro(extra = {}){
 async function richiestaInRete(){
   try { const r = await fetch(SUPABASE_URL + '/storage/v1/object/public/dmaster-media/finestre/banco/richiesta-telefono.json?t=' + Date.now(), {cache: 'no-store'});
     if (!r.ok) return; const j = await r.json(); if (!j || foglioAperto === 'aggiorna' || foglioAperto === 'rifaiAnim' || foglioAperto === 'creaRichiesta' || foglioAperto === 'bozze' || foglioAperto === 'rifaiOre' || (lavoro && !lavoro.finito)) return;
-    if (j.bozze2 || j.bozze) chiediBozze(j.bozze2 || j.bozze); else if (j.crea) chiediCrea(j.crea); else if (j.rifaiOre7 || j.rifaiOre6 || j.rifaiOre5 || j.rifaiOre4 || j.rifaiOre3 || j.rifaiOre2 || j.rifaiOre) chiediRifaiOre(j.rifaiOre7 || j.rifaiOre6 || j.rifaiOre5 || j.rifaiOre4 || j.rifaiOre3 || j.rifaiOre2 || j.rifaiOre); else if (j.rifaiAnim) chiediRifaiAnim(j.rifaiAnim); else if (j.aggiornaVecchi) chiediAggiornaVecchi(j.aggiornaVecchi); } catch(e) {}
+    if (j.bozze2 || j.bozze) chiediBozze(j.bozze2 || j.bozze); else if (j.crea) chiediCrea(j.crea); else if (j.rifaiOre8 || j.rifaiOre7 || j.rifaiOre6 || j.rifaiOre5 || j.rifaiOre4 || j.rifaiOre3 || j.rifaiOre2 || j.rifaiOre) chiediRifaiOre(j.rifaiOre8 || j.rifaiOre7 || j.rifaiOre6 || j.rifaiOre5 || j.rifaiOre4 || j.rifaiOre3 || j.rifaiOre2 || j.rifaiOre); else if (j.rifaiAnim) chiediRifaiAnim(j.rifaiAnim); else if (j.aggiornaVecchi) chiediAggiornaVecchi(j.aggiornaVecchi); } catch(e) {}
 }
 /* 13/11 · un paesaggio nuovo chiesto da Claude (la taverna): il foglio col costo, e Avvia sul telefono */
 let creaFatti = new Set(leggi('atm-crea-fatti', []));
@@ -1721,7 +1739,8 @@ const contaRifai = d => { const ore = ['nord', 'est'].map(v => Object.keys((d[v]
 const secondiRifai = d => { const g = d.giro || giroVideo(), pz = pezziDi(g); return Math.min(10, Math.round(g / pz)) * pz; };
 /* 16/11 · con le pose: (pose + 1) pezzi da 10 s per ogni animazione che ne ha (le altre col giro) */
 const costoAnimOre = d => { const mv = (d.video && MODELLI_VIDEO.find(v => v.id === d.video)) || MODELLI_VIDEO.find(v => v.id === imp.video.modello) || MODELLI_VIDEO[0] || {euroSecondo: 0};
-  if (d.pose) return animRifai(d).reduce((a, x) => { const t = d.pose[(x.tv ? 'est-' : '') + x.ora]; return a + mv.euroSecondo * (Array.isArray(t) && t.length ? 10 * (t.length + 1) : secondiRifai(d)); }, 0);
+  if (d.pose) return animRifai(d).reduce((a, x) => { const k = (x.tv ? 'est-' : '') + x.ora, t = d.pose[k], s = d.soloPezzi && Array.isArray(d.soloPezzi[k]) ? d.soloPezzi[k].length : 0;
+    return a + mv.euroSecondo * (Array.isArray(t) && t.length ? 10 * (s || t.length + 1) : secondiRifai(d)); }, 0);
   return mv.euroSecondo * secondiRifai(d) * contaRifai(d).anim; };
 const costoRifaiOre = d => { const una = Ai.costoDi(d.modello || imp.modello, d.qualita || imp.qualita, !!d.grande);
   return (d.soloAnimazioni ? 0 : una * contaRifai(d).imm) + (MODELLI_VIDEO.length && d.animazioni !== false ? costoAnimOre(d) : 0); };
@@ -1792,7 +1811,7 @@ async function rifaiOreVia(dd){
   const p = libreria.find(x => x.id === d.id); if (!p){ avviso('Non trovo il paesaggio.', true); return; }
   creaFatti.add(d.chiave); scrivi('atm-crea-fatti', [...creaFatti]);
   const t = setInterval(() => rapportoLavoro(), 20000);
-  creaCon = {modello: d.modello, qualita: d.qualita, grande: !!d.grande, inPiu: d.inPiu || '', giro: d.giro || null, mosse: d.mosse || null, video: d.video || null, pose: d.pose || null};
+  creaCon = {modello: d.modello, qualita: d.qualita, grande: !!d.grande, inPiu: d.inPiu || '', giro: d.giro || null, mosse: d.mosse || null, video: d.video || null, pose: d.pose || null, soloPezzi: d.soloPezzi || null, chiave: d.chiave};
   if (d.soloAnimazioni) rapportoLavoro({messaggio: 'rifaiOre: animazioni di ' + oreAnimRifai(d).join(', ')});
   try {
     await conLavoro('rifaiOre', async L => {

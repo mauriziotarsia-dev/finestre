@@ -403,7 +403,7 @@ Answer ONLY with JSON: {"comignoli":[{"x":<0-1000>,"y":<0-1000>,"w":<0-1000>}]} 
       }
       /* 16/11 · la stessa immagine come prima e ultima (pezzo che parte e torna sul dipinto): se Google non la accetta, una sola */
       if (r.status === 400 && fine && o.promptSenzaFine && !/background/i.test(e.testo || '')){
-        corpo.input = [corpo.input[0], {type:'text', text:o.promptSenzaFine}]; await riprova();
+        corpo.input = [corpo.input[0], {type:'text', text:o.promptSenzaFine}]; o.senzaFine && o.senzaFine(); await riprova();
       }
       if (r.status === 400){
         if (!/background/i.test(e.testo || '')) throw e;
