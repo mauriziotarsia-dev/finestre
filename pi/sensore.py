@@ -67,11 +67,20 @@ def nuovo(radar, numero):
     return True
 
 
+ritardi = {'udp': [], 'tcp': []}      # ritardo di ogni pacchetto (ms) rispetto al più veloce visto: ultimi 200 per via
+scarto = {}                           # via → il minimo di (arrivo − orologio della schedina) visto finora
+
+
 def pacchetto(dati, via):
     """Un pacchetto dell'ESP32: LD24 · id radar · numero (2 byte) · millis (4 byte) · 24 byte dei bersagli."""
     if len(dati) < 35 or dati[:4] != MAGIA:
         return
     radar, numero = dati[4], dati[5] | (dati[6] << 8)
+    if via in ritardi:
+        d = time.monotonic() * 1000 - struct.unpack('<I', dati[7:11])[0]
+        scarto[via] = min(scarto.get(via, d), d)
+        r = ritardi[via]; r.append(d - scarto[via])
+        if len(r) > 200: del r[0]
     with cambio:
         if not nuovo(radar, numero):
             return
@@ -149,13 +158,22 @@ def trova_schedina():
 
 
 def cerca_schedina():
-    """Se il broadcast tace da 3 secondi, ci si collega noi alla schedina (TCP). Windows lascia passare le
-    connessioni in uscita senza chiedere: niente avviso del firewall, niente impostazioni di rete."""
+    """Ci si collega noi alla schedina (TCP) e si resta collegati. Windows lascia passare le connessioni in uscita
+    senza chiedere: niente avviso del firewall, niente impostazioni di rete.
+    16/11 sera, prima prova vera: il broadcast sul Wi-Fi arriva a grappoli (l'access point lo trattiene fino al
+    «beacon» successivo se un telefono dorme: fino a qualche decimo di secondo) e certi secondi ne arrivano 3 invece
+    di 10. Il pacchetto diretto (TCP) non aspetta: ora lo si usa SEMPRE, appena si conosce l'indirizzo della schedina
+    (dal primo broadcast, o cercandola nella rete); il broadcast resta di riserva e i doppioni si scartano."""
     while True:
         time.sleep(1)
-        if time.monotonic() - ultimo_udp[0] < 3:
+        if stato['schedina']:
+            c, ip = prova(stato['schedina']), stato['schedina']
+            if not c:
+                c, ip = trova_schedina()
+        elif time.monotonic() - ultimo_udp[0] < 3:
             continue
-        c, ip = trova_schedina()
+        else:
+            c, ip = trova_schedina()
         if not c:
             time.sleep(15)
             continue
@@ -226,7 +244,8 @@ class Servizio(BaseHTTPRequestHandler):
             with cambio:
                 corpo = json.dumps({'persone': stato['persone'], 'radar': stato['radar'], 'letture': stato['n'],
                                     'eta_ms': round((time.monotonic() - stato['quando']) * 1000) if stato['n'] else None,
-                                    'via': stato['via'], 'schedina': stato['schedina']}).encode()
+                                    'via': stato['via'], 'schedina': stato['schedina'], 'versione': 3,
+                                    'ritardi': {v: [round(x) for x in sorted(r)[len(r) // 2::max(1, len(r) // 4)]] if r else [] for v, r in ritardi.items()}}).encode()
             self.send_response(200); self.intestazioni()
             self.send_header('Content-Type', 'application/json'); self.end_headers(); self.wfile.write(corpo); return
         if not self.path.startswith('/persone'):

@@ -28,7 +28,7 @@
 <script src="../js/accesso.js?v=8"></script>
 <script src="../js/qrcode.js?v=1"></script>
 <script src="../js/vita.js?v=5"></script>
-<script src="../js/vista.js?v=5.85"></script>
+<script src="../js/vista.js?v=5.86"></script>
 <script src="../js/inseguitore.js?v=2"></script>
 <script src="../js/uccelli.js?v=10"></script>
 <script src="../js/bard.js?v=9"></script>
@@ -613,6 +613,9 @@ const TV_POS = {x: +q.get('tvx') || 2600, y: +q.get('tvy') || 1800};
    risultano scambiate. */
 const radarDalleFinestre = q.get('radar') === 'finestre' || (q.get('radar') !== 'tv' && q.has('tvx'));
 const specchio = q.get('specchio') === '1' ? -1 : 1;
+/* 16/11 sera: il centro del radar in gradi (chi sta lì vede la sala dritta), tenuto in questo computer */
+let radarCentro = +(leggi('radar-centro') || 0) || 0, ultimaLettura = null;
+const RADAR_LONTANO = 4500;   /* mm: più in là non è uno che guarda il TV (nella prima prova un «bersaglio» fermo a 6,5 m) */
 function verso(x, y){
   x *= specchio;
   /* radar dietro le finestrelle: il TV è a 90°, chi va verso le finestrelle (y più piccolo) per il TV va a sinistra,
@@ -622,15 +625,17 @@ function verso(x, y){
     return {x: Math.max(-1, Math.min(1, ang / (Math.PI / 4))), z: Math.max(-1, Math.min(1, (2600 - d) / 1600))};
   }
   /* x in mm a destra-sinistra del sensore, y in mm di distanza: angolo di vista e vicinanza */
-  /* 16/11 sera (Maurizio: «a destra e sinistra cambia poco niente»): pieno spostamento a 30° invece di 45° */
-  const ang = Math.atan2(x, y);
-  return {x: Math.max(-1, Math.min(1, ang / (Math.PI / 6))), z: Math.max(-1, Math.min(1, (2600 - y) / 1600))};
+  /* 16/11 sera (Maurizio: «a destra e sinistra cambia poco niente»): pieno spostamento a 20° invece di 45°, e il
+     «centro» si tara (evento radarCentro): nella prima prova chi stava al centro risultava a -15°, radar storto o di lato */
+  const ang = Math.atan2(x, y) - radarCentro * Math.PI / 180;
+  return {x: Math.max(-1, Math.min(1, ang / (Math.PI / 9))), z: Math.max(-1, Math.min(1, (2600 - y) / 1600))};
 }
 function daPersone(lista, etaMs = 0){
   const ora = performance.now();
   ultimoSensore = ora;
   if (ora < provaFino) return;                       /* sta provando il telefono: il radar aspetta */
-  const p = (lista || []).filter(x => x && x.y > 200);
+  const p = (lista || []).filter(x => x && x.y > 200 && x.y < RADAR_LONTANO);
+  if (p.length === 1) ultimaLettura = p[0];
   /* 16/11 sera: le ultime 400 letture (40 s) nello stato del TV, per regolare quiete e filtro sui dati veri */
   const r0 = p[0] || {}, po = inseguitore.posizione(ora / 1000);
   registroRadar.push([Math.round(ora), p.length, r0.x | 0, r0.y | 0, po ? Math.round(po.x * 1000) : null, po ? Math.round(po.z * 1000) : null]);
@@ -708,6 +713,10 @@ if (anteprima){
       else if (evento === 'effetto') effetto(dati || {});
       else if (evento === 'tv'){ if (daDM) suTv(dati, rispondi); }
       else if (evento === 'fori') calibra(dati);
+      else if (evento === 'radarCentro'){   /* 16/11 sera: {qui:true} = il centro è dove sta adesso chi guarda; {gradi:n} = a mano */
+        if (tv){ if (typeof dati.gradi === 'number') radarCentro = dati.gradi;
+          else if (dati.qui && ultimaLettura) radarCentro = Math.round(Math.atan2(ultimaLettura.x * specchio, ultimaLettura.y) * 1800 / Math.PI) / 10;
+          scrivi('radar-centro', radarCentro); inseguitore.reset(); } }
       else if (evento === 'ricarica'){ if (!dati || !dati.chi || dati.chi === mio) ricaricaPulita(); }   /* 14/11 sera: {chi} per ricaricare uno schermo solo */
       /* prova delle prestazioni da lontano: spegne per un po' alcune parti del disegno (poi si ricarica e torna tutto) */
       /* 14/11: {chi} per uno schermo solo; {scala: 0} torna a regolarsi da sola; {fps: 30|60|0} la fluidità di QUESTO schermo
@@ -914,7 +923,7 @@ async function statoRemoto(d, schedaVideo){
     try { const ac = new AbortController(); const t = setTimeout(() => ac.abort(), 2500);
       radar = await (await fetch('http://localhost:8788/stato', {cache: 'no-store', signal: ac.signal})).json(); clearTimeout(t);
     } catch(e) { radar = {errore: String(e && (e.name + ': ' + e.message) || e)}; }
-    radar.pagina = {aperto: !!sensore, letture: misura.n, ogniMs: Math.round(misura.intervallo), etaMs: Math.round(misura.eta), specchio: specchio < 0, viva: !!scena.prospettivaViva, registro: d.registro ? registroRadar.slice() : undefined};
+    radar.pagina = {aperto: !!sensore, letture: misura.n, ogniMs: Math.round(misura.intervallo), etaMs: Math.round(misura.eta), specchio: specchio < 0, viva: !!scena.prospettivaViva, centro: radarCentro, registro: d.registro ? registroRadar.slice() : undefined};
   }
   const mq = d => { try { return matchMedia(d).matches; } catch(e) { return null; } };
   const st = {chi: mio, quando: new Date().toISOString(), gl: schedaVideo(), schermo: {w: innerWidth, h: innerHeight, dpr: devicePixelRatio, visibile: document.visibilityState,
