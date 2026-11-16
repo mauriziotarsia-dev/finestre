@@ -9,7 +9,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
 const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 const euro = n => (n < .1 ? n.toFixed(3) : n.toFixed(2)).replace('.', ',') + ' $';
-const VERSIONE = '6.74';
+const VERSIONE = '6.75';
 /* 8/11 · l'app si aggiorna da sola (Maurizio: «vedo ancora il quadrato con la doppia finestra»: sul telefono restava la
    versione vecchia anche dopo averla chiusa). Quando torna in primo piano, e ogni 10 minuti, chiede al server quale
    app.js c'è adesso; se è un'altra, ricarica (mai mentre un lavoro AI è in corso) */
@@ -131,7 +131,9 @@ const gestoreCanale = {
     /* 16/11 · «rifaiOre4»: solo dalla 6.72 (il giro di 30 s in tre pezzi: la 6.71 lo farebbe in quattro da 8 s) */
     /* 16/11 · «rifaiOre5»: solo dalla 6.73 (le pose: una versione di prima farebbe i pezzi dalla sola immagine) */
     /* 16/11 · «rifaiOre6»: solo dalla 6.74 («base» fra le pose) */
-    if (evento === 'rifaiOre' || evento === 'rifaiOre2' || evento === 'rifaiOre3' || evento === 'rifaiOre4' || evento === 'rifaiOre5' || evento === 'rifaiOre6'){ chiediRifaiOre(d); return; }
+    /* 16/11 · «rifaiOre7»: solo dalla 6.75 (con «solo animazioni» rifà anche le ore che un'animazione l'hanno già: la 6.74 le saltava
+       e finiva subito senza far niente) */
+    if (evento === 'rifaiOre' || evento === 'rifaiOre2' || evento === 'rifaiOre3' || evento === 'rifaiOre4' || evento === 'rifaiOre5' || evento === 'rifaiOre6' || evento === 'rifaiOre7'){ chiediRifaiOre(d); return; }
     if (evento === 'bozze' || evento === 'bozze2'){ chiediBozze(d); return; }   /* bozze2: solo dalla 6.65 (varianti con baseNord/baseEst) */
     if (evento === 'console'){ suConsole(d); return; }
     if (evento === 'consoleScheda'){ suScheda(d); return; }
@@ -1492,7 +1494,7 @@ function rapportoLavoro(extra = {}){
 async function richiestaInRete(){
   try { const r = await fetch(SUPABASE_URL + '/storage/v1/object/public/dmaster-media/finestre/banco/richiesta-telefono.json?t=' + Date.now(), {cache: 'no-store'});
     if (!r.ok) return; const j = await r.json(); if (!j || foglioAperto === 'aggiorna' || foglioAperto === 'rifaiAnim' || foglioAperto === 'creaRichiesta' || foglioAperto === 'bozze' || foglioAperto === 'rifaiOre' || (lavoro && !lavoro.finito)) return;
-    if (j.bozze2 || j.bozze) chiediBozze(j.bozze2 || j.bozze); else if (j.crea) chiediCrea(j.crea); else if (j.rifaiOre6 || j.rifaiOre5 || j.rifaiOre4 || j.rifaiOre3 || j.rifaiOre2 || j.rifaiOre) chiediRifaiOre(j.rifaiOre6 || j.rifaiOre5 || j.rifaiOre4 || j.rifaiOre3 || j.rifaiOre2 || j.rifaiOre); else if (j.rifaiAnim) chiediRifaiAnim(j.rifaiAnim); else if (j.aggiornaVecchi) chiediAggiornaVecchi(j.aggiornaVecchi); } catch(e) {}
+    if (j.bozze2 || j.bozze) chiediBozze(j.bozze2 || j.bozze); else if (j.crea) chiediCrea(j.crea); else if (j.rifaiOre7 || j.rifaiOre6 || j.rifaiOre5 || j.rifaiOre4 || j.rifaiOre3 || j.rifaiOre2 || j.rifaiOre) chiediRifaiOre(j.rifaiOre7 || j.rifaiOre6 || j.rifaiOre5 || j.rifaiOre4 || j.rifaiOre3 || j.rifaiOre2 || j.rifaiOre); else if (j.rifaiAnim) chiediRifaiAnim(j.rifaiAnim); else if (j.aggiornaVecchi) chiediAggiornaVecchi(j.aggiornaVecchi); } catch(e) {}
 }
 /* 13/11 · un paesaggio nuovo chiesto da Claude (la taverna): il foglio col costo, e Avvia sul telefono */
 let creaFatti = new Set(leggi('atm-crea-fatti', []));
@@ -1857,7 +1859,14 @@ async function rifaiOreVia(dd){
          il vicino di meno). Si rifà quando cambia la stanza, cioè sull'alba nuova (la sala vuota, da cui nascono le altre ore):
          prima restava quella della prima taverna, di un'altra stanza */
       if (!d.soloAnimazioni && eInterno(p)) for (const [vista, jpg] of Object.entries(albeNuove)) { await faiProfondita(p, jpg, vista === 'est'); aggiornaInLibreria(p); }
-      if (imp.anima && d.animazioni !== false) await animaTutto(p, animRifai(d).filter(x => p.immagini[(x.tv ? 'est-' : '') + x.ora] && !p.animati[(x.tv ? 'est-' : '') + x.ora]));
+      /* 16/11 · «solo animazioni» è un rifacimento chiesto apposta: si rifà anche l'ora che un'animazione l'ha già (il video nuovo
+         prende il posto del vecchio, faiAnimazione toglie la copia «-originale» così il cucitore lo cuce). Prima la 6.74 la
+         saltava e il lavoro finiva in un secondo senza dire niente */
+      if (d.animazioni !== false){
+        const daFare = animRifai(d).filter(x => p.immagini[(x.tv ? 'est-' : '') + x.ora] && (d.soloAnimazioni || !p.animati[(x.tv ? 'est-' : '') + x.ora]));
+        if (imp.anima && daFare.length) await animaTutto(p, daFare);
+        else if (d.soloAnimazioni) passo('anim', 'errore', !imp.anima ? 'Animazioni spente nelle Impostazioni: nessun video fatto' : 'Niente da animare: il paesaggio non ha l\'immagine di quell\'ora');
+      }
     });
   } finally { creaCon = {}; clearInterval(t); }
   /* 14/11 · prima solo le immagini: se vanno bene, le animazioni di quelle ore con un tocco (solo se almeno una è riuscita) */
