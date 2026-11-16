@@ -81,6 +81,11 @@ uniform float uFumoI[8];      /* 9/11: quanto fuma ognuno (i comignoli 1, i fuoc
 uniform float uNFumo, uFumoA; /* quanti, e quanto si vedono (sfumano col paesaggio) */
 uniform vec4 uFiamma[8];      /* 15/11 · fiamme di candele e torce negli interni: (x, y della base nella vista, altezza in altezze della vista, seme) */
 uniform float uNFiamma;
+uniform sampler2D uIns0, uIns1;   /* 16/11 sera · i video «inserto» (il gatto, i fuochi): video corti messi in un riquadro dell'immagine */
+uniform vec4 uRiqBox[4];      /* fino a quattro riquadri: dove stanno nell'immagine intera (x0, y0, x1, y1) */
+uniform vec4 uRiqTile[4];     /* da quale parte del loro video (u0, v0, u1, v1) */
+uniform vec4 uRiqSam;         /* per ognuno: 0 = primo video, 1 = secondo, -1 = spento */
+float gIns;                   /* 1 mentre si disegna il paesaggio che si vede (non quello da cui si sfuma) */
 uniform vec4 uParte[9];       /* 16/11 sera · parti di animali che si muovono da sole (la testa e la coda del gatto): per ognuna tre: (perno x, y, centro x, y nella vista), (raggi x, y in altezze, rotazione in radianti, spostamento in altezze), (tipo 0 testa 1 coda, seme, periodo in secondi, lunghezza della coda) */
 uniform float uNParte;
 uniform vec4 uCamino[2];      /* 16/11 · i fuochi dei camini di un interno: (x al centro e y della base nella vista, mezza larghezza in larghezze della vista, altezza in altezze della vista) */
@@ -197,6 +202,19 @@ float fogliame(vec3 c){
 }
 
 /* un'immagine del paesaggio, già col suo movimento */
+/* ⚠ 16/11 sera · RIQUADRI (Maurizio: «per il gatto non possiamo mettere anche qualche altro movimento?», «anche i due fuochi
+   più realistici»): video corti fatti dall'AI su un ritaglio ingrandito del dipinto, che partono e tornano sul dipinto. Ognuno
+   vive per conto suo (js: Vista.aggiornaInserti): il gatto sta fermo e ogni tanto fa una delle sue cose, a caso; i fuochi
+   girano senza fermarsi. Fuori da dove si muove, il video è il dipinto stesso (lo prepara Claude): il bordo non si vede.
+   Video senza mipmap: leggerli dentro un «if» va bene */
+vec3 riquadro(vec3 c, vec2 ti, vec4 box, vec4 tile, float sam){
+  if (sam < -.5) return c;
+  vec2 q = (ti - box.xy) / (box.zw - box.xy);
+  if (q.x <= 0. || q.y <= 0. || q.x >= 1. || q.y >= 1.) return c;
+  vec2 ut = mix(tile.xy, tile.zw, q);
+  vec3 v = sam < .5 ? texture2D(uIns0, ut).rgb : texture2D(uIns1, ut).rgb;
+  return mix(c, v, smoothstep(0., .03, min(min(q.x, 1. - q.x), min(q.y, 1. - q.y))));
+}
 vec3 paesaggio(sampler2D img, sampler2D imgB, float vk, sampler2D dep, vec4 crop, vec4 cropD, float haDep, float mov, sampler2D cie, vec4 cm, sampler2D fer, float haF, sampler2D rap, float haR, vec2 uv, out float n, out float sky){
   n = prof(dep, cropD, uv, haDep);
   /* prospettiva: le cose vicine si spostano di più fra una finestra e l'altra */
@@ -398,6 +416,11 @@ vec3 paesaggio(sampler2D img, sampler2D imgB, float vk, sampler2D dep, vec4 crop
     }
     c = mix(fb.rgb, c, vivo);
     vivoV = vivo;
+  }
+  if (gIns > .5){   /* 16/11 sera · i riquadri (il gatto, i fuochi): sopra il video e il fermo */
+    vec2 tiR = crop.xy + p * crop.zw;
+    c = riquadro(c, tiR, uRiqBox[0], uRiqTile[0], uRiqSam.x); c = riquadro(c, tiR, uRiqBox[1], uRiqTile[1], uRiqSam.y);
+    c = riquadro(c, tiR, uRiqBox[2], uRiqTile[2], uRiqSam.z); c = riquadro(c, tiR, uRiqBox[3], uRiqTile[3], uRiqSam.w);
   }
   /* cielo che scorre: al posto del cielo dipinto, il panorama alla stessa scala dell'immagine, che si ripete
      ai lati e scorre all'infinito; verso l'orizzonte torna piano il cielo vero (la foschia sopra le colline) */
@@ -758,9 +781,9 @@ void main(){
   gVentoA = 128. / 255.; gVentoRG = vec3(.5, 0., 0.);
 #endif
   if (uHaImg > .5){
-    float n0, s0; vec3 c0 = paesaggio(uImg0, uImg0b, uVmix, uDep0, uCrop0, uCropD0, uHaDep0, uMovimento0, uCielo0, uCieloM0, uFermo0, uHaFermo0, uRap0, uHaRap0, uv, n0, s0);
+    float n0, s0; gIns = 1.; vec3 c0 = paesaggio(uImg0, uImg0b, uVmix, uDep0, uCrop0, uCropD0, uHaDep0, uMovimento0, uCielo0, uCieloM0, uFermo0, uHaFermo0, uRap0, uHaRap0, uv, n0, s0);
     if (uMix > .001){
-      float n1, s1; vec3 c1 = paesaggio(uImg1, uImg1, 0., uDep1, uCrop1, uCropD1, uHaDep1, uMovimento1, uCielo1, uCieloM1, uFermo1, uHaFermo1, uRap0, 0., uv, n1, s1);
+      float n1, s1; gIns = 0.; vec3 c1 = paesaggio(uImg1, uImg1, 0., uDep1, uCrop1, uCropD1, uHaDep1, uMovimento1, uCielo1, uCieloM1, uFermo1, uHaFermo1, uRap0, 0., uv, n1, s1);
       col = mix(c0, c1, uMix); n = mix(n0, n1, uMix); sky = mix(s0, s1, uMix);
     } else { col = c0; n = n0; sky = s0; }
     float scP = max(1., uPix.y / 1000.);
@@ -1399,11 +1422,11 @@ class Vista {
     /* il programma principale: paesaggio, cielo, nebbia, lampo, luce */
     this.p = programma(VERT, FRAG, ['aPos']);
     this.fumoDati = new Float32Array(32); this.fumoForza = new Float32Array(8);
-    this.u = posizioni(this.p, ['uOcchio','uImg0b','uVmix','uImg0','uImg1','uDep0','uDep1','uMap','uCrop0','uCrop1','uCropD0','uCropD1','uUccelli','uCielo0','uCielo1','uCieloM0','uCieloM1','uCieloX','uFermo0','uFermo1','uHaFermo0','uHaFermo1','uRap0','uHaRap0','uVentoT','uAlberiM','uHaVento','uU','uNU','uUBox','uFumo','uFumoI','uNFumo','uFumoA','uFiamma','uNFiamma','uCamino','uNCamino','uParte','uNParte','uNebV','uNebG','uDentro','uFascioD','uFascioC','uScuro','uChiar','uNotte','uOmbre','uMeteora','uMeteoraK','uMix','uHaImg','uHaDep0','uHaDep1','uMovimento0','uMovimento1',
+    this.u = posizioni(this.p, ['uOcchio','uImg0b','uVmix','uImg0','uImg1','uDep0','uDep1','uMap','uCrop0','uCrop1','uCropD0','uCropD1','uUccelli','uCielo0','uCielo1','uCieloM0','uCieloM1','uCieloX','uFermo0','uFermo1','uHaFermo0','uHaFermo1','uRap0','uHaRap0','uVentoT','uAlberiM','uHaVento','uU','uNU','uUBox','uFumo','uFumoI','uNFumo','uFumoA','uFiamma','uNFiamma','uCamino','uNCamino','uParte','uNParte','uIns0','uIns1','uRiqBox','uRiqTile','uRiqSam','uNebV','uNebG','uDentro','uFascioD','uFascioC','uScuro','uChiar','uNotte','uOmbre','uMeteora','uMeteoraK','uMix','uHaImg','uHaDep0','uHaDep1','uMovimento0','uMovimento1',
       'uLato','uT','uTV','uRaf','uAspetto','uPix','uCoperto','uNebbia','uPioggia','uNeve','uTempesta','uVento','uLampo','uLampoX','uLampoS','uLampoB',
       'uNotteFinta','uLuce','uBuio','uQualita','uColNebbia','uMeteo','uSale','uFuori']);
     gl.useProgram(this.p);
-    gl.uniform1i(this.u.uImg0, 0); gl.uniform1i(this.u.uImg1, 1); gl.uniform1i(this.u.uDep0, 2); gl.uniform1i(this.u.uDep1, 3); gl.uniform1i(this.u.uImg0b, 4); gl.uniform1i(this.u.uMeteo, 5); gl.uniform1i(this.u.uCielo0, 6); gl.uniform1i(this.u.uCielo1, 7); gl.uniform1i(this.u.uFermo0, 8); gl.uniform1i(this.u.uFermo1, 9); gl.uniform1i(this.u.uVentoT, 10); if (this.u.uAlberiM) gl.uniform1i(this.u.uAlberiM, 11); if (this.u.uRap0) gl.uniform1i(this.u.uRap0, 12);
+    gl.uniform1i(this.u.uImg0, 0); gl.uniform1i(this.u.uImg1, 1); gl.uniform1i(this.u.uDep0, 2); gl.uniform1i(this.u.uDep1, 3); gl.uniform1i(this.u.uImg0b, 4); gl.uniform1i(this.u.uMeteo, 5); gl.uniform1i(this.u.uCielo0, 6); gl.uniform1i(this.u.uCielo1, 7); gl.uniform1i(this.u.uFermo0, 8); gl.uniform1i(this.u.uFermo1, 9); gl.uniform1i(this.u.uVentoT, 10); if (this.u.uAlberiM) gl.uniform1i(this.u.uAlberiM, 11); if (this.u.uRap0) gl.uniform1i(this.u.uRap0, 12); if (this.u.uIns0) gl.uniform1i(this.u.uIns0, 14); if (this.u.uIns1) gl.uniform1i(this.u.uIns1, 15);
     this.unita = gl.getParameter(gl.MAX_TEXTURE_IMAGE_UNITS) || 8;   /* il fermo vuole 10 unità (il Raspberry 4 ne ha 16) */
     this.maxTex = gl.getParameter(gl.MAX_TEXTURE_SIZE) || 4096;       /* Raspberry 4 e telefoni vecchi: 4096; il G10 16384 */
     /* nebbia e nuvole a bassa risoluzione */
@@ -1527,9 +1550,16 @@ class Vista {
       const po = ora && j.pavimentoOre ? j.pavimentoOre[ora] : null;
       f.pavimento = po && Array.isArray(po.poli) && po.poli.length >= 3 ? {poli: po.poli.map(q => [+q[0], +q[1]]), k: Math.max(0, Math.min(1, +po.k || .3))} : null;
       /* 19:30 · i legni (e il parquet) da fare noce: «legnoOre» {ora: {k: quanto, maschera: file accanto a questo}} */
+      /* 16/11 sera · i video «inserto» (il gatto, i fuochi): «insertiOre» {ora: [{video: file accanto a questo, modo: 'riposo'|'continuo',
+         tratti: [[da, a], …] (secondi nel video: i movimenti), attesa: [min, max] (secondi fermo fra un movimento e l'altro),
+         riquadri: [{box: [x0, y0, x1, y1] nell'immagine, tile: [u0, v0, u1, v1] nel video}]}]}, al massimo due video e quattro riquadri */
+      const io = ora && j.insertiOre && j.insertiOre[ora];
+      f.inserti = (io || []).slice(0, 2).filter(q => q && typeof q.video === 'string' && Array.isArray(q.riquadri)).map(q => ({url: new URL(q.video, String(url).split('#')[0]).href,
+        modo: q.modo === 'continuo' ? 'continuo' : 'riposo', tratti: (q.tratti || []).filter(t => Array.isArray(t) && t[1] > t[0]), attesa: Array.isArray(q.attesa) ? q.attesa.map(Number) : [6, 20],
+        riquadri: q.riquadri.filter(r => r && Array.isArray(r.box) && r.box.length === 4).map(r => ({box: r.box.map(Number), tile: Array.isArray(r.tile) && r.tile.length === 4 ? r.tile.map(Number) : [0, 0, 1, 1]}))}));
       const lo = ora && j.legnoOre && j.legnoOre[ora];
       f.legno = lo && typeof lo.maschera === 'string' ? {k: Math.max(0, Math.min(1, +lo.k || .8)), url: new URL(lo.maschera, String(url).split('#')[0]).href} : null;
-    } catch(e) { f.fumi = []; f.fuochi = []; f.fiamme = []; f.camini = []; f.parti = []; f.fasciAng = null; f.scuro = 0; f.pavimento = null; f.legno = null; }
+    } catch(e) { f.fumi = []; f.fuochi = []; f.fiamme = []; f.camini = []; f.parti = []; f.inserti = []; f.fasciAng = null; f.scuro = 0; f.pavimento = null; f.legno = null; }
   }
   /* 9/11 · luci delle case (dall'immagine della notte) e prati delle lucciole (dalla profondità): js/vita.js.
      Le finestre accese si cercano una volta sola per immagine */
@@ -1645,6 +1675,7 @@ class Vista {
       f.pavimentoOk = !!pm || !!lg; f.legnoOk = !!lg;
       this.carica(f.aTex, M);
     }
+    this.apriInserti(f);
     /* ⚠ 16/11 sera (Maurizio: «elimina quei puntini luminosi in alto a sinistra accanto allo stemma sopra il camino»): erano le
        «luci delle case» di js/vita.js, cercate nell'immagine della notte. In un interno la notte è un altro dipinto (torce
        e candele in altri posti): all'alba se ne accendevano 17 a caso, sui muri. Dentro le luci sono quelle dipinte */
@@ -1706,7 +1737,49 @@ class Vista {
     this.vecchiaDaLiberare = dur > 0 ? vecchia : null;
   }
   togli(){ for (const f of this.fonti) this.libera(f); this.fonti = [this.fonteVuota(), this.fonteVuota()]; this.mix = 0; }
+  /* ⚠ 16/11 sera · I VIDEO «INSERTO» (il gatto, i fuochi della taverna): ognuno è un <video> piccolo e muto con la sua texture.
+     «continuo»: gira in tondo (i fuochi). «riposo»: fermo sul primo fotogramma (il dipinto); dopo un'attesa a caso fa uno dei
+     suoi tratti, a caso e mai lo stesso due volte di fila, e si ferma sull'ultimo fotogramma, che è di nuovo il dipinto */
+  apriInserti(f){
+    f.ins = [];
+    if (!(f.inserti || []).length || this.unita < 16) return;
+    f.inserti.forEach((q, j) => {
+      const v = document.createElement('video'); v.crossOrigin = 'anonymous'; v.muted = v.defaultMuted = true; v.playsInline = true;
+      v.setAttribute('muted', ''); v.setAttribute('playsinline', ''); v.preload = 'auto'; v.loop = q.modo === 'continuo'; v.src = q.url;
+      const I = {q, v, tex: this.texture(), pronto: false, nuovo: true, attivo: -1, ultimo: -1, prossimo: performance.now() + 1000 * (3 + Math.random() * 6), fatti: 0};
+      v.addEventListener('loadeddata', () => { I.pronto = true; I.nuovo = true; if (q.modo === 'continuo') v.play().catch(() => {}); });
+      v.addEventListener('seeked', () => { I.nuovo = true; });
+      v.addEventListener('error', () => { I.errore = true; });
+      if (q.modo === 'continuo') v.play().catch(() => {}); else v.load();
+      f.ins[j] = I;
+    });
+  }
+  aggiornaInserti(f){
+    const gl = this.gl, ora = performance.now();
+    for (const I of f.ins || []){
+      if (!I || !I.pronto || I.errore) continue;
+      const v = I.v, q = I.q;
+      if (q.modo === 'continuo'){   /* in tondo: «loop» del lettore, e se si ferma in fondo (succede) si riparte da capo a mano */
+        if (v.ended || (v.duration && v.currentTime >= v.duration - .04)){ v.currentTime = 0; v.play().catch(() => {}); }
+        else if (v.paused) v.play().catch(() => {});
+      }
+      else if (q.tratti.length){
+        if (I.attivo < 0 && ora >= I.prossimo){
+          let k = Math.floor(Math.random() * q.tratti.length); if (k === I.ultimo && q.tratti.length > 1) k = (k + 1 + Math.floor(Math.random() * (q.tratti.length - 1))) % q.tratti.length;
+          I.attivo = k; I.ultimo = k; I.fatti++; v.currentTime = q.tratti[k][0]; v.play().catch(() => {});
+        } else if (I.attivo >= 0 && (v.currentTime >= q.tratti[I.attivo][1] - .02 || v.ended)){
+          v.pause(); I.attivo = -1; const [a, b] = q.attesa; I.prossimo = ora + 1000 * (a + Math.random() * Math.max(0, b - a));
+        }
+      }
+      if (v.readyState >= 2 && (!v.paused || I.nuovo)){
+        gl.bindTexture(gl.TEXTURE_2D, I.tex);
+        try { gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, v); I.nuovo = false; I.ok = true; } catch(e) {}
+      }
+    }
+  }
   libera(f){ const gl = this.gl; if (!f) return;
+    for (const I of f.ins || []) if (I){ try { I.v.pause(); I.v.removeAttribute('src'); I.v.load(); } catch(e) {} if (I.tex) gl.deleteTexture(I.tex); }
+    f.ins = [];
     for (const t of [f.tex, f.depTex, f.vtex, f.vtexB, f.cTex, f.fTex, f.aTex, f.rTex, f.nTex]) if (t) gl.deleteTexture(t);
     if (f.video) f.video.forEach(v => { v.pause(); v.removeAttribute('src'); v.load(); });
     f.tex = f.depTex = f.vtex = f.vtexB = f.cTex = f.fTex = f.aTex = f.rTex = f.nTex = null; f.ok = false; }
@@ -1857,6 +1930,7 @@ class Vista {
     const [f0, f1] = this.fonti;
     const sp = this.spegni || new Set();
     const v0 = !sp.has('video') && this.aggiornaVideo(f0), v1 = !sp.has('video') && this.mix > 0 && this.aggiornaVideo(f1);
+    if (f0.ins && f0.ins.length && !sp.has('inserti')) this.aggiornaInserti(f0);
     const haImg = f0.ok && !s.trasparente;
     const lega = (unita, t) => { gl.activeTexture(gl.TEXTURE0 + unita); gl.bindTexture(gl.TEXTURE_2D, t || this.vuota); };
     lega(0, haImg ? (v0 ? f0.vtex : f0.tex) : null);
@@ -2006,6 +2080,13 @@ class Vista {
         gl.uniform4fv(u.uParte, this.parteDati);
       }
       gl.uniform1f(u.uNParte, parti.length);
+      /* 16/11 sera · i riquadri dei video «inserto» */
+      { const sam = [-1, -1, -1, -1], box = this.riqBox || (this.riqBox = new Float32Array(16)), tile = this.riqTile || (this.riqTile = new Float32Array(16)); let n = 0;
+        if (haImg && f0.ok && s.movimento && !sp.has('inserti') && this.unita >= 16){
+          (f0.ins || []).forEach((I, j) => { if (!I || !I.ok || n >= 4) return; lega(14 + j, I.tex);
+            for (const r of I.q.riquadri){ if (n >= 4) break; box.set(r.box, n * 4); tile.set(r.tile, n * 4); sam[n++] = j; } });
+        }
+        gl.uniform4fv(u.uRiqBox, box); gl.uniform4fv(u.uRiqTile, tile); gl.uniform4f(u.uRiqSam, sam[0], sam[1], sam[2], sam[3]); }
       gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
       /* 2b. luci delle case, falò e lucciole: piccoli bagliori sopra il paesaggio (js/vita.js) */
       if (vitaBagliori.length) this.disegnaBagliori(foro, s, vitaBagliori, f0, marg);
