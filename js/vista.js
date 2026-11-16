@@ -61,6 +61,9 @@ uniform sampler2D uVentoT;    /* il vento sugli alberi, calcolato a un quarto di
 float gVentoA;                /* 14/11 sera · il quarto canale del vento in questo punto: lo scrive paesaggio() nell'unica lettura di uVentoT, lo usa main().
                                  128/255 = niente; sotto, l'ombra delle nuvole sul terreno (c'è solo sotto l'orizzonte); sopra, quanta nuvola del cielo che scorre
                                  sta qui (c'è solo sopra l'orizzonte; vedi VENTO_FRAG e mascheraNuvole): lì dietro le stelle non si vedono */
+vec2 gVentoRG;                /* 16/11 · dentro: rosso e verde del vento in questo punto (la polvere nei fasci di luce, e quanto fascio c'è), dalla stessa lettura */
+uniform vec4 uFascioD;        /* 16/11 · i fasci di luce delle finestre (mascheraFasci): direzione x, y; z = ci sono; w = larghezza su altezza del foro */
+uniform vec3 uFascioC;        /* il colore della luce dei vetri */
 #endif
 uniform vec4 uU[24];          /* gli uccelli (js/uccelli.js): per ognuno (x, y, grandezza, ali) (inclinazione, chiarezza, tipo, -) */
 uniform float uNU;            /* quanti uccelli */
@@ -77,6 +80,8 @@ uniform float uFumoI[8];      /* 9/11: quanto fuma ognuno (i comignoli 1, i fuoc
 uniform float uNFumo, uFumoA; /* quanti, e quanto si vedono (sfumano col paesaggio) */
 uniform vec4 uFiamma[8];      /* 15/11 · fiamme di candele e torce negli interni: (x, y della base nella vista, altezza in altezze della vista, seme) */
 uniform float uNFiamma;
+uniform vec4 uCamino[2];      /* 16/11 · i fuochi dei camini di un interno: (x al centro e y della base nella vista, mezza larghezza in larghezze della vista, altezza in altezze della vista) */
+uniform float uNCamino;
 float gFiamma;                /* quanto di questo punto è fiamma (per il tremolio della luce, dopo) */
 uniform float uNebV;          /* la nebbiolina viva (0 spenta) */
 uniform vec2 uChiar;          /* 10/11 · ricolorato: nitidezza fine (x) e «chiarezza», il contrasto locale largo (y) */
@@ -240,6 +245,12 @@ vec3 paesaggio(sampler2D img, sampler2D imgB, float vk, sampler2D dep, vec4 crop
      arancio di loro): dove stanno lo dice il file dei punti del paesaggio (…_comignoli.json, chiave «fiamme»: base e
      altezza di ogni fiamma). Attorno a ogni fiamma il punto si legge un po' più in là: la fiamma ondeggia di lato, di
      più verso la punta, e si allunga e si accorcia; la base resta attaccata allo stoppino. Svelta e mai uguale */
+  /* ⚠ 16/11 (Maurizio: «l'ondulato che si vede attorno alla luce di candele e torce è troppo fake, ondula troppo anche
+     il muro dietro»). Misurato: la zona che si spostava era larga 1,6 altezze di fiamma e alta quasi 2, e sopra la punta
+     lo spostamento arrivava a due terzi di altezza (cresceva col quadrato della salita): muro, ferri della torcia e
+     soffitto ondeggiavano come acqua. Ora si sposta solo la fiamma: una striscia larga poco più di lei (mezza altezza),
+     dalla base a poco sopra la punta; la punta ondeggia di un decimo di altezza al massimo e la fiamma si allunga e si
+     accorcia di meno. Il tremolio della luce resta, ma solo sulla fiamma e appena attorno, sfumato in tondo */
   gFiamma = 0.;
   if (uNFiamma > .5){
     vec2 dpF = vec2(0.);
@@ -247,16 +258,45 @@ vec3 paesaggio(sampler2D img, sampler2D imgB, float vk, sampler2D dep, vec4 crop
       if (float(i) >= uNFiamma) break;
       vec4 F = uFiamma[i];
       vec2 q = vec2((p.x - F.x) * uAspetto, p.y - F.y) / F.z;      /* in altezze di fiamma: 0 alla base, -1 alla punta */
-      float su = clamp(-q.y, 0., 1.8);
-      if (abs(q.x) > .8 || q.y > .25 || q.y < -1.9) continue;   /* fuori dalla fiamma: niente conti (in 4K sono milioni di punti) */
-      float zona = smoothstep(.8, .35, abs(q.x)) * smoothstep(-.25, .05, -q.y) * smoothstep(1.9, 1.2, -q.y);
+      if (abs(q.x) > .9 || q.y > .45 || q.y < -1.7) continue;   /* lontano dalla fiamma: niente conti (in 4K sono milioni di punti) */
+      float su = clamp(-q.y, 0., 1.3);
       float t = uT * 1.25 + F.w * 13.7;
-      float sw = (rumore(vec2(t * 2.7, su * 1.3 + F.w * 5.)) - .5) * .55 + (rumore(vec2(t * 6.9, su * 2.9 + F.w * 9.)) - .5) * .3;
-      float lu = (rumore(vec2(t * 4.3 + 3.7, F.w * 7.)) - .5) * .45 + (rumore(vec2(t * 9.1, F.w * 3.)) - .5) * .2;
-      dpF += zona * vec2(sw * su * su * .5 * F.z / uAspetto, lu * su * .7 * F.z);
-      gFiamma += zona * (rumore(vec2(t * 7.7, F.w)) * .7 + rumore(vec2(t * 13.1, F.w + 2.)) * .3 - .5);   /* la luce della fiamma trema */
+      float zona = smoothstep(.42, .2, abs(q.x)) * smoothstep(1.35, 1.05, -q.y);   /* il corpo della fiamma (la base non si muove comunque: lo spostamento cresce salendo) */
+      if (zona > 0.){
+        float sw = (rumore(vec2(t * 1.9, su * 1.1 + F.w * 5.)) - .5) * .6 + (rumore(vec2(t * 5.3, su * 2.3 + F.w * 9.)) - .5) * .4;
+        float lu = (rumore(vec2(t * 3.1 + 3.7, F.w * 7.)) - .5) * .6 + (rumore(vec2(t * 7.9, F.w * 3.)) - .5) * .4;
+        dpF += zona * vec2(sw * su * .2 * F.z / uAspetto, lu * su * .16 * F.z);
+      }
+      float tondo = smoothstep(1., .25, length(vec2(q.x, (q.y + .5) * .8)));
+      gFiamma += tondo * smoothstep(.45, -.1, q.y) * (rumore(vec2(t * 6.1, F.w)) * .65 + rumore(vec2(t * 11.3, F.w + 2.)) * .35 - .5);   /* la luce della fiamma trema (non la candela sotto) */
     }
     p += dpF;
+  }
+  /* ⚠ 16/11 · IL FUOCO DEI CAMINI (Maurizio: «la fiamma dei camini la renderei più realistica»). Dipinto (finestrelle) è
+     fermo; nel video dell'AI (TV) le lingue cambiano forma a scatti invece di salire. Dentro il riquadro del fuoco (dal file
+     dei punti, «camini»: base, larghezza e altezza delle fiamme) il punto si legge da onde che salgono svelte: le lingue
+     si allungano, si staccano e corrono verso l'alto, più in alto più mosse, la brace in basso ferma. Solo dentro il fuoco
+     (fuori dal riquadro, che sfuma in fretta, niente): il fondo del focolare appena sopra le fiamme tremola come nell'aria
+     calda vera. La luce del fuoco pulsa un poco (gFiamma) */
+  if (uNCamino > .5){
+    vec2 dpK = vec2(0.);
+    for (int i = 0; i < 2; i++){
+      if (float(i) >= uNCamino) break;
+      vec4 K = uCamino[i];
+      vec2 a = vec2((p.x - K.x) / K.z, (K.y - p.y) / K.w);       /* x in mezze larghezze (−1 … 1), y in altezze dalla base (0 … 1 la punta) */
+      if (abs(a.x) > 1.05 || a.y < -.1 || a.y > 1.45) continue;
+      vec2 b = vec2((p.x - K.x) * uAspetto, K.y - p.y) / K.w;      /* in altezze, uguale nei due versi */
+      float t = uT + float(i) * 17.3;
+      float zona = smoothstep(1.05, .75, abs(a.x)) * smoothstep(-.1, .12, a.y) * smoothstep(1.45, 1.05, a.y);
+      float su = smoothstep(.0, .55, a.y);                       /* la brace non si muove, le punte sì */
+      float n1 = rumore(vec2(b.x * 5.5, b.y * 3.2 - t * 4.6));
+      float n2 = rumore(vec2(b.x * 11. + 3.1, b.y * 7. - t * 8.3));
+      float n3 = rumore(vec2(b.x * 3. + 7.7, b.y * 2.2 - t * 3.1));
+      float dy = (n1 - .5) * .6 + (n2 - .5) * .4, dx = (n3 - .5) * .7 + (n2 - .5) * .3;
+      dpK += zona * su * vec2(dx * .1 * K.w / uAspetto, -dy * .2 * K.w);
+      gFiamma += zona * .5 * (rumore(vec2(t * 5.3, 4.1 + float(i))) * .6 + rumore(vec2(t * 9.7, 2.3 + float(i))) * .4 - .5);
+    }
+    p += dpK;
   }
   vec3 c = foto(img, crop, p);
   /* ⚠ 5/11 · il passaggio al giro del video sfuma SOLO il video (prima si sfumava verso un secondo paesaggio disegnato
@@ -374,7 +414,7 @@ vec3 paesaggio(sampler2D img, sampler2D imgB, float vk, sampler2D dep, vec4 crop
     vec2 dSp = vec2(0.);   /* di quanto si è spostato quello che si vede qui (chiome al vento): la nebbiolina lo segue */
     vec4 vt = uHaVento > .5 ? texture2D(uVentoT, vec2(vUv.x, 1. - vUv.y)) : vec4(.5, .5, 0., 128. / 255.);
 #ifndef SENZA_NUVOLE
-    gVentoA = vt.a;
+    gVentoA = vt.a; gVentoRG = uHaVento > .5 ? vt.rg : vec2(.5, 0.);
 #endif
     if (vicino > .01 && vt.b > .01){
       /* ⚠ 8/11 (Maurizio: «di notte gli alberi sono immobili»): di notte il verde non c'è più, è tutto blu scuro e
@@ -679,7 +719,7 @@ void main(){
   vec3 col = vec3(0.); float n = .5, sky = 0., alfa = 1.;
   float l0 = 0.; vec3 stelle = vec3(0.);
 #ifndef SENZA_NUVOLE
-  gVentoA = 128. / 255.;
+  gVentoA = 128. / 255.; gVentoRG = vec2(.5, 0.);
 #endif
   if (uHaImg > .5){
     float n0, s0; vec3 c0 = paesaggio(uImg0, uImg0b, uVmix, uDep0, uCrop0, uCropD0, uHaDep0, uMovimento0, uCielo0, uCieloM0, uFermo0, uHaFermo0, uRap0, uHaRap0, uv, n0, s0);
@@ -724,28 +764,47 @@ void main(){
          Nei raggi il pulviscolo scende piano, a banchi (tre strati di grana che scivolano verso il basso), e tutta la luce
          di fuori cresce e cala lenta, come quando passano le nuvole. Di notte no */
       float fuoriD = smoothstep(.42, .6, lumD) * (1. - smoothstep(.12, .24, col.r - col.b)) * (1. - smoothstep(.3, .9, uNotte));
-      if (fuoriD > .02){
-        vec2 qd = uv * vec2(uAspetto, 1.) * 16.;
-        float pulv = rumore(qd + vec2(uT * .08, -uT * .16)) * .5 + rumore(qd * 2.1 + vec2(-uT * .07, -uT * .27) + 7.3) * .3 + rumore(qd * 4.3 + vec2(uT * .12, -uT * .4) + 3.1) * .2;
+      /* 16/11 · il fascio di luce di una finestra in questo punto (VENTO_FRAG e mascheraFasci): di notte no */
+      float fasF = uFascioD.z > .5 ? gVentoRG.y * (1. - smoothstep(.3, .9, uNotte)) : 0.;
+      if (fuoriD > .02 || fasF > .01){
+        float vetroD = smoothstep(.6, .72, lumD);
+        /* ⚠ 16/11 (Maurizio: «rendiamo il pulviscolo e la luce che entra dalle finestre più viva»): il respiro è più ampio
+           e ogni tanto passa una nuvola davanti al sole (la luce di fuori cala per una decina di secondi, poi torna: in
+           media una volta ogni due minuti). Vale per tutto quello che viene da fuori, vetri meno (il cielo resta chiaro) */
         float respiro = rumore(vec2(uT * .13, 5.7)) * .6 + rumore(vec2(uT * .31, 9.2)) * .4;
-        /* il pulviscolo sta nell'aria (raggi, chiazza sul pavimento), non sui vetri: i vetri, più chiari, seguono solo il respiro */
-        col *= 1. + fuoriD * (1. * (pulv - .5) * (1. - smoothstep(.6, .72, lumD)) + .45 * (respiro - .5));   /* sul TV vero, con .55 e .25, in dieci secondi i vetri cambiavano dell'1,5%: non si vedeva */
+        float passa = smoothstep(.6, .82, rumore(vec2(uT * .035, 2.3)));
+        float luceF = (respiro - .5) - passa * .45;
+        float bello = 1. - max(uFuori.x, uFuori.y);   /* col brutto tempo niente fasci né granelli */
+        vec3 lc = uFascioD.z > .5 ? uFascioC : vec3(1., .96, .86);
+        if (fuoriD > .02){
+          vec2 qd = uv * vec2(uAspetto, 1.) * 16.;
+          /* 16/11: i banchi scorrono quasi il doppio più svelti */
+          float pulv = rumore(qd + vec2(uT * .14, -uT * .28)) * .5 + rumore(qd * 2.1 + vec2(-uT * .12, -uT * .46) + 7.3) * .3 + rumore(qd * 4.3 + vec2(uT * .21, -uT * .66) + 3.1) * .2;
+          /* il pulviscolo sta nell'aria (raggi, chiazza sul pavimento), non sui vetri: i vetri, più chiari, seguono solo il respiro */
+          col *= 1. + fuoriD * (1.1 * (pulv - .5) * (1. - vetroD) + .55 * luceF * (1. - .5 * vetroD));   /* sul TV vero, con .55 e .25, in dieci secondi i vetri cambiavano dell'1,5%: non si vedeva */
+        }
+        /* 16/11 · nel fascio la luce nell'aria cresce e cala col respiro, e la polvere ci fa banchi che girano e scivolano */
+        if (fasF > .01) col += fasF * lc * (.15 * (gVentoRG.x - .5) * 2. + .09 * luceF) * bello;
         /* ⚠ 15/11 (Maurizio: «aumenta un po' gli effetti particellari della luce che viene da fuori»): oltre ai banchi di
-           polvere, i granelli: puntini che scendono piano nei raggi e si accendono quando girano nella luce, ognuno col suo
-           ritmo. Due strati (vicini più grandi e lenti, lontani più fini) */
-        float raggio = fuoriD * (1. - smoothstep(.6, .72, lumD));
+           polvere, i granelli: puntini che si accendono quando girano nella luce, ognuno col suo ritmo.
+           ⚠ 16/11 («più viva»): anche nei fasci (prima solo nelle chiazze chiare), più fitti, tre strati (lontani fini,
+           medi, e pochi vicini grandi e sfocati), ognuno vaga per conto suo mentre scende, e ogni tanto uno brilla */
+        float raggio = max(fuoriD * (1. - vetroD) * (uFascioD.z > .5 ? .4 : 1.), fasF);   /* coi fasci, i granelli stanno soprattutto lì (non sulle tovaglie chiare) */
         if (raggio > .02){
           float gran = 0.;
-          for (int g = 0; g < 2; g++){
-            float fg = float(g);
-            vec2 qm = uv * vec2(uAspetto, 1.) * (70. + fg * 55.) + vec2(uT * (.11 - fg * .04), -uT * (.32 + fg * .1)) + fg * 17.3;
+          for (int g = 0; g < 3; g++){
+            float fg = float(g), gr = step(1.5, fg);
+            vec2 qm = uv * vec2(uAspetto, 1.) * mix(120. - fg * 48., 34., gr) + vec2(uT * (.16 - fg * .04), -uT * (.42 - fg * .08)) + fg * 17.3;
             vec2 cella = floor(qm), fr = fract(qm) - .5;
-            float h = fract(sin(dot(cella, vec2(127.1, 311.7))) * 43758.5453);
-            vec2 sp = vec2(fract(h * 13.7), fract(h * 71.3)) - .5;
-            float tw = .5 + .5 * sin(uT * (.7 + 1.9 * h) + h * 40.);
-            gran += smoothstep(.16, .02, length(fr - sp * .6)) * step(.72, h) * tw * tw * (1. - fg * .35);
+            float h = fract(sin(dot(cella + fg * 31.7, vec2(127.1, 311.7))) * 43758.5453), h2 = fract(h * 91.7 + .13);
+            vec2 sp = (vec2(fract(h * 13.7), fract(h * 71.3)) - .5) * mix(.4, .2, gr)
+                    + vec2(sin(uT * (.35 + .5 * h2) + h * 40.), cos(uT * (.3 + .45 * h) + h2 * 30.)) * mix(.14, .1, gr);
+            float tw = .5 + .5 * sin(uT * (.9 + 2.3 * h2) + h * 40.);
+            float tw2 = tw * tw, acceso = tw2 * (.6 + .4 * tw2 * tw2);   /* girando, ogni tanto brilla */
+            float pt = smoothstep(mix(.15, .28, gr), mix(.02, 0., gr), length(fr - sp));
+            gran += pt * acceso * mix(step(.62, h) * (1. - fg * .25), step(.88, h) * .4, gr);
           }
-          col += raggio * gran * .42 * vec3(1., .96, .86) * (1. - max(uFuori.x, uFuori.y));   /* col brutto tempo niente granelli nella luce */
+          col += raggio * gran * .6 * lc * max(0., 1. + .8 * luceF) * bello;
         }
         /* ⚠ 15/11 sera · IL TEMPO DI FUORI, DALLE FINESTRE (Maurizio: «pioggia sulle finestre»: quando il meteo è pioggia,
            luce più grigia e gocce sui vetri). Coperto e pioggia spengono i raggi e la chiazza sul pavimento e ingrigiscono
@@ -959,6 +1018,7 @@ uniform sampler2D uAlberi, uCielo;
 #ifndef SENZA_NUVOLE
 uniform float uHaNuvole, uDentro;
 uniform sampler2D uNuvole;   /* le nuvole del cielo che scorre (r: 0 sgombro … 1 nuvola), vedi mascheraNuvole */
+uniform vec4 uFascioD;       /* 16/11 · i fasci di luce delle finestre di un interno: direzione (x, y), ci sono (z), larghezza su altezza del foro (w) */
 #endif
 float h1(vec2 p){ vec3 p3 = fract(vec3(p.xyx) * .1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
 float rumore(vec2 p){ vec2 i = floor(p), f = fract(p); f = f*f*(3.-2.*f);
@@ -966,7 +1026,8 @@ float rumore(vec2 p){ vec2 i = floor(p), f = fract(p); f = f*f*(3.-2.*f);
 void main(){
   vec2 uv = uMap.xy + vUv * uMap.zw;
   vec2 ti = clamp(uCropD.xy + uv * uCropD.zw, .001, .999);
-  float alberi = texture2D(uAlberi, ti).r;                      /* solo dove ci sono alberi (o vicino) */
+  vec4 aM = texture2D(uAlberi, ti);
+  float alberi = aM.r;                                          /* solo dove ci sono alberi (o vicino) */
   float ombra = 0.;
   /* ⚠ 4/11 · OMBRE DELLE NUVOLE (Maurizio, TV: «strisce luminose verticali che si accendono e spengono … e strisce più
      scure»). Prima l'ombra si leggeva dal cielo dipinto quasi solo in funzione della colonna (la riga cambiava poco):
@@ -1007,6 +1068,24 @@ void main(){
     float n4 = mix(rumore(pq * 2.6 + vec2(h1(vec2(k4, 4.)), h1(vec2(k4, 5.))) * 41.), rumore(pq * 2.6 + vec2(h1(vec2(k4 + 1., 4.)), h1(vec2(k4 + 1., 5.))) * 41.), f4);
     fuoco = clamp((n1 * .4 + n2 * .3 + n3 * .16 + n4 * .14 - .5) * 2.7, -1., 1.);
   }
+  /* ⚠ 16/11 · IL PULVISCOLO NEI FASCI DI LUCE (Maurizio: «rendiamo il pulviscolo e la luce che entra dalle finestre più
+     viva»): dove c'è un fascio (il quarto canale della maschera delle chiome, vedi mascheraFasci) la polvere nell'aria fa
+     banchi più chiari e più scuri, allungati lungo il fascio, che girano piano su sé stessi e scivolano di traverso e in
+     giù: -1 … 1. Qui a un quarto di risoluzione (sono morbidi); i granelli, piccoli, li fa il disegno principale */
+  float fascio = 0., polvere = 0.;
+  if (uDentro > .5 && uDentro < 1.5 && uFascioD.z > .5){
+    fascio = 1. - aM.a;
+    if (fascio > .004){
+      vec2 dd = uFascioD.xy, nn = vec2(-dd.y, dd.x), qq = uv * vec2(uFascioD.w, 1.);
+      vec2 w = vec2(dot(qq, nn) * 9., dot(qq, dd) * 3.6);   /* di traverso più fitto: banchi lunghi lungo il fascio */
+      float tw = uT;
+      w += (vec2(rumore(w * .45 + vec2(tw * .06, 1.3)), rumore(w * .45 + vec2(5.2, -tw * .05))) - .5) * 2.2;   /* girano su sé stessi */
+      float d1 = rumore(w + vec2(tw * .3, -tw * .22));
+      float d2 = rumore(w * 2.2 + vec2(-tw * .45, -tw * .38) + 3.7);
+      float d3 = rumore(w * 4.6 + vec2(tw * .8, -tw * .6) + 9.1);
+      polvere = clamp((d1 * .5 + d2 * .32 + d3 * .18 - .5) * 2.6, -1., 1.);
+    }
+  }
 #endif
   /* ⚠ 4/11 (Maurizio: «sugli alberi che si muovono è troppo evidente il loop, ogni tot secondi si capisce che
      ricomincia»): le raffiche erano un'onda regolare, una ogni 7,4 secondi esatti, quasi quanto il giro del video
@@ -1026,7 +1105,9 @@ void main(){
 #ifdef SENZA_NUVOLE
   gl_FragColor = vec4(clamp(fx * .9 + .5, 0., 1.), clamp(fy * .9 + .5, 0., 1.), raffica * alberi, ombra);
 #else
-  gl_FragColor = vec4(clamp(fx * .9 + .5, 0., 1.), clamp(fy * .9 + .5, 0., 1.), raffica * alberi, (128. + 127. * (uDentro > .5 ? fuoco : nuvola - ombra)) / 255.);
+  /* dentro niente chiome al vento: rosso e verde portano la polvere nei fasci e quanto fascio c'è (blu a zero: niente alberi) */
+  if (uDentro > .5 && uDentro < 1.5) gl_FragColor = vec4(.5 + .5 * polvere, fascio, 0., (128. + 127. * fuoco) / 255.);
+  else gl_FragColor = vec4(clamp(fx * .9 + .5, 0., 1.), clamp(fy * .9 + .5, 0., 1.), raffica * alberi, (128. + 127. * (uDentro > .5 ? fuoco : nuvola - ombra)) / 255.);
 #endif
 }`;
 
@@ -1263,7 +1344,7 @@ class Vista {
     /* il programma principale: paesaggio, cielo, nebbia, lampo, luce */
     this.p = programma(VERT, FRAG, ['aPos']);
     this.fumoDati = new Float32Array(32); this.fumoForza = new Float32Array(8);
-    this.u = posizioni(this.p, ['uOcchio','uImg0b','uVmix','uImg0','uImg1','uDep0','uDep1','uMap','uCrop0','uCrop1','uCropD0','uCropD1','uUccelli','uCielo0','uCielo1','uCieloM0','uCieloM1','uCieloX','uFermo0','uFermo1','uHaFermo0','uHaFermo1','uRap0','uHaRap0','uVentoT','uAlberiM','uHaVento','uU','uNU','uUBox','uFumo','uFumoI','uNFumo','uFumoA','uFiamma','uNFiamma','uNebV','uNebG','uDentro','uChiar','uNotte','uOmbre','uMeteora','uMeteoraK','uMix','uHaImg','uHaDep0','uHaDep1','uMovimento0','uMovimento1',
+    this.u = posizioni(this.p, ['uOcchio','uImg0b','uVmix','uImg0','uImg1','uDep0','uDep1','uMap','uCrop0','uCrop1','uCropD0','uCropD1','uUccelli','uCielo0','uCielo1','uCieloM0','uCieloM1','uCieloX','uFermo0','uFermo1','uHaFermo0','uHaFermo1','uRap0','uHaRap0','uVentoT','uAlberiM','uHaVento','uU','uNU','uUBox','uFumo','uFumoI','uNFumo','uFumoA','uFiamma','uNFiamma','uCamino','uNCamino','uNebV','uNebG','uDentro','uFascioD','uFascioC','uChiar','uNotte','uOmbre','uMeteora','uMeteoraK','uMix','uHaImg','uHaDep0','uHaDep1','uMovimento0','uMovimento1',
       'uLato','uT','uTV','uRaf','uAspetto','uPix','uCoperto','uNebbia','uPioggia','uNeve','uTempesta','uVento','uLampo','uLampoX','uLampoS','uLampoB',
       'uNotteFinta','uLuce','uBuio','uQualita','uColNebbia','uMeteo','uSale','uFuori']);
     gl.useProgram(this.p);
@@ -1274,7 +1355,7 @@ class Vista {
     this.pm = programma(VERT, METEO_FRAG, ['aPos']);
     this.um = posizioni(this.pm, ['uMap','uT','uTV','uRaf','uVento']);
     this.pv = programma(VERT, VENTO_FRAG, ['aPos']);
-    this.uv = posizioni(this.pv, ['uMap','uT','uCropD','uCieloM','uCieloX','uAlberi','uCielo','uVento','uNuvole','uHaNuvole','uDentro']);
+    this.uv = posizioni(this.pv, ['uMap','uT','uCropD','uCieloM','uCieloX','uAlberi','uCielo','uVento','uNuvole','uHaNuvole','uDentro','uFascioD']);
     gl.useProgram(this.pv); gl.uniform1i(this.uv.uAlberi, 11); gl.uniform1i(this.uv.uCielo, 6); if (this.uv.uNuvole) gl.uniform1i(this.uv.uNuvole, 13);
     this.bianca = this.texture(); this.carica(this.bianca, new Uint8Array([255, 255, 255, 255]), 1, 1);
     this.vento = [];
@@ -1368,7 +1449,17 @@ class Vista {
       /* 15/11 sera · le candele si consumano ora per ora: «fiammeOre» {ora: […]} vince su «fiamme» (l'ora arriva in fondo all'indirizzo, #ora=…) */
       const ora = (String(url).match(/#ora=(\w+)/) || [])[1], fo = ora && j.fiammeOre && j.fiammeOre[ora];
       f.fiamme = (fo || j.fiamme || []).slice(0, 8).map((q, i) => ({x:+q.x, y:+q.y, h:+q.h || .03, s: i * .37 + .11}));
-    } catch(e) { f.fumi = []; f.fuochi = []; f.fiamme = []; }
+      /* 16/11 · i fuochi dei camini: «caminiOre» {ora: [{x, y (base), w (larghezza), h (altezza)}]} vince su «camini» */
+      const co = ora && j.caminiOre && j.caminiOre[ora];
+      f.camini = (co || j.camini || []).slice(0, 2).filter(q => +q.w > 0 && +q.h > 0).map(q => ({x:+q.x, y:+q.y, w:+q.w, h:+q.h}));
+      /* 16/11 · dove va la luce che entra dalle finestre: «fasci» {ora: {gradi: dalla verticale, meno = verso sinistra,
+         vetri: [[x0, y0, x1, y1], …] i riquadri delle finestre}} (gradi da soli = i vetri si cercano); null o assente =
+         niente fasci a quell'ora. Vedi mascheraFasci */
+      const fa = j.fasci, fv0 = fa == null ? null : (typeof fa === 'number' || fa.gradi != null) ? fa : (ora ? fa[ora] : null);
+      const fv = fv0 == null ? null : typeof fv0 === 'number' ? fv0 : +fv0.gradi;
+      f.fasciAng = typeof fv === 'number' && isFinite(fv) ? Math.max(-80, Math.min(80, fv)) : null;
+      f.fasciVetri = fv0 && Array.isArray(fv0.vetri) ? fv0.vetri.filter(r => Array.isArray(r) && r.length === 4 && r[2] > r[0] && r[3] > r[1]).slice(0, 6) : null;
+    } catch(e) { f.fumi = []; f.fuochi = []; f.fiamme = []; f.camini = []; f.fasciAng = null; }
   }
   /* 9/11 · luci delle case (dall'immagine della notte) e prati delle lucciole (dalla profondità): js/vita.js.
      Le finestre accese si cercano una volta sola per immagine */
@@ -1453,9 +1544,17 @@ class Vista {
     let dimg = null;
     if (pDep){ dimg = await pDep; if (dimg){ f.depTex = this.texture(); let dc = dimg; try { dc = mascheraCielo(dimg, this.internoInArrivo); } catch(e) { /* senza maschera: niente cielo che scorre, ma il resto va */ } this.carica(f.depTex, dc); this.mip(f.depTex); } }   /* 10/11: verde = maschera del cielo */
     const imA = pAlberi ? (await pAlberi) || im : im;   /* 8/11: di notte gli alberi si trovano sull'immagine del giorno */
-    try { f.aTex = this.texture(); this.carica(f.aTex, mascheraAlberi(imA, dimg)); } catch(e) { f.aTex = null; }
+    let mA = null;
+    try { f.aTex = this.texture(); mA = mascheraAlberi(imA, dimg); this.carica(f.aTex, mA); } catch(e) { f.aTex = null; }
     f.nebG = !!f.aTex && !!alberi && (!pAlberi || imA !== im);   /* 14/11: il blu della maschera è la nebbia del GIORNO (non di quest'ora, se l'immagine del giorno non è arrivata) */
     f.dimg = dimg; await this.caricaFumi(f, comignoli, dimg);
+    /* 16/11 · i fasci di luce delle finestre di un interno (mascheraFasci): nel quarto canale della maschera delle chiome,
+       che dentro non serve (255 = niente fascio: anche la maschera bianca di riserva vuol dire niente) */
+    f.fascio = null;
+    if (this.internoInArrivo && f.aTex && mA && f.fasciAng != null){
+      try { const fz = mascheraFasci(im, f.fasciAng, mA.width, mA.height, f.fasciVetri);
+        if (fz){ for (let i = 0; i < fz.a.length; i++) mA.data[i * 4 + 3] = 255 - fz.a[i]; this.carica(f.aTex, mA); f.fascio = fz; } } catch(e) { f.fascio = null; }
+    }
     this.caricaVita(f, notte, dimg, imA);   /* luci delle case e prati delle lucciole: senza aspettare */
     /* il cielo che scorre (serve la profondità, per sapere dov'è il cielo). Il video resta per quello che
        si muove sotto il cielo (nebbia nelle valli, fumo dei camini): il suo cielo non si usa più */
@@ -1705,6 +1804,9 @@ class Vista {
     const dentro = haImg && !!(s.vita && s.vita.interno) ? (sp.has('fuochi') ? 2 : 1) : 0;
     gl.uniform1f(u.uDentro, dentro);
     gl.uniform3fv(u.uFuori, dentro ? (s.fuori || [0, 0, 0]) : [0, 0, 0]);
+    /* 16/11 · i fasci di luce delle finestre (mascheraFasci); la larghezza del foro si mette foro per foro */
+    const fasci = dentro === 1 && f0.fascio && !sp.has('fasci') ? f0.fascio : null;
+    gl.uniform3fv(u.uFascioC, fasci ? fasci.col : [1, .96, .86]);
     const me = s.meteora || null;
     gl.uniform4fv(u.uMeteora, me ? me.da : [0,0,0,0]); gl.uniform1f(u.uMeteoraK, me ? me.k : 0);
     const oc = s.occhio || {x:0, z:0}; gl.uniform3f(u.uOcchio, oc.x || 0, 0, oc.z || 0);
@@ -1751,6 +1853,7 @@ class Vista {
         gl.uniform4fv(this.uv.uCieloM, f0.cTex && !sp.has('cielo') ? f0.cm : [0,0,0,0]); gl.uniform1f(this.uv.uCieloX, s.cieloX || 0);
         gl.uniform1f(this.uv.uHaNuvole, nuvoleCielo ? 1 : 0);
         gl.uniform1f(this.uv.uDentro, dentro);
+        gl.uniform4f(this.uv.uFascioD, fasci ? fasci.dir[0] : 0, fasci ? fasci.dir[1] : 1, fasci ? 1 : 0, foro.aspetto);
         gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
         gl.bindFramebuffer(gl.FRAMEBUFFER, null);
       }
@@ -1760,7 +1863,7 @@ class Vista {
       gl.enable(gl.SCISSOR_TEST);
       gl.viewport(foro.x, y, foro.w, foro.h); gl.scissor(foro.x, y, foro.w, foro.h);
       gl.uniform4fv(u.uMap, foro.map);
-      gl.uniform1f(u.uAspetto, foro.aspetto);
+      gl.uniform1f(u.uAspetto, foro.aspetto); gl.uniform4f(u.uFascioD, fasci ? fasci.dir[0] : 0, fasci ? fasci.dir[1] : 1, fasci && tv ? 1 : 0, foro.aspetto);
       gl.uniform2f(u.uPix, foro.w / foro.map[2], foro.h / foro.map[3]);   /* pixel della vista intera */
       gl.uniform1f(u.uLato, s.prospettiva ? foro.lato : 0);
       if (campoU.k !== 1){   /* gli uccelli visti da questo foro: x del campo → x del foro */
@@ -1790,6 +1893,14 @@ class Vista {
         gl.uniform4fv(u.uFiamma, this.fiammaDati);
       }
       gl.uniform1f(u.uNFiamma, fiamme.length);
+      const camini = haImg && f0.ok && s.movimento && !sp.has('fiamme') && s.vita && s.vita.interno ? (f0.camini || []) : [];
+      if (camini.length){
+        const ci = this.crop(f0, foro.aspetto, marg, f0.fuoco, foro.striscia, f0.fuoco);
+        if (!this.caminoDati) this.caminoDati = new Float32Array(8);
+        camini.forEach((q, j) => { this.caminoDati[j * 4] = (q.x - ci[0]) / ci[2]; this.caminoDati[j * 4 + 1] = (q.y - ci[1]) / ci[3]; this.caminoDati[j * 4 + 2] = q.w / 2 / ci[2]; this.caminoDati[j * 4 + 3] = q.h / ci[3]; });
+        gl.uniform4fv(u.uCamino, this.caminoDati);
+      }
+      gl.uniform1f(u.uNCamino, camini.length);
       gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
       /* 2b. luci delle case, falò e lucciole: piccoli bagliori sopra il paesaggio (js/vita.js) */
       if (vitaBagliori.length) this.disegnaBagliori(foro, s, vitaBagliori, f0, marg);
@@ -1912,6 +2023,79 @@ function mascheraAlberi(img, dimg){
     o.data[k] = Math.round(Math.min(1, v * 1.5) * 255); o.data[k + 1] = Math.round(Math.min(1, core * 1.3) * 255); o.data[k + 2] = Math.round(Nb[y * W + xx] * 255); o.data[k + 3] = 255;
   }
   return o;
+}
+/* ⚠ 16/11 · I FASCI DI LUCE DELLE FINESTRE, in un interno (Maurizio: «rendiamo il pulviscolo e la luce che entra dalle
+   finestre più viva»). Il pulviscolo stava solo dove l'immagine è chiara e senza colore (vetri, chiazze sul pavimento:
+   il 3-5% del quadro), non nei fasci che scendono dalle finestre, che sono un velo chiaro sul muro e restano sotto quella
+   soglia. Qui, una volta per immagine, si cercano i vetri (macchie chiare, quasi senza colore, nella parte alta, più grandi
+   di una fiamma) e da ognuno si traccia il fascio nella direzione detta dal file dei punti (gradi dalla verticale: -25 =
+   giù verso sinistra), lungo fino a tre quarti del quadro, più forte vicino al vetro; più forte dove il velo dipinto c'è
+   davvero. Torna {a: 0..255 per cella (W×H come la maschera delle chiome), dir, col: il colore della luce dei vetri} o null.
+   Al tramonto i vetri sono arancio e saturi come le fiamme: per questo il file dei punti può dire dove sono (vetri:
+   riquadri); lì dentro è vetro quello che è più chiaro della metà del riquadro */
+function mascheraFasci(img, ang, W, H, vetri = null){
+  let src = img, sw = img.naturalWidth || img.width, sh = img.naturalHeight || img.height;
+  while (sw > W * 4 && sh > H * 4){
+    const m = document.createElement('canvas'); m.width = Math.round(sw / 2); m.height = Math.round(sh / 2);
+    const mx2 = m.getContext('2d'); mx2.imageSmoothingEnabled = true; mx2.imageSmoothingQuality = 'high'; mx2.drawImage(src, 0, 0, m.width, m.height);
+    src = m; sw = m.width; sh = m.height;
+  }
+  const c = document.createElement('canvas'); c.width = W; c.height = H;
+  const x = c.getContext('2d', {willReadFrequently:true}); x.imageSmoothingEnabled = true; x.imageSmoothingQuality = 'high';
+  x.drawImage(src, 0, 0, W, H); const d = x.getImageData(0, 0, W, H).data, N = W * H;
+  const ss = (a, b2, v) => { const t = Math.max(0, Math.min(1, (v - a) / (b2 - a))); return t * t * (3 - 2 * t); };
+  const L = new Float32Array(N), V = new Float32Array(N);
+  for (let i = 0; i < N; i++){
+    const r = d[i * 4] / 255, g = d[i * 4 + 1] / 255, b = d[i * 4 + 2] / 255, l = r * .299 + g * .587 + b * .114, mx = Math.max(r, g, b);
+    L[i] = l; V[i] = vetri ? 0 : ss(.55, .7, l) * (1 - ss(.35, .5, (mx - Math.min(r, g, b)) / Math.max(mx, .01))) * (1 - ss(.55, .7, Math.floor(i / W) / H));
+  }
+  if (vetri) for (const [x0, y0, x1, y1] of vetri){
+    const X0 = Math.max(0, Math.floor(x0 * W)), Y0 = Math.max(0, Math.floor(y0 * H)), X1 = Math.min(W, Math.ceil(x1 * W)), Y1 = Math.min(H, Math.ceil(y1 * H)), v = [];
+    for (let y = Y0; y < Y1; y++) for (let x2 = X0; x2 < X1; x2++) v.push(L[y * W + x2]);
+    if (!v.length) continue; v.sort((p, q) => p - q); const so = Math.max(.4, v[Math.floor(v.length * .55)]);
+    for (let y = Y0; y < Y1; y++) for (let x2 = X0; x2 < X1; x2++){ const i = y * W + x2; V[i] = Math.max(V[i], ss(so, so + .12, L[i])); }
+  }
+  /* solo le macchie grandi: una fiamma di candela, quasi bianca anche lei, è una manciata di celle */
+  const lab = new Int32Array(N).fill(-1), tenere = [], coda = new Int32Array(N);
+  for (let i = 0; i < N; i++){
+    if (V[i] <= .5 || lab[i] >= 0) continue;
+    let qa = 0, qb = 0; coda[qb++] = i; lab[i] = i;
+    while (qa < qb){ const j = coda[qa++], jx = j % W;
+      for (const k of [j - W, j + W, jx > 0 ? j - 1 : -1, jx < W - 1 ? j + 1 : -1]) if (k >= 0 && k < N && lab[k] < 0 && V[k] > .5){ lab[k] = i; coda[qb++] = k; } }
+    let x0 = W, x1 = 0, y0 = H, y1 = 0; for (let q = 0; q < qb; q++){ const j = coda[q], jx = j % W, jy = (j - jx) / W; x0 = Math.min(x0, jx); x1 = Math.max(x1, jx); y0 = Math.min(y0, jy); y1 = Math.max(y1, jy); }
+    if (vetri ? qb >= 4 : (qb >= N * .0025 && y1 - y0 + 1 >= 1.3 * (x1 - x0 + 1))) for (let q = 0; q < qb; q++) tenere.push(coda[q]);   /* senza riquadri: solo macchie grandi e alte (finestre), non fiamme né aloni */
+  }
+  if (!tenere.length) return null;
+  const Wv = new Float32Array(N); let cr = 0, cg = 0, cb = 0;
+  for (const i of tenere){ Wv[i] = V[i]; cr += d[i * 4]; cg += d[i * 4 + 1]; cb += d[i * 4 + 2]; }
+  const mx = Math.max(cr, cg, cb, 1), col = [cr / mx, cg / mx, cb / mx];
+  /* il fascio: da ogni cella di vetro, un raggio nella direzione della luce (sparso sulle quattro celle vicine) */
+  const a = ang * Math.PI / 180, dx = Math.sin(a), dy = Math.cos(a), K = Math.round(H * .75), k0 = Math.round(H * .03), S = new Float32Array(N);
+  for (const i of tenere){
+    const x0 = i % W, y0 = Math.floor(i / W), w0 = Wv[i];
+    for (let k = k0; k < K; k++){
+      const px = x0 + dx * k, py = y0 + dy * k; if (px < 0 || py < 0 || px >= W - 1 || py >= H - 1) break;
+      const ix = Math.floor(px), iy = Math.floor(py), fx = px - ix, fy = py - iy, e = w0 * Math.exp(-k / (K * .55)), j = iy * W + ix;
+      S[j] += e * (1 - fx) * (1 - fy); S[j + 1] += e * fx * (1 - fy); S[j + W] += e * (1 - fx) * fy; S[j + W + 1] += e * fx * fy;
+    }
+  }
+  const box = (src, r) => { const t = new Float32Array(N), o = new Float32Array(N);
+    for (let y = 0; y < H; y++){ let s = 0; for (let xx = -r; xx <= r; xx++) s += src[y * W + Math.min(W - 1, Math.max(0, xx))];
+      for (let xx = 0; xx < W; xx++){ t[y * W + xx] = s / (2 * r + 1); s += src[y * W + Math.min(W - 1, xx + r + 1)] - src[y * W + Math.max(0, xx - r)]; } }
+    for (let xx = 0; xx < W; xx++){ let s = 0; for (let y = -r; y <= r; y++) s += t[Math.min(H - 1, Math.max(0, y)) * W + xx];
+      for (let y = 0; y < H; y++){ o[y * W + xx] = s / (2 * r + 1); s += t[Math.min(H - 1, y + r + 1) * W + xx] - t[Math.max(0, y - r) * W + xx]; } }
+    return o; };
+  const Sb = box(box(S, 2), 2);
+  /* il velo dipinto: più chiaro di quello che ha intorno (su un ottavo del quadro) */
+  const Lb = box(L, Math.round(W / 16)), Hz0 = new Float32Array(N); for (let i = 0; i < N; i++) Hz0[i] = L[i] - Lb[i];
+  const Hz = box(Hz0, 1), vals = []; for (let i = 0; i < N; i++) if (Sb[i] > 1e-4) vals.push(Sb[i]);
+  if (vals.length < 20) return null;
+  vals.sort((p, q) => p - q); const ref = vals[Math.floor(vals.length * .9)] || 1;
+  const Wd = box(Wv, 1), F = new Float32Array(N), out = new Uint8Array(N); let tot = 0;
+  for (let i = 0; i < N; i++) F[i] = Math.min(1, Sb[i] / ref) * (.35 + .65 * ss(-.01, .05, Hz[i])) * (1 - Math.min(1, Wd[i] * 2));
+  const Fb = box(F, 1);   /* morbido: niente quadretti dove il velo dipinto va e viene */
+  for (let i = 0; i < N; i++){ out[i] = Math.round(Fb[i] * 255); tot += Fb[i]; }
+  return {a: out, dir: [dx, dy], col, area: Math.round(tot / N * 1000) / 10, vetri: tenere.length};
 }
 /* ⚠ 10/11 · la maschera del cielo, una volta per immagine (vedi cielo() nel disegno). Torna una tela grande come la mappa
    di profondità: rosso (e blu) = la profondità di prima, verde = quanto è cielo (0..1, già sfumato).
