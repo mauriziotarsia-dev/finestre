@@ -2177,12 +2177,12 @@ function nuovoFotogramma(v){
 /* ⚠ 30/10: le animazioni cucite hanno sostituito i video dell'AI con lo stesso nome, e i browser tenevano
    il vecchio in memoria (fino a un'ora). Il segno qui sotto lo fa riscaricare; la libreria aggiunge anche la data del file. */
 const VERSIONE_VIDEO = 'c3';
-/* 16/11 · i tratti scritti dal cucitore (vedi aggiornaTratti): si usano solo se tornano col video, contigui dal primo
-   all'ultimo fotogramma; altrimenti il video gira com'è, in fila */
+/* 16/11 · i tratti scritti dal cucitore (vedi aggiornaTratti): si usano solo se tornano col video, in ordine dal primo
+   all'ultimo fotogramma (fra uno e l'altro al più il passaggio del cucitore); altrimenti il video gira com'è, in fila */
 function tratti(j, D){
   const S = j && Array.isArray(j.segmenti) ? j.segmenti : null;
   if (!S || S.length < 2 || !(D > 4)) return null;
-  for (let i = 0; i < S.length; i++){ const s = S[i]; if (!(s.a - s.da >= 1.5) || (i && Math.abs(s.da - S[i - 1].a) > .05)) return null; }
+  for (let i = 0; i < S.length; i++){ const s = S[i]; if (!(s.a - s.da >= 1.5) || (i && (s.da < S[i - 1].a - .05 || s.da - S[i - 1].a > 1))) return null; }   /* fra un tratto e l'altro può restare il passaggio (meno di 1 s) */
   if (Math.abs(S[0].da) > .05 || Math.abs(S[S.length - 1].a - D) > .4) return null;
   return S.map(s => ({da: +s.da, a: +s.a, nome: String(s.nome || ''), peso: +s.peso > 0 ? +s.peso : 1, noDiFila: !!s.noDiFila,
     ogni: Array.isArray(s.ogni) && s.ogni.length === 2 ? [Math.max(0, s.ogni[0] | 0), Math.max(s.ogni[0] | 0, s.ogni[1] | 0)] : null}));

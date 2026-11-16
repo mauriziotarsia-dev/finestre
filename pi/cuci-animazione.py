@@ -66,6 +66,9 @@ CATENA = False              # 16/11: True mentre si cuce un'animazione a tappe (
 CATENA_PEZZI = 0            # 16/11: quanti pezzi a tappe ci sono in fila (dal segno «-catena.png»)
 CATENA_LIBERE = []          # 16/11: le giunte (dopo il pezzo i, da 1) dove il pezzo finisce dove vuole lui: vedi giunte_dei_pezzi
 FERMI = []                  # 16/11: zone (frazioni x0, y0, x1, y1) dove le cose ferme si prendono dal dipinto: vedi OggettiFermi
+CATENA_SEQ = []             # 16/11: le tappe in fila, dipinto compreso ('base', …, 'base'): il pezzo i va da CATENA_SEQ[i-1] a CATENA_SEQ[i]
+CATENA_ALLACCI = None       # 16/11: per ogni tratto da dipinto a dipinto, come lo sceglie il motore (nome, peso, ogni, noDiFila)
+CATENA_SFUMA = None         # 16/11: la sfumata fra i pezzi nell'originale lungo (dal segno; None: SFUMA_TAPPE, quella di adesso)
 _FOTO_VIDEO = [None]        # 16/11: il dipinto alla misura del video, allineato (da fermo_dalla_foto)
 SENZA_CIELO = False         # 13/11: True mentre si cuce un interno            # 0 = tutti i processori; sul Raspberry (--casa) 2
 
@@ -469,18 +472,24 @@ def giunte_dei_pezzi(n, fps):
     l'AI lo riceve con una sola immagine, e la fine non la può vincolare: finiva con la cuoca più dritta, lontana dalla posa
     dipinta (misurato 8,8 contro 2,4–2,7 delle fini vincolate, rumore fra due inizi 3,0). Queste giunte «libere» si
     cercano come quelle dei pezzi normali (_percorso_dentro): il pezzo si taglia dove la cuoca torna più vicina alla posa."""
-    if CATENA:
-        k = CATENA_PEZZI
-        if not CATENA_LIBERE or k < 2: return []
-        Lp = (n / fps + (k - 1) * SFUMA_TAPPE) / k
-        if not 4 <= Lp <= 16: return []
-        return [(int(round(i * (Lp - SFUMA_TAPPE) * fps)), int(round((i * (Lp - SFUMA_TAPPE) + SFUMA_TAPPE) * fps))) for i in CATENA_LIBERE]
+    if CATENA: return [(g0, g1) for i, g0, g1, larga in _giunte_catena(n, fps) if larga]
     D = n / fps
     for k in (2, 3, 4):
         Lp = (D + (k - 1) * SFUMA_PEZZI) / k
         if 4 <= Lp <= 12 and abs(Lp - round(Lp)) < .08:
             return [(int(round(i * (Lp - SFUMA_PEZZI) * fps)), int(round((i * (Lp - SFUMA_PEZZI) + SFUMA_PEZZI) * fps))) for i in range(1, k)]
     return []
+
+
+def _giunte_catena(n, fps):
+    """16/11 · le giunte dei pezzi a tappe: (i, inizio e fine della sfumata, larga). Larga: il pezzo i finisce dove vuole lui
+    (vedi giunte_dei_pezzi) e il taglio si cerca su due secondi. Le altre finiscono sulla stessa posa dipinta da cui parte il
+    pezzo dopo: non si taglia niente (vedi _percorso_dentro, «LE GIUNTE ESATTE»)."""
+    k = CATENA_PEZZI; sf = SFUMA_TAPPE if CATENA_SFUMA is None else CATENA_SFUMA
+    if k < 2: return []
+    Lp = (n / fps + (k - 1) * sf) / k
+    if not 4 <= Lp <= 16: return []
+    return [(i, int(round(i * (Lp - sf) * fps)), int(round((i * (Lp - sf) + sf) * fps)), i in CATENA_LIBERE) for i in range(1, k)]
 
 
 def _percorso_dentro(firma, n, fps):
@@ -510,11 +519,13 @@ def _percorso_dentro(firma, n, fps):
                 if d < best[0]: best = (d, a, b)
         return best
     tagli = []; da = W
-    for g0, g1 in giunte_dei_pezzi(n, fps):
+    giunte = _giunte_catena(n, fps) if CATENA else [(None, g0, g1, True) for g0, g1 in giunte_dei_pezzi(n, fps)]
+    for i, g0, g1, larga in giunte:
+        if not larga: continue                                 # giunta esatta: vedi sotto
         # a + W dentro il primo pezzo prima della sfumata, b - W dentro il secondo dopo la sfumata
         d, a, b = migliore(range(max(da + int(2 * fps), g0 - int(2 * fps)), g0 - W), range(g1 + W, min(n - int(3 * fps), g1 + int(2 * fps))))
         if a is None: continue
-        tagli.append((a, b, d)); da = b
+        tagli.append((a, b, d, i)); da = b
     # il giro: l'ultimo tratto buono prima dello scatto finale dell'AI, verso un istante dei primi due secondi
     coda0 = max(da + int(3 * fps), n - int(3.5 * fps))
     scatti = [k for k in range(coda0, n - 1) if passi[k] > 2.5 * tip]
@@ -524,11 +535,31 @@ def _percorso_dentro(firma, n, fps):
     seq = []; inizio = s0 + W
     def passaggio(a, b):                                       # K fotogrammi: a-W… del primo tratto, b-W… del secondo
         return [('x', a - W + i, b - W + i, (i + 1) / (K + 1)) for i in range(K)]
-    for a, b, d2 in tagli:
+    centri = []                                                # 16/11: (giunta, dove finisce il tratto prima, dove comincia quello dopo)
+    for a, b, d2, i in tagli:
         seq += [('f', k) for k in range(inizio, a - W)]
+        centri.append((i, len(seq), len(seq) + K))              # un salto del motore esce e arriva su fotogrammi interi, non a metà passaggio
         seq += passaggio(a, b); inizio = b + W
     seq += [('f', k) for k in range(inizio, e - W)]
     seq += passaggio(e, s0)
+    # ⚠ 16/11 · LE GIUNTE ESATTE (controllo a fondo dell'alba della taverna). Fra due pezzi a tappe che si toccano sulla stessa
+    # posa dipinta, l'ultimo fotogramma dell'uno e il primo dell'altro distano circa due passi normali (misurato: 2,8–3,1
+    # contro passi di 0,7–2,3). Con la sfumata di 0,25 s fatta mettendoli in fila, alla giunta del sale la mano ancora alzata
+    # della fine del pezzo 2 si sovrapponeva a quella che all'inizio del pezzo 3 scende di slancio verso l'impasto: per sei
+    # fotogrammi due braccia (anche col passaggio che segue il movimento: provato, peggio). Ora i pezzi si mettono in fila
+    # senza sfumata e fra l'ultimo e il primo si mettono due fotogrammi a metà strada, seguendo il movimento: il salto
+    # diventa tre passi normali, e niente si sovrappone. (Negli originali cuciti prima, con la sfumata dentro, la giunta resta
+    # com'è.)
+    for i, g0, g1, larga in (giunte if CATENA else []):
+        if larga: continue
+        if g1 - g0 <= 1:
+            q = next((j for j in range(1, len(seq)) if seq[j] == ('f', g1) and seq[j - 1] == ('f', g1 - 1)), None)
+            if q is None: continue
+            seq[q:q] = [('m', g1 - 1, g1, 1 / 3), ('m', g1 - 1, g1, 2 / 3)]
+            centri = [(ii, qa + 2 if qa >= q else qa, qb + 2 if qb >= q else qb) for ii, qa, qb in centri] + [(i, q + 1, q + 1)]
+        else:
+            q = next((j for j, x in enumerate(seq) if x == ('f', (g0 + g1) // 2)), None)
+            if q is not None: centri.append((i, q, q))
     # ⚠ 15/11 (Maurizio, sul TV: «si vede il loop in due frame»): misurato sul video del TV, i due scatti più grandi
     # (3,5 e 5,3 s) non erano le giunte ma il video dell'AI: in un fotogramma la cuoca intera si sposta di colpo. Ogni
     # salto oltre il doppio del passo normale si spalma su sei fotogrammi seguendo il movimento
@@ -541,7 +572,7 @@ def _percorso_dentro(firma, n, fps):
         q = next(i for i, it in enumerate(seq) if it[0] == 'f' and it[1] == k)
         seq[q - 1:q + 3] = [('m', k - 2, k + 3, (r + 1) / 5) for r in range(4)]
     info0 = {'salti_lisciati': [round(k / fps, 2) for k in lisci]}
-    info = {'tagli': [{'da': round(a / fps, 2), 'a': round(b / fps, 2), 'passi': round(d2 / tip, 1)} for a, b, d2 in tagli],
+    info = {'tagli': [{'da': round(a / fps, 2), 'a': round(b / fps, 2), 'passi': round(d2 / tip, 1)} for a, b, d2, i in tagli], '_centri': centri,
             'giro': {'fine': round(e / fps, 2), 'inizio': round(s0 / fps, 2), 'passi': round(d / tip, 1)}, **info0}
     return seq, info
 
@@ -559,7 +590,20 @@ def cuci(entrata, uscita, profondita=None, immagine=None, fuoco_x=0.5, larghezza
     lung = n - c                                               # il giro: n - c fotogrammi
     percorso = None
     if forte is not None and info.get('_firma') is not None and info['_firma'].shape[1]:
-        percorso, it = _percorso_dentro(info['_firma'], n, fps); info.update(it); lung = len(percorso)
+        percorso, it = _percorso_dentro(info['_firma'], n, fps); centri = it.pop('_centri', []); info.update(it); lung = len(percorso)
+        # ⚠ 16/11 · GLI ALLACCI A CASO (Maurizio: «tipo che butta il pane nella cesta una volta ogni 2/3 giri di altre azioni»).
+        # Nei pezzi a tappe i passaggi che cadono sulla posa di partenza (il dipinto) dividono il video in tratti che partono e
+        # tornano lì: il motore degli schermi (js/vista.js) a ogni ritorno sceglie il tratto dopo. Qui: dove cominciano e
+        # finiscono (secondi del video cucito, a metà del passaggio) e, perché il salto sia immediato, un fotogramma chiave
+        # proprio lì.
+        if CATENA and CATENA_SEQ and len(CATENA_SEQ) == CATENA_PEZZI + 1:
+            cq = sorted((qa, qb) for i, qa, qb in centri if i is not None and CATENA_SEQ[i] == CATENA_SEQ[0])
+            if cq:
+                # un tratto finisce dove comincia il passaggio e il successivo comincia dove finisce (in fila il passaggio si vede
+                # com'è; un salto esce e arriva su fotogrammi interi)
+                da = [0.0] + [round(qb / fps, 3) for qa, qb in cq]; a_ = [round(qa / fps, 3) for qa, qb in cq] + [round(lung / fps, 3)]
+                al = CATENA_ALLACCI if isinstance(CATENA_ALLACCI, list) and len(CATENA_ALLACCI) == len(da) else [{} for _ in da]
+                info['segmenti'] = [dict({'da': da[j], 'a': a_[j]}, **{k2: v for k2, v in (al[j] or {}).items() if k2 in ('nome', 'peso', 'ogni', 'noDiFila')}) for j in range(len(da))]
     # ⚠ 30/10: il video serve solo dove si muove (nebbia, fumo, acqua): il resto lo disegna il fermo a piena
     # risoluzione. Così il video può essere piccolo: alto al massimo 1080, che il Raspberry 4 decodifica col suo
     # circuito (1080×1920 no: lo decodificava il processore, e le finestre andavano a 30 immagini a scatti)
@@ -570,7 +614,7 @@ def cuci(entrata, uscita, profondita=None, immagine=None, fuoco_x=0.5, larghezza
     if (W, H) != (w, h): filtro += f',scale={W}:{H}:flags=lanczos'
     n_uscita = int(round(lung / fps * FPS_USCITA))
     cmd = ['ffmpeg', '-v', 'error', '-y', '-threads', FF_THREADS, '-f', 'rawvideo', '-pix_fmt', 'bgr24', '-s', f'{w}x{h}', '-r', str(fps), '-i', '-',
-           '-vf', filtro, '-frames:v', str(n_uscita), '-an', '-c:v', 'libx264', '-preset', 'slow' if not veloce else 'veryfast', '-crf', '19',
+           '-vf', filtro, '-frames:v', str(n_uscita)] + (['-force_key_frames', ','.join('%.3f' % s['da'] for s in info['segmenti'][1:])] if info.get('segmenti') else []) + ['-an', '-c:v', 'libx264', '-preset', 'slow' if not veloce else 'veryfast', '-crf', '19',
            '-profile:v', 'high', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', uscita]
     # su Windows, lanciato da pythonw, ffmpeg aprirebbe una finestra nera sopra il TV per tutta la cucitura (11/11)
     ff = subprocess.Popen(cmd, stdin=subprocess.PIPE, creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
@@ -998,9 +1042,10 @@ def giro_casa(casa, larghezza=None, veloce=False, forza=1, chi='pc'):
             # per uno e il passaggio del giro solo dove le pose sono diverse (segno v6), poi coi salti fra le pose più simili
             # alla giunta e al giro (segno v7), poi senza sbuffi di fumo lontano da persone e fiamme (segno v8), poi coi
             # passaggi in cui scorrono tutti e due i tratti (segno v9), poi coi pezzi a tappe tagliati dove la fine è libera e con
-            # la cesta presa dal dipinto (v10, 16/11)
+            # la cesta presa dal dipinto (v10, 16/11), poi coi passaggi che seguono il movimento anche alle giunte esatte e i tratti
+            # per gli allacci a caso (v11, 16/11)
             dentro = 'interno' in (base.split('@', 1)[1].split('.') if '@' in base else [])
-            if originale not in nomi or f'{base}_{parte[:-4]}-' + ('v10' if dentro else 'v2') + '.png' in nomi: continue
+            if originale not in nomi or f'{base}_{parte[:-4]}-' + ('v11' if dentro else 'v2') + '.png' in nomi: continue
             _SOSPESI[0] += 1                                   # c'è un video da ricucire
             # 15/11 (Maurizio aspettava la taverna: mezz'ora a video sull'Ally, uno dopo l'altro): se il più forte è già
             # occupato con una ricucitura, il meno forte prende la successiva invece di aspettare; a priorità bassa, perché
@@ -1025,7 +1070,7 @@ def giro_casa(casa, larghezza=None, veloce=False, forza=1, chi='pc'):
             except Exception as ex:
                 print('  ricucitura non riuscita:', ex, file=sys.stderr, flush=True)
                 try:                                                                                                  # non riprovarla all'infinito
-                    for v in ('v2', 'v3', 'v4', 'v5', 'v6', 'v7', 'v8', 'v9', 'v10'): _rinfresca(cart, f'{base}_{parte[:-4]}-{v}.png')
+                    for v in ('v2', 'v3', 'v4', 'v5', 'v6', 'v7', 'v8', 'v9', 'v10', 'v11'): _rinfresca(cart, f'{base}_{parte[:-4]}-{v}.png')
                 except Exception: pass
             finally:
                 vivo.set(); _libera(cart, segno)
@@ -1220,7 +1265,7 @@ def aggiornati():
 
 
 SFUMA_PEZZI = 0.6
-SFUMA_TAPPE = 0.25          # 16/11: fra due pezzi a tappe la posa è la stessa immagine: basta un soffio di dissolvenza
+SFUMA_TAPPE = 0.0           # 16/11: fra due pezzi a tappe niente sfumata (la giunta la fa _percorso_dentro, «LE GIUNTE ESATTE»); prima 0,25
 
 
 def metti_in_fila(pezzi, uscita, sfuma=None):
@@ -1245,6 +1290,8 @@ def metti_in_fila(pezzi, uscita, sfuma=None):
         filtro += f'[{prima}][v{i}]xfade=transition=fade:duration={sf}:offset={fino:.3f}[{dopo}];'
         prima = dopo
     if len(pezzi) == 1: filtro += '[v0]null[out];'
+    elif sf <= 0:                                               # 16/11: in fila senza sfumata (pezzi a tappe)
+        filtro = filtro[:filtro.index('[v0][v1]xfade')] + ''.join(f'[v{i}]' for i in range(len(pezzi))) + f'concat=n={len(pezzi)}:v=1:a=0[out];'
     cmd += ['-filter_complex', filtro.rstrip(';'), '-map', '[out]', '-an', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '14',
             '-maxrate', f'{kbps}k', '-bufsize', f'{kbps}k', '-pix_fmt', 'yuv420p', uscita]
     subprocess.run(cmd, check=True, creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
@@ -1253,8 +1300,9 @@ def metti_in_fila(pezzi, uscita, sfuma=None):
 def _cuci_uno(cart, nomi, nome, base, parte, originale, larghezza, veloce, ricuci=False):
     """ricuci: l'animazione è già cucita (con il cucitore di prima): si riparte dal video originale dell'AI, che resta
     com'è, e si rifanno video, fermo e maschera (14/11: il fermo dalla foto a piena risoluzione anche per i paesaggi vecchi)."""
-    global CATENA, CATENA_PEZZI, CATENA_LIBERE, FERMI
-    CATENA, CATENA_PEZZI, CATENA_LIBERE, FERMI = False, 0, [], []  # 16/11: vale solo per questo video (vedi sotto)
+    global CATENA, CATENA_PEZZI, CATENA_LIBERE, FERMI, CATENA_SEQ, CATENA_ALLACCI, CATENA_SFUMA
+    CATENA, CATENA_PEZZI, CATENA_LIBERE, FERMI, CATENA_SEQ, CATENA_ALLACCI, CATENA_SFUMA = False, 0, [], [], [], None, None   # 16/11: vale solo per questo video
+    cj = {}
     if True:
         with tempfile.TemporaryDirectory() as d:
             e, u = os.path.join(d, 'e.mp4'), os.path.join(d, 'u.mp4')
@@ -1268,7 +1316,9 @@ def _cuci_uno(cart, nomi, nome, base, parte, originale, larghezza, veloce, ricuc
                     cj = json.load(open(x, encoding='utf-8'))
                     seq = ['base'] + list(cj.get('tappe') or []) + ['base']
                     FERMI = [tuple(float(v) for v in z) for z in (cj.get('fermi') or []) if len(z) == 4]
-                    CATENA_PEZZI = len(seq) - 1
+                    CATENA_PEZZI = len(seq) - 1; CATENA_SEQ = seq; CATENA_ALLACCI = cj.get('allacci')
+                    # la sfumata con cui è fatto l'originale lungo: scritta nel segno; senza, quella di prima del 16/11 (0,25 s)
+                    if ricuci: CATENA_SFUMA = float(cj['sfuma']) if 'sfuma' in cj else .25
                     CATENA_LIBERE = [i for i in range(1, CATENA_PEZZI) if seq[i - 1] == seq[i]]
                 except Exception as ex: print('  segno delle tappe illeggibile:', ex, file=sys.stderr, flush=True)
             # i pezzi in più del giro lungo (…_anim-notte-pezzo2.mp4 …): in fila dopo il primo
@@ -1280,6 +1330,10 @@ def _cuci_uno(cart, nomi, nome, base, parte, originale, larghezza, veloce, ricuc
                     x = os.path.join(d, f'p{i + 2}.mp4'); _scarica(cart, pn, x); pz.append(x)
                 if CATENA and CATENA_PEZZI != len(pz): CATENA_LIBERE = []    # il segno non torna con i file: nessun taglio
                 tutta = os.path.join(d, 'tutta.mp4'); metti_in_fila(pz, tutta, SFUMA_TAPPE if CATENA else None); e = tutta
+                if CATENA:                                                   # 16/11: il segno dice come è fatto l'originale lungo
+                    CATENA_SFUMA = SFUMA_TAPPE
+                    try: _chiedi('POST', f'/storage/v1/object/{DEPOSITO}/{cart}/' + urllib.parse.quote(segno_catena), json.dumps(dict(cj, sfuma=SFUMA_TAPPE)).encode(), 'image/png', {'x-upsert': 'true'})
+                    except Exception as ex: print('  segno delle tappe non aggiornato:', ex, file=sys.stderr, flush=True)
                 print('  in fila', len(pz), 'pezzi' + (' a tappe' if CATENA else '') + (', giunte libere dopo i pezzi ' + str(CATENA_LIBERE) if CATENA_LIBERE else ''), flush=True)
             prof = imm = None
             pre = 'est-' if parte.startswith('est-') else ''                 # la vista del TV ha la sua profondità
@@ -1300,6 +1354,12 @@ def _cuci_uno(cart, nomi, nome, base, parte, originale, larghezza, veloce, ricuc
             info = cuci(e, u, prof, imm, fx, larghezza, veloce, fj, mp, alta, 1.5 if (pezzi_n or (ricuci and leggi_info(e)[0] / max(1, leggi_info(e)[1]) > 12)) else None, fxv)
             if not ricuci or pezzi_n:                                    # l'originale lungo, con tutti i pezzi in fila
                 _chiedi('POST', f'/storage/v1/object/{DEPOSITO}/{cart}/' + urllib.parse.quote(originale), open(e, 'rb').read(), 'video/mp4', {'x-upsert': 'true'})
+            # 16/11 · i tratti per gli allacci a caso (vedi cuci): prima del video, così chi carica il video li trova già
+            seg_nome = f'{base}_{parte[:-4]}-segmenti.png'
+            if info.get('segmenti'):
+                _chiedi('POST', f'/storage/v1/object/{DEPOSITO}/{cart}/' + urllib.parse.quote(seg_nome),
+                        json.dumps({'durata': info.get('secondi_giro'), 'segmenti': info['segmenti']}).encode(), 'image/png', {'x-upsert': 'true', 'cache-control': 'max-age=60'})
+            elif seg_nome in nomi: _libera(cart, seg_nome)
             _chiedi('POST', f'/storage/v1/object/{DEPOSITO}/{cart}/' + urllib.parse.quote(nome), open(u, 'rb').read(), 'video/mp4',
                     {'x-upsert': 'true', 'cache-control': 'max-age=60'})
             # fermo e maschera nuovi, al posto di quelli fatti dal telefono alla creazione (js/fermo.js).
@@ -1327,7 +1387,7 @@ def _cuci_uno(cart, nomi, nome, base, parte, originale, larghezza, veloce, ricuc
             for pn in pezzi_n: _libera(cart, pn)                          # i pezzi sono dentro l'originale lungo
             try:
                 _rinfresca(cart, f'{base}_{parte[:-4]}-v2.png')          # cucita con il fermo dalla foto (o provato): non si rifà
-                if SENZA_CIELO: _rinfresca(cart, f'{base}_{parte[:-4]}-v10.png')  # un interno, con persone e fiamme vive (15/11: v5, tremolio e gonna; 16/11: v10, tappe)
+                if SENZA_CIELO: _rinfresca(cart, f'{base}_{parte[:-4]}-v11.png')  # un interno, con persone e fiamme vive (15/11: v5, tremolio e gonna; 16/11: v11, tappe)
             except Exception: pass
             print('  fatto:', info, flush=True)
             return 1
