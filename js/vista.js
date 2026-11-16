@@ -61,7 +61,8 @@ uniform sampler2D uVentoT;    /* il vento sugli alberi, calcolato a un quarto di
 float gVentoA;                /* 14/11 sera · il quarto canale del vento in questo punto: lo scrive paesaggio() nell'unica lettura di uVentoT, lo usa main().
                                  128/255 = niente; sotto, l'ombra delle nuvole sul terreno (c'è solo sotto l'orizzonte); sopra, quanta nuvola del cielo che scorre
                                  sta qui (c'è solo sopra l'orizzonte; vedi VENTO_FRAG e mascheraNuvole): lì dietro le stelle non si vedono */
-vec2 gVentoRG;                /* 16/11 · dentro: rosso e verde del vento in questo punto (la polvere nei fasci di luce, e quanto fascio c'è), dalla stessa lettura */
+vec3 gVentoRG;                /* 16/11 · dentro: rosso, verde e blu del vento in questo punto (la polvere nei fasci di luce, quanto fascio c'è, quanto pavimento), dalla stessa lettura */
+uniform vec2 uScuro;          /* 16/11 sera · dentro: quanto più buia la stanza (ombre e mezzi toni; le luci restano) e quanto più scuro il pavimento */
 uniform vec4 uFascioD;        /* 16/11 · i fasci di luce delle finestre (mascheraFasci): direzione x, y; z = ci sono; w = larghezza su altezza del foro */
 uniform vec3 uFascioC;        /* il colore della luce dei vetri */
 #endif
@@ -80,6 +81,8 @@ uniform float uFumoI[8];      /* 9/11: quanto fuma ognuno (i comignoli 1, i fuoc
 uniform float uNFumo, uFumoA; /* quanti, e quanto si vedono (sfumano col paesaggio) */
 uniform vec4 uFiamma[8];      /* 15/11 · fiamme di candele e torce negli interni: (x, y della base nella vista, altezza in altezze della vista, seme) */
 uniform float uNFiamma;
+uniform vec4 uParte[9];       /* 16/11 sera · parti di animali che si muovono da sole (la testa e la coda del gatto): per ognuna tre: (perno x, y, centro x, y nella vista), (raggi x, y in altezze, rotazione in radianti, spostamento in altezze), (tipo 0 testa 1 coda, seme, periodo in secondi, lunghezza della coda) */
+uniform float uNParte;
 uniform vec4 uCamino[2];      /* 16/11 · i fuochi dei camini di un interno: (x al centro e y della base nella vista, mezza larghezza in larghezze della vista, altezza in altezze della vista) */
 uniform float uNCamino;
 float gFiamma;                /* quanto di questo punto è fiamma (per il tremolio della luce, dopo) */
@@ -298,6 +301,39 @@ vec3 paesaggio(sampler2D img, sampler2D imgB, float vk, sampler2D dep, vec4 crop
     }
     p += dpK;
   }
+  /* ⚠ 16/11 sera · IL GATTO (Maurizio: «fai muovere di più il gatto»): nel video dell'AI il gatto è dipinto e fermo. Le sue
+     parti (dal file dei punti, «animaliOre») si muovono rigide, come un pezzo solo, non a onde: la testa tiene una posa
+     per qualche secondo, poi in un attimo si gira un poco e si inclina verso un'altra (guarda in giro); la coda ogni tanto
+     dà una frustata e torna giù. Solo nel loro ovale, che sfuma sul collo e sul pavimento */
+  if (uNParte > .5){
+    vec2 dpP = vec2(0.);
+    for (int i = 0; i < 3; i++){
+      if (float(i) >= uNParte) break;
+      vec4 A = uParte[i * 3], B = uParte[i * 3 + 1], C = uParte[i * 3 + 2];
+      vec2 e = vec2((p.x - A.z) * uAspetto, p.y - A.w) / B.xy;
+      float r = length(e);
+      if (r > 1.5) continue;
+      float w = 1. - smoothstep(.8, 1.5, r);
+      vec2 d = vec2((p.x - A.x) * uAspetto, p.y - A.y);
+      float tt = uT / C.z + C.y * 7.3, k = floor(tt), f = fract(tt);
+      float h0 = fract(sin((k + C.y * 13.1) * 78.233) * 43758.5453), h1 = fract(sin((k + 1. + C.y * 13.1) * 78.233) * 43758.5453);
+      float ang = 0., sh = 0.;
+      if (C.x < .5){
+        float m = smoothstep(.7, .95, f);   /* ferma per tre quarti del tempo, poi si gira in fretta */
+        sh = B.w * mix(h0 * 2. - 1., h1 * 2. - 1., m);
+        ang = B.z * mix(fract(h0 * 7.13) * 2. - 1., fract(h1 * 7.13) * 2. - 1., m);
+      } else {
+        float on = step(.4, fract(h0 * 3.7 + .5));
+        float b = smoothstep(.0, .12, f) * (1. - smoothstep(.2, .55, f)) + .35 * smoothstep(.55, .62, f) * (1. - smoothstep(.62, .8, f));   /* su, giù, e un colpetto */
+        ang = B.z * b * on * (h1 > .5 ? 1. : -.6);
+        w *= smoothstep(.15, .9, length(d) / max(C.w, 1e-4));   /* la base della coda sta ferma, la punta va */
+      }
+      float a = -ang * w, ca = cos(a), sa = sin(a);
+      vec2 dr = vec2(d.x * ca - d.y * sa, d.x * sa + d.y * ca) - vec2(sh * w, 0.);
+      dpP += vec2((dr.x - d.x) / uAspetto, dr.y - d.y);
+    }
+    p += dpP;
+  }
   vec3 c = foto(img, crop, p);
   /* ⚠ 5/11 · il passaggio al giro del video sfuma SOLO il video (prima si sfumava verso un secondo paesaggio disegnato
      senza vento e senza nebbiolina: a ogni giro i cipressi tornavano dritti e i veli sparivano, «si vede il loop») */
@@ -414,9 +450,9 @@ vec3 paesaggio(sampler2D img, sampler2D imgB, float vk, sampler2D dep, vec4 crop
     vec2 dSp = vec2(0.);   /* di quanto si è spostato quello che si vede qui (chiome al vento): la nebbiolina lo segue */
     vec4 vt = uHaVento > .5 ? texture2D(uVentoT, vec2(vUv.x, 1. - vUv.y)) : vec4(.5, .5, 0., 128. / 255.);
 #ifndef SENZA_NUVOLE
-    gVentoA = vt.a; gVentoRG = uHaVento > .5 ? vt.rg : vec2(.5, 0.);
+    gVentoA = vt.a; gVentoRG = uHaVento > .5 ? vt.rgb : vec3(.5, 0., 0.);
 #endif
-    if (vicino > .01 && vt.b > .01){
+    if (vicino > .01 && vt.b > .01 && uDentro < .5){   /* 16/11: dentro il blu del vento è il pavimento (VENTO_FRAG) */
       /* ⚠ 8/11 (Maurizio: «di notte gli alberi sono immobili»): di notte il verde non c'è più, è tutto blu scuro e
          fogliame() non trovava niente. Dove sono le chiome lo sa già il vento (vt.b, dalla maschera fatta sull'immagine
          del giorno): di notte lì si muove quello che è scuro */
@@ -719,7 +755,7 @@ void main(){
   vec3 col = vec3(0.); float n = .5, sky = 0., alfa = 1.;
   float l0 = 0.; vec3 stelle = vec3(0.);
 #ifndef SENZA_NUVOLE
-  gVentoA = 128. / 255.; gVentoRG = vec2(.5, 0.);
+  gVentoA = 128. / 255.; gVentoRG = vec3(.5, 0., 0.);
 #endif
   if (uHaImg > .5){
     float n0, s0; vec3 c0 = paesaggio(uImg0, uImg0b, uVmix, uDep0, uCrop0, uCropD0, uHaDep0, uMovimento0, uCielo0, uCieloM0, uFermo0, uHaFermo0, uRap0, uHaRap0, uv, n0, s0);
@@ -995,6 +1031,17 @@ void main(){
 
   /* (pioggia e neve sono disegnate dopo, goccia per goccia e fiocco per fiocco: vedi PART_VERT) */
 
+#ifndef SENZA_NUVOLE
+  /* ⚠ 16/11 sera (Maurizio: «rendi più buia l'immagine, tipo la mia stanza» e «rendi più scuro il parquet»): dentro, dal
+     file dei punti, la stanza più buia nelle ombre e nei mezzi toni mentre le luci (fiamme, vetri, i fasci più chiari)
+     restano com'erano, come in una stanza vera poco illuminata; e il pavimento (un poligono per ora, nel blu del vento)
+     più scuro, i suoi riflessi più chiari un po' meno */
+  if (uDentro > .5 && uScuro.x + uScuro.y > .001){
+    float lS = dot(col, vec3(.299, .587, .114));
+    col *= mix(1. - uScuro.x, 1., smoothstep(.45, .95, lS));
+    col *= 1. - uScuro.y * gVentoRG.z * (1. - .5 * smoothstep(.55, .95, lS));
+  }
+#endif
   /* luce dello schermo, buio dei cambi, rumore finissimo contro le fasce */
   col *= uLuce * (1. - uBuio);
   /* stelle e stelle cadenti sono luci: dopo il buio della notte e la luce dello schermo (solo un po' attenuate) */
@@ -1105,8 +1152,8 @@ void main(){
 #ifdef SENZA_NUVOLE
   gl_FragColor = vec4(clamp(fx * .9 + .5, 0., 1.), clamp(fy * .9 + .5, 0., 1.), raffica * alberi, ombra);
 #else
-  /* dentro niente chiome al vento: rosso e verde portano la polvere nei fasci e quanto fascio c'è (blu a zero: niente alberi) */
-  if (uDentro > .5 && uDentro < 1.5) gl_FragColor = vec4(.5 + .5 * polvere, fascio, 0., (128. + 127. * fuoco) / 255.);
+  /* dentro niente chiome al vento: rosso e verde portano la polvere nei fasci e quanto fascio c'è, blu quanto pavimento */
+  if (uDentro > .5 && uDentro < 1.5) gl_FragColor = vec4(.5 + .5 * polvere, fascio, aM.r, (128. + 127. * fuoco) / 255.);   /* blu: il pavimento (rosso della maschera, mascheraFasci) */
   else gl_FragColor = vec4(clamp(fx * .9 + .5, 0., 1.), clamp(fy * .9 + .5, 0., 1.), raffica * alberi, (128. + 127. * (uDentro > .5 ? fuoco : nuvola - ombra)) / 255.);
 #endif
 }`;
@@ -1344,7 +1391,7 @@ class Vista {
     /* il programma principale: paesaggio, cielo, nebbia, lampo, luce */
     this.p = programma(VERT, FRAG, ['aPos']);
     this.fumoDati = new Float32Array(32); this.fumoForza = new Float32Array(8);
-    this.u = posizioni(this.p, ['uOcchio','uImg0b','uVmix','uImg0','uImg1','uDep0','uDep1','uMap','uCrop0','uCrop1','uCropD0','uCropD1','uUccelli','uCielo0','uCielo1','uCieloM0','uCieloM1','uCieloX','uFermo0','uFermo1','uHaFermo0','uHaFermo1','uRap0','uHaRap0','uVentoT','uAlberiM','uHaVento','uU','uNU','uUBox','uFumo','uFumoI','uNFumo','uFumoA','uFiamma','uNFiamma','uCamino','uNCamino','uNebV','uNebG','uDentro','uFascioD','uFascioC','uChiar','uNotte','uOmbre','uMeteora','uMeteoraK','uMix','uHaImg','uHaDep0','uHaDep1','uMovimento0','uMovimento1',
+    this.u = posizioni(this.p, ['uOcchio','uImg0b','uVmix','uImg0','uImg1','uDep0','uDep1','uMap','uCrop0','uCrop1','uCropD0','uCropD1','uUccelli','uCielo0','uCielo1','uCieloM0','uCieloM1','uCieloX','uFermo0','uFermo1','uHaFermo0','uHaFermo1','uRap0','uHaRap0','uVentoT','uAlberiM','uHaVento','uU','uNU','uUBox','uFumo','uFumoI','uNFumo','uFumoA','uFiamma','uNFiamma','uCamino','uNCamino','uParte','uNParte','uNebV','uNebG','uDentro','uFascioD','uFascioC','uScuro','uChiar','uNotte','uOmbre','uMeteora','uMeteoraK','uMix','uHaImg','uHaDep0','uHaDep1','uMovimento0','uMovimento1',
       'uLato','uT','uTV','uRaf','uAspetto','uPix','uCoperto','uNebbia','uPioggia','uNeve','uTempesta','uVento','uLampo','uLampoX','uLampoS','uLampoB',
       'uNotteFinta','uLuce','uBuio','uQualita','uColNebbia','uMeteo','uSale','uFuori']);
     gl.useProgram(this.p);
@@ -1452,6 +1499,12 @@ class Vista {
       /* 16/11 · i fuochi dei camini: «caminiOre» {ora: [{x, y (base), w (larghezza), h (altezza)}]} vince su «camini» */
       const co = ora && j.caminiOre && j.caminiOre[ora];
       f.camini = (co || j.camini || []).slice(0, 2).filter(q => +q.w > 0 && +q.h > 0).map(q => ({x:+q.x, y:+q.y, w:+q.w, h:+q.h}));
+      /* 16/11 sera · parti di animali che si muovono: «animaliOre» {ora: [{tipo: 'testa'|'coda', perno: [x, y], centro: [x, y],
+         raggi: [rx (in larghezze), ry (in altezze)], gradi, sposta (in altezze), periodo (secondi)}]}, nell'immagine */
+      const ao = ora && j.animaliOre && j.animaliOre[ora];
+      f.parti = (ao || []).slice(0, 3).filter(q => q && Array.isArray(q.perno) && Array.isArray(q.centro) && Array.isArray(q.raggi)).map((q, i) => ({
+        coda: q.tipo === 'coda', px: +q.perno[0], py: +q.perno[1], cx: +q.centro[0], cy: +q.centro[1], rx: +q.raggi[0], ry: +q.raggi[1],
+        rot: (+q.gradi || 0) * Math.PI / 180, sposta: +q.sposta || 0, periodo: Math.max(1, +q.periodo || 4), seme: i * .41 + .17}));
       /* 16/11 · dove va la luce che entra dalle finestre: «fasci» {ora: {gradi: dalla verticale, meno = verso sinistra,
          vetri: [[x0, y0, x1, y1], …] i riquadri delle finestre}} (gradi da soli = i vetri si cercano); null o assente =
          niente fasci a quell'ora. Vedi mascheraFasci */
@@ -1459,7 +1512,13 @@ class Vista {
       const fv = fv0 == null ? null : typeof fv0 === 'number' ? fv0 : +fv0.gradi;
       f.fasciAng = typeof fv === 'number' && isFinite(fv) ? Math.max(-80, Math.min(80, fv)) : null;
       f.fasciVetri = fv0 && Array.isArray(fv0.vetri) ? fv0.vetri.filter(r => Array.isArray(r) && r.length === 4 && r[2] > r[0] && r[3] > r[1]).slice(0, 6) : null;
-    } catch(e) { f.fumi = []; f.fuochi = []; f.fiamme = []; f.camini = []; f.fasciAng = null; }
+      /* 16/11 sera · quanto più buia la stanza («buio» per tutte le ore, «buioOre» {ora: …} per una sola; 0 … .8) e il
+         pavimento più scuro («pavimentoOre» {ora: {k: quanto, poli: [[x, y], …] il suo contorno nell'immagine}}) */
+      const bo = ora && j.buioOre ? j.buioOre[ora] : null, bv = bo != null ? bo : j.buio;
+      f.scuro = typeof bv === 'number' && isFinite(bv) ? Math.max(0, Math.min(.8, bv)) : 0;
+      const po = ora && j.pavimentoOre ? j.pavimentoOre[ora] : null;
+      f.pavimento = po && Array.isArray(po.poli) && po.poli.length >= 3 ? {poli: po.poli.map(q => [+q[0], +q[1]]), k: Math.max(0, Math.min(.8, +po.k || .3))} : null;
+    } catch(e) { f.fumi = []; f.fuochi = []; f.fiamme = []; f.camini = []; f.parti = []; f.fasciAng = null; f.scuro = 0; f.pavimento = null; }
   }
   /* 9/11 · luci delle case (dall'immagine della notte) e prati delle lucciole (dalla profondità): js/vita.js.
      Le finestre accese si cercano una volta sola per immagine */
@@ -1550,12 +1609,20 @@ class Vista {
     f.dimg = dimg; await this.caricaFumi(f, comignoli, dimg);
     /* 16/11 · i fasci di luce delle finestre di un interno (mascheraFasci): nel quarto canale della maschera delle chiome,
        che dentro non serve (255 = niente fascio: anche la maschera bianca di riserva vuol dire niente) */
-    f.fascio = null;
-    if (this.internoInArrivo && f.aTex && mA && f.fasciAng != null){
-      try { const fz = mascheraFasci(im, f.fasciAng, mA.width, mA.height, f.fasciVetri);
-        if (fz){ for (let i = 0; i < fz.a.length; i++) mA.data[i * 4 + 3] = 255 - fz.a[i]; this.carica(f.aTex, mA); f.fascio = fz; } } catch(e) { f.fascio = null; }
+    f.fascio = null; f.pavimentoOk = false;
+    if (this.internoInArrivo && f.aTex && mA){
+      if (f.fasciAng != null) try { const fz = mascheraFasci(im, f.fasciAng, mA.width, mA.height, f.fasciVetri);
+        if (fz){ for (let i = 0; i < fz.a.length; i++) mA.data[i * 4 + 3] = 255 - fz.a[i]; f.fascio = fz; } } catch(e) { f.fascio = null; }
+      /* 16/11 sera · dentro il rosso (le chiome, che non ci sono) porta il pavimento da scurire: il passaggio del vento lo passa al disegno */
+      let pm = null; if (f.pavimento) try { pm = mascheraPoligono(f.pavimento.poli, mA.width, mA.height); } catch(e) { pm = null; }
+      for (let i = 0, n = mA.width * mA.height; i < n; i++) mA.data[i * 4] = pm ? pm[i] : 0;
+      f.pavimentoOk = !!pm;
+      this.carica(f.aTex, mA);
     }
-    this.caricaVita(f, notte, dimg, imA);   /* luci delle case e prati delle lucciole: senza aspettare */
+    /* ⚠ 16/11 sera (Maurizio: «elimina quei puntini luminosi in alto a sinistra accanto allo stemma sopra il camino»): erano le
+       «luci delle case» di js/vita.js, cercate nell'immagine della notte. In un interno la notte è un altro dipinto (torce
+       e candele in altri posti): all'alba se ne accendevano 17 a caso, sui muri. Dentro le luci sono quelle dipinte */
+    this.caricaVita(f, this.internoInArrivo ? null : notte, dimg, imA);   /* luci delle case e prati delle lucciole: senza aspettare */
     /* il cielo che scorre (serve la profondità, per sapere dov'è il cielo). Il video resta per quello che
        si muove sotto il cielo (nebbia nelle valli, fumo dei camini): il suo cielo non si usa più */
     if (pCielo && dimg){
@@ -1807,6 +1874,7 @@ class Vista {
     /* 16/11 · i fasci di luce delle finestre (mascheraFasci); la larghezza del foro si mette foro per foro */
     const fasci = dentro === 1 && f0.fascio && !sp.has('fasci') ? f0.fascio : null;
     gl.uniform3fv(u.uFascioC, fasci ? fasci.col : [1, .96, .86]);
+    gl.uniform2f(u.uScuro, dentro === 1 ? (f0.scuro || 0) : 0, dentro === 1 && f0.pavimento && f0.pavimentoOk ? f0.pavimento.k : 0);   /* 16/11 sera */
     const me = s.meteora || null;
     gl.uniform4fv(u.uMeteora, me ? me.da : [0,0,0,0]); gl.uniform1f(u.uMeteoraK, me ? me.k : 0);
     const oc = s.occhio || {x:0, z:0}; gl.uniform3f(u.uOcchio, oc.x || 0, 0, oc.z || 0);
@@ -1901,6 +1969,17 @@ class Vista {
         gl.uniform4fv(u.uCamino, this.caminoDati);
       }
       gl.uniform1f(u.uNCamino, camini.length);
+      const parti = haImg && f0.ok && s.movimento && !sp.has('animali') && s.vita && s.vita.interno ? (f0.parti || []) : [];
+      if (parti.length){
+        const ci = this.crop(f0, foro.aspetto, marg, f0.fuoco, foro.striscia, f0.fuoco), A = foro.aspetto;
+        if (!this.parteDati) this.parteDati = new Float32Array(36);
+        parti.forEach((q, j) => { const o = j * 12, D = this.parteDati, vx = x => (x - ci[0]) / ci[2], vy = y => (y - ci[1]) / ci[3];
+          D[o] = vx(q.px); D[o + 1] = vy(q.py); D[o + 2] = vx(q.cx); D[o + 3] = vy(q.cy);
+          D[o + 4] = q.rx / ci[2] * A; D[o + 5] = q.ry / ci[3]; D[o + 6] = q.rot; D[o + 7] = q.sposta / ci[3];
+          D[o + 8] = q.coda ? 1 : 0; D[o + 9] = q.seme; D[o + 10] = q.periodo; D[o + 11] = Math.hypot((q.cx - q.px) / ci[2] * A, (q.cy - q.py) / ci[3]) * 2; });
+        gl.uniform4fv(u.uParte, this.parteDati);
+      }
+      gl.uniform1f(u.uNParte, parti.length);
       gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
       /* 2b. luci delle case, falò e lucciole: piccoli bagliori sopra il paesaggio (js/vita.js) */
       if (vitaBagliori.length) this.disegnaBagliori(foro, s, vitaBagliori, f0, marg);
@@ -2033,6 +2112,24 @@ function mascheraAlberi(img, dimg){
    davvero. Torna {a: 0..255 per cella (W×H come la maschera delle chiome), dir, col: il colore della luce dei vetri} o null.
    Al tramonto i vetri sono arancio e saturi come le fiamme: per questo il file dei punti può dire dove sono (vetri:
    riquadri); lì dentro è vetro quello che è più chiaro della metà del riquadro */
+function mascheraPoligono(poli, W, H){
+  const m = new Float32Array(W * H), n = poli.length;
+  for (let y = 0; y < H; y++){
+    const py = (y + .5) / H;
+    for (let x = 0; x < W; x++){
+      const px = (x + .5) / W; let dentro = false;
+      for (let i = 0, j = n - 1; i < n; j = i++){ const [xi, yi] = poli[i], [xj, yj] = poli[j];
+        if ((yi > py) !== (yj > py) && px < (xj - xi) * (py - yi) / (yj - yi) + xi) dentro = !dentro; }
+      m[y * W + x] = dentro ? 1 : 0;
+    }
+  }
+  const o = new Uint8Array(W * H), r = 2;   /* bordo morbido (due celle) */
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++){
+    let s = 0, c = 0; for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++){ const yy = y + dy, xx = x + dx; if (yy < 0 || yy >= H || xx < 0 || xx >= W) continue; s += m[yy * W + xx]; c++; }
+    o[y * W + x] = Math.round(s / c * 255);
+  }
+  return o;
+}
 function mascheraFasci(img, ang, W, H, vetri = null){
   let src = img, sw = img.naturalWidth || img.width, sh = img.naturalHeight || img.height;
   while (sw > W * 4 && sh > H * 4){
