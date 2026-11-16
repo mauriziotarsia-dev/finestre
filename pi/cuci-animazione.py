@@ -941,7 +941,7 @@ def giro_casa(casa, larghezza=None, veloce=False, forza=1, chi='pc'):
             # alla giunta e al giro (segno v7), poi senza sbuffi di fumo lontano da persone e fiamme (segno v8), poi coi
             # passaggi in cui scorrono tutti e due i tratti (segno v9), poi coi pezzi a tappe tagliati dove la fine è libera (v10)
             dentro = 'interno' in (base.split('@', 1)[1].split('.') if '@' in base else [])
-            if originale not in nomi or f'{base}_{parte[:-4]}-' + ('v10' if dentro else 'v2') + '.png' in nomi: continue
+            if originale not in nomi or f'{base}_{parte[:-4]}-' + ('v9' if dentro else 'v2') + '.png' in nomi: continue   # v10: vedi sotto (cesta)
             _SOSPESI[0] += 1                                   # c'è un video da ricucire
             # 15/11 (Maurizio aspettava la taverna: mezz'ora a video sull'Ally, uno dopo l'altro): se il più forte è già
             # occupato con una ricucitura, il meno forte prende la successiva invece di aspettare; a priorità bassa, perché
