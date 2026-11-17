@@ -608,7 +608,7 @@ function intensitaLampo(ora){
 const occhio = {x:0, z:0}, occhioTgt = {x:0, z:0};
 /* 17/11: la Molla al posto dell'Inseguitore (js/inseguitore.js: «va a scatti, arriva in ritardo») */
 const inseguitore = new Molla(q.get('anticipo') ? {anticipo: +q.get('anticipo') / 1000} : {});
-let margine = 1.04, provaFino = 0, sensore = null, ultimoSensore = 0, ultimaPresenza = 0;
+let margine = 1.0, provaFino = 0, sensore = null, ultimoSensore = 0, ultimaPresenza = 0;
 const misura = {n:0, t0:0, eta:0, intervallo:0, ultimo:0};
 const registroRadar = [];   /* [ms, quante persone, x mm, y mm, x mostrata ×1000, z mostrata ×1000] */
 const TV_POS = {x: +q.get('tvx') || 2600, y: +q.get('tvy') || 1800};
@@ -858,7 +858,7 @@ async function banco(d, rispondi, schedaVideo){
     }
     await new Promise(r => setTimeout(r, 1500));
     const base = ultimoParam || {t: 0, movimento: true, prospettiva: true, coperto: 0, nebbia: 0, pioggia: 0, neve: 0, tempesta: 0, vento: .3, lampo: 0, lampoX: .5,
-      uccelli: 0, notte: 0, ombre: 0, cieloX: 0, notteFinta: 0, luce: .7, buio: 0, qualita: 1, colNebbia: [.6, .62, .65], occhio: {x: 0, z: 0}, margine: 1.04};
+      uccelli: 0, notte: 0, ombre: 0, cieloX: 0, notteFinta: 0, luce: .7, buio: 0, qualita: 1, colNebbia: [.6, .62, .65], occhio: {x: 0, z: 0}, margine: 1.0};
     const passate = Array.isArray(d.passate) && d.passate.length ? d.passate.slice(0, 4).map(x => ({nome: String(x && x.nome || 'prova').slice(0, 60), cambia: (x && x.cambia) || {}}))
       : [{nome: 'tempo di adesso (' + (scena.meteo || 'sereno') + ')', cambia: {}},
       {nome: 'temporale', cambia: {coperto: 1, nebbia: .18, pioggia: 1, neve: 0, tempesta: 1, vento: .9}}];
@@ -875,7 +875,7 @@ async function banco(d, rispondi, schedaVideo){
           const {p, v, fori} = viste[j], ogni = Math.max(1, Math.round(60 / (p.fps || 60)));
           if (i % ogni) continue;
           const s = Object.assign({}, base, pa.cambia, {t: (base.t || 0) + t, qualita: p.qualita == null ? 1 : p.qualita, lampo: 0,
-            occhio: p.radar ? {x: Math.sin(t * 1.3) * .8, z: Math.cos(t * .7) * .5} : {x: 0, z: 0}, margine: p.radar ? 1.33 : 1.04});
+            occhio: p.radar ? {x: Math.sin(t * 1.3) * .8, z: Math.cos(t * .7) * .5} : {x: 0, z: 0}, margine: p.radar ? 1.33 : 1.0});
           const t0 = performance.now();
           v.disegna(fori, s);
           v.gl.readPixels(0, 0, 1, 1, v.gl.RGBA, v.gl.UNSIGNED_BYTE, px);   /* aspetta che la scheda video abbia finito */
@@ -894,7 +894,7 @@ async function banco(d, rispondi, schedaVideo){
       esito.foto = [];
       for (let j = 0; j < viste.length; j++){
         const {p, v, fori} = viste[j];
-        v.disegna(fori, Object.assign({}, base, passate[0].cambia, {t: (base.t || 0) + giri / 60 + 1, qualita: p.qualita == null ? 1 : p.qualita, lampo: 0, occhio: {x: 0, z: 0}, margine: 1.04}));
+        v.disegna(fori, Object.assign({}, base, passate[0].cambia, {t: (base.t || 0) + giri / 60 + 1, qualita: p.qualita == null ? 1 : p.qualita, lampo: 0, occhio: {x: 0, z: 0}, margine: 1.0}));
         const sx = Math.round(rt[0] * p.w), sy = Math.round(rt[1] * p.h), sw = Math.max(2, Math.min(p.w - sx, Math.round(rt[2] * p.w))), sh = Math.max(2, Math.min(p.h - sy, Math.round(rt[3] * p.h)));
         const k = Math.min(1, maxW / sw), o = document.createElement('canvas'); o.width = Math.round(sw * k); o.height = Math.round(sh * k);
         o.getContext('2d').drawImage(v.c, sx, sy, sw, sh, 0, 0, o.width, o.height);
@@ -1226,7 +1226,10 @@ function giro(ora){
      (22,5% per lato: 14% + 8,25%) */
   /* 17/11 (Maurizio: «tenere l'immagine a tutta altezza»): niente più ingrandimento con la prospettiva viva; lo spostamento ai
      lati lo regge spostaVivo (js/vista.js), che ai bordi usa solo la riserva normale */
-  margine += (1.04 - margine) * (1 - Math.exp(-dt * .8));
+  /* ⚠ 17/11 sera (Maurizio: «non mi è chiaro se si può allargare il campo per vedere meglio l'armatura ed i tavoli in primo
+     piano»; «no allargamento generato, solo se già c'è quella protezione di immagine ma la stiamo lasciando fuori»): il 4% di
+     riserva (1,04) serviva alla prospettiva viva del radar, tolto il 17/11. Ora l'immagine si vede tutta (1,0): 2% in più per lato */
+  margine += (1.0 - margine) * (1 - Math.exp(-dt * .8));
   const t0d = performance.now();
   const param = {
     t: (ora / 1000) % 3588, trasparente: !!scena.yt, movimento: scena.movimento !== false, prospettiva: scena.prospettiva !== false,
