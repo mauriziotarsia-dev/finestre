@@ -66,6 +66,7 @@ CATENA = False              # 16/11: True mentre si cuce un'animazione a tappe (
 CATENA_PEZZI = 0            # 16/11: quanti pezzi a tappe ci sono in fila (dal segno «-catena.png»)
 CATENA_LIBERE = []          # 16/11: le giunte (dopo il pezzo i, da 1) dove il pezzo finisce dove vuole lui: vedi giunte_dei_pezzi
 FERMI = []                  # 16/11: zone (frazioni x0, y0, x1, y1) dove le cose ferme si prendono dal dipinto: vedi OggettiFermi
+PIENI = []                  # 17/11: zone (frazioni x0, y0, x1, y1) dove si prende sempre il video intero: vedi analizza
 CATENA_SEQ = []             # 16/11: le tappe in fila, dipinto compreso ('base', …, 'base'): il pezzo i va da CATENA_SEQ[i-1] a CATENA_SEQ[i]
 CATENA_ALLACCI = None       # 16/11: per ogni tratto da dipinto a dipinto, come lo sceglie il motore (nome, peso, ogni, noDiFila)
 CATENA_SFUMA = None         # 16/11: la sfumata fra i pezzi nell'originale lungo (dal segno; None: SFUMA_TAPPE, quella di adesso)
@@ -255,6 +256,13 @@ def analizza(percorso, n, fps, w, h, cielo):
         fiam = ((vivo > max(18., soglia * 2.6)) & (np.median(L, 0) > 150)).astype(np.float32)
         fiam = cv2.dilate(cv2.morphologyEx(fiam, cv2.MORPH_OPEN, np.ones((2, 2), np.uint8)), np.ones((3, 3), np.uint8))
         zf = np.maximum(pers, fiam)
+        # ⚠ 17/11 sera (Maurizio, giorno della taverna: «quando l'oste spilla la birra scompare parte della faccia», «quando prende
+        # dalla tasca le spezie … il gomito scompare»): la zona delle persone si misura su tutto il video cucito, e un gesto che
+        # c'è in un tratto solo (l'oste che si china verso la mensola, il gomito della cuoca che va alla tasca) resta sotto la
+        # soglia: lì il cucitore metteva il dipinto e la faccia diventava trasparente. Nelle zone «pieni» del segno delle tappe
+        # (attorno a dove lavorano le persone) si prende sempre il video intero, e la maschera del TV le segue
+        for fx0, fy0, fx1, fy1 in PIENI:
+            zf[int(fy0 * zf.shape[0]):int(round(fy1 * zf.shape[0])), int(fx0 * zf.shape[1]):int(round(fx1 * zf.shape[1]))] = 1
         forte = np.clip(cv2.GaussianBlur(cv2.resize(zf, (w, h), interpolation=cv2.INTER_LINEAR), (0, 0), 6) * 1.3, 0, 1)
         # le persone, piccole: per scegliere dove richiudere il giro e dove saltare fra i pezzi (15/11: senza le fiamme, che
         # tremolando di continuo coprivano i movimenti delle persone: il ritorno di corsa dell'uomo alla posa iniziale
@@ -1357,8 +1365,8 @@ def metti_in_fila(pezzi, uscita, sfuma=None):
 def _cuci_uno(cart, nomi, nome, base, parte, originale, larghezza, veloce, ricuci=False):
     """ricuci: l'animazione è già cucita (con il cucitore di prima): si riparte dal video originale dell'AI, che resta
     com'è, e si rifanno video, fermo e maschera (14/11: il fermo dalla foto a piena risoluzione anche per i paesaggi vecchi)."""
-    global CATENA, CATENA_PEZZI, CATENA_LIBERE, FERMI, CATENA_SEQ, CATENA_ALLACCI, CATENA_SFUMA, CATENA_VINCOLATA
-    CATENA, CATENA_PEZZI, CATENA_LIBERE, FERMI, CATENA_SEQ, CATENA_ALLACCI, CATENA_SFUMA, CATENA_VINCOLATA = False, 0, [], [], [], None, None, False   # 16/11: vale solo per questo video
+    global CATENA, CATENA_PEZZI, CATENA_LIBERE, FERMI, PIENI, CATENA_SEQ, CATENA_ALLACCI, CATENA_SFUMA, CATENA_VINCOLATA
+    CATENA, CATENA_PEZZI, CATENA_LIBERE, FERMI, PIENI, CATENA_SEQ, CATENA_ALLACCI, CATENA_SFUMA, CATENA_VINCOLATA = False, 0, [], [], [], [], None, None, False   # 16/11: vale solo per questo video (17/11: anche PIENI)
     cj = {}
     if True:
         with tempfile.TemporaryDirectory() as d:
@@ -1373,6 +1381,7 @@ def _cuci_uno(cart, nomi, nome, base, parte, originale, larghezza, veloce, ricuc
                     cj = json.load(open(x, encoding='utf-8'))
                     seq = ['base'] + list(cj.get('tappe') or []) + ['base']
                     FERMI = [tuple(float(v) for v in z) for z in (cj.get('fermi') or []) if len(z) == 4]
+                    PIENI = [tuple(float(v) for v in z) for z in (cj.get('pieni') or []) if len(z) == 4]
                     CATENA_PEZZI = len(seq) - 1; CATENA_SEQ = seq; CATENA_ALLACCI = cj.get('allacci'); CATENA_VINCOLATA = bool(cj.get('fineVincolata'))
                     # la sfumata con cui è fatto l'originale lungo: scritta nel segno; senza, quella di prima del 16/11 (0,25 s)
                     if ricuci: CATENA_SFUMA = float(cj['sfuma']) if 'sfuma' in cj else .25
