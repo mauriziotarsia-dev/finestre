@@ -1277,6 +1277,54 @@ SFUMA_PEZZI = 0.6
 SFUMA_TAPPE = 0.0           # 16/11: fra due pezzi a tappe niente sfumata (la giunta la fa _percorso_dentro, «LE GIUNTE ESATTE»); prima 0,25
 
 
+RITMO_INIZIO = [(0.0, 2.2), (0.25, 1.65), (0.5, 1.4), (0.75, 1.2), (1.1, 1.0)]                        # (s dall'inizio, velocità)
+RITMO_FINE = [(3.0, 1.0), (2.5, 1.2), (2.0, 1.45), (1.5, 1.6), (1.0, 1.75), (0.5, 2.0), (0.0, 2.2)]   # (s dalla fine, velocità)
+
+
+def ritma(entrata, uscita, inizio=None, fine=None, durata_tipo=10.0):
+    """⚠ 17/11 · IL RALLENTAMENTO ALLE GIUNTE (Maurizio, giorno della taverna: «ci sono momenti dove i personaggi si fermano
+    per 1-2 secondi», «il rallentamento si vede tantissimo»). Ogni pezzo a tappe parte e finisce sulla posa dipinta e l'AI ci
+    entra e ne esce piano: misurato sul giorno (8 pezzi, oste, avventori, cuoca), il movimento nel primo secondo sale dal 45%
+    al 100% di quello di metà pezzo, negli ultimi tre scende dall'80% al 45%. Tutti insieme, a ogni giunta: quattro secondi
+    al rallentatore ogni dieci. Qui il pezzo si riscrive più veloce agli estremi (fino a 2,2 volte proprio sulla posa, 1 a
+    metà), fondendo i due fotogrammi vicini quando il tempo cade fra due: la posa di partenza e quella d'arrivo restano
+    esatte. La curva è la stessa per tutti i pezzi e la lunghezza d'uscita è fissa (quella di un pezzo da durata_tipo s):
+    i pezzi restano lunghi uguale, come vuole _giunte_catena."""
+    inizio = inizio or RITMO_INIZIO; fine = fine or RITMO_FINE
+    n, fps, w, h = leggi_info(entrata)
+    def velocita(t, T):
+        a = np.interp(t, *zip(*sorted(inizio)), right=1.0)              # np.interp vuole le x in salita
+        b = np.interp(T - t, *zip(*sorted(fine)), right=1.0)
+        return max(a, b, 1.0)
+    def tempi_uscita(T, passo=1e-3):
+        """u(t): il tempo d'uscita di ogni istante del pezzo (dt / velocità)"""
+        ts = np.arange(0, T + passo, passo); v = np.array([velocita(t, T) for t in ts])
+        return ts, np.concatenate([[0], np.cumsum(passo / v[:-1])])
+    _, ut = tempi_uscita(durata_tipo); L = int(round(ut[-1] * fps)) + 1      # fotogrammi d'uscita, uguali per tutti i pezzi
+    T = (n - 1) / fps; ts, u = tempi_uscita(T)
+    dove = np.interp(np.linspace(0, u[-1], L), u, ts) * fps                  # per ogni fotogramma d'uscita, il punto del pezzo
+    dove[0], dove[-1] = 0, n - 1
+    cmd = ['ffmpeg', '-v', 'error', '-y', '-threads', FF_THREADS, '-f', 'rawvideo', '-pix_fmt', 'bgr24', '-s', f'{w}x{h}', '-r', f'{fps:.3f}',
+           '-i', '-', '-an', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '12', '-pix_fmt', 'yuv420p', uscita]
+    ff = subprocess.Popen(cmd, stdin=subprocess.PIPE, creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+    sorg = fotogrammi(entrata); buf = {}; letti = 0
+    def prendi(k):
+        nonlocal letti
+        while letti <= k:
+            f = next(sorg, None)
+            if f is None: break
+            buf[letti] = f; letti += 1
+        for j in [j for j in buf if j < k - 1]: del buf[j]
+        return buf.get(k, buf[max(buf)])
+    for x in dove:
+        k = int(np.floor(x)); a = x - k
+        if a < 1e-3 or k + 1 > n - 1: f = prendi(min(k, n - 1))
+        else: f = cv2.addWeighted(prendi(k), 1 - a, prendi(k + 1), a, 0)
+        ff.stdin.write(f.tobytes())
+    ff.stdin.close(); ff.wait()
+    return L
+
+
 def metti_in_fila(pezzi, uscita, sfuma=None):
     """13/11 notte · il giro lungo: più video da 10 s, ognuno con un movimento diverso, che partono e finiscono tutti
     sulla stessa immagine, messi uno dopo l'altro (ricodificati insieme: stessi fotogrammi al secondo e stessa misura)."""
@@ -1338,6 +1386,13 @@ def _cuci_uno(cart, nomi, nome, base, parte, originale, larghezza, veloce, ricuc
                 for i, pn in enumerate(pezzi_n):
                     x = os.path.join(d, f'p{i + 2}.mp4'); _scarica(cart, pn, x); pz.append(x)
                 if CATENA and CATENA_PEZZI != len(pz): CATENA_LIBERE = []    # il segno non torna con i file: nessun taglio
+                # 17/11 · «ritmo» nel segno: gli estremi dei pezzi più svelti (vedi ritma); l'originale lungo li tiene già così
+                rt = cj.get('ritmo') if CATENA else None
+                if rt:
+                    rt = rt if isinstance(rt, dict) else {}
+                    for i, x in enumerate(pz):
+                        y = os.path.join(d, f'r{i + 1}.mp4'); ritma(x, y, rt.get('inizio'), rt.get('fine')); pz[i] = y
+                    print('  estremi dei pezzi più svelti (ritmo)', flush=True)
                 tutta = os.path.join(d, 'tutta.mp4'); metti_in_fila(pz, tutta, SFUMA_TAPPE if CATENA else None); e = tutta
                 if CATENA:                                                   # 16/11: il segno dice come è fatto l'originale lungo
                     CATENA_SFUMA = SFUMA_TAPPE
