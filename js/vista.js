@@ -79,7 +79,7 @@ uniform float uHaVento;   /* (il passaggio a bassa risoluzione scrive dal basso:
 uniform vec4 uFumo[8];        /* fumo dai comignoli: (x, y nella vista, larghezza del tetto in larghezze della vista, profondità) */
 uniform float uFumoI[8];      /* 9/11: quanto fuma ognuno (i comignoli 1, i fuochi lontani quando sono accesi: js/vita.js) */
 uniform float uNFumo, uFumoA; /* quanti, e quanto si vedono (sfumano col paesaggio) */
-uniform vec4 uFiamma[8];      /* 15/11 · fiamme di candele e torce negli interni: (x, y della base nella vista, altezza in altezze della vista, seme) */
+uniform vec4 uFiamma[12];     /* 15/11 · fiamme di candele e torce negli interni: (x, y della base nella vista, altezza in altezze della vista, seme). 17/11: 12 (lampadario, torce e tre candele della taverna non ci stavano in 8) */
 uniform float uNFiamma;
 uniform sampler2D uIns0, uIns1;   /* 16/11 sera · i video «inserto» (il gatto, i fuochi): video corti messi in un riquadro dell'immagine */
 uniform vec4 uRiqBox[4];      /* fino a quattro riquadri: dove stanno nell'immagine intera (x0, y0, x1, y1) */
@@ -289,7 +289,7 @@ vec3 paesaggio(sampler2D img, sampler2D imgB, float vk, sampler2D dep, vec4 crop
   gFiamma = 0.;
   if (uNFiamma > .5){
     vec2 dpF = vec2(0.);
-    for (int i = 0; i < 8; i++){
+    for (int i = 0; i < 12; i++){
       if (float(i) >= uNFiamma) break;
       vec4 F = uFiamma[i];
       vec2 q = vec2((p.x - F.x) * uAspetto, p.y - F.y) / F.z;      /* in altezze di fiamma: 0 alla base, -1 alla punta */
@@ -1540,7 +1540,7 @@ class Vista {
       /* 15/11: le fiamme di candele e torce di un interno (base x, y e altezza h, nell'immagine) */
       /* 15/11 sera · le candele si consumano ora per ora: «fiammeOre» {ora: […]} vince su «fiamme» (l'ora arriva in fondo all'indirizzo, #ora=…) */
       const ora = (String(url).match(/#ora=(\w+)/) || [])[1], fo = ora && j.fiammeOre && j.fiammeOre[ora];
-      f.fiamme = (fo || j.fiamme || []).slice(0, 8).map((q, i) => ({x:+q.x, y:+q.y, h:+q.h || .03, s: i * .37 + .11}));
+      f.fiamme = (fo || j.fiamme || []).slice(0, 12).map((q, i) => ({x:+q.x, y:+q.y, h:+q.h || .03, s: i * .37 + .11}));
       /* 16/11 · i fuochi dei camini: «caminiOre» {ora: [{x, y (base), w (larghezza), h (altezza)}]} vince su «camini» */
       const co = ora && j.caminiOre && j.caminiOre[ora];
       f.camini = (co || j.camini || []).slice(0, 2).filter(q => +q.w > 0 && +q.h > 0).map(q => ({x:+q.x, y:+q.y, w:+q.w, h:+q.h}));
@@ -2072,7 +2072,7 @@ class Vista {
       const fiamme = haImg && f0.ok && s.movimento && !sp.has('fiamme') && s.vita && s.vita.interno ? (f0.fiamme || []) : [];
       if (fiamme.length){
         const ci = this.crop(f0, foro.aspetto, marg, f0.fuoco, foro.striscia, f0.fuoco);
-        if (!this.fiammaDati) this.fiammaDati = new Float32Array(32);
+        if (!this.fiammaDati) this.fiammaDati = new Float32Array(48);
         fiamme.forEach((q, j) => { this.fiammaDati[j * 4] = (q.x - ci[0]) / ci[2]; this.fiammaDati[j * 4 + 1] = (q.y - ci[1]) / ci[3]; this.fiammaDati[j * 4 + 2] = q.h / ci[3]; this.fiammaDati[j * 4 + 3] = q.s; });
         gl.uniform4fv(u.uFiamma, this.fiammaDati);
       }
