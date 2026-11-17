@@ -28,7 +28,7 @@
 <script src="../js/accesso.js?v=8"></script>
 <script src="../js/qrcode.js?v=1"></script>
 <script src="../js/vita.js?v=5"></script>
-<script src="../js/vista.js?v=5.87"></script>
+<script src="../js/vista.js?v=5.88"></script>
 <script src="../js/inseguitore.js?v=3"></script>
 <script src="../js/uccelli.js?v=10"></script>
 <script src="../js/bard.js?v=9"></script>
@@ -1205,7 +1205,8 @@ function giro(ora){
   if (radarQui() && scena.prospettivaViva) apriSensore(); else chiudiSensore();
   const presente = viva && ora - ultimaPresenza < 600;
   const pos = presente ? inseguitore.posizione(ora / 1000) : null;
-  if (pos){ occhio.x = Math.max(-1, Math.min(1, pos.x)); occhio.z = Math.max(-1.1, Math.min(1.1, pos.z)); }
+  /* 17/11 (Maurizio: «se mi avvicino o mi allontano non deve cambiare niente»): la distanza non conta più */
+  if (pos){ occhio.x = Math.max(-1, Math.min(1, pos.x)); occhio.z = 0; }
   else {   /* nessuno (o più persone): si torna al centro, piano */
     if (!presente){ occhioTgt.x = 0; occhioTgt.z = 0; }
     const ko = 1 - Math.exp(-dt * 2.2);
@@ -1219,7 +1220,9 @@ function giro(ora){
      avvicinandosi diventa l'8,3%) più l'allargamento di chi si avvicina (15%: l'8,25% per lato) fanno il 16,6% per lato.
      17/11 (Maurizio: «per un passo di lato si sposta troppo poco»): lo spostamento ai lati sale al 14%, la riserva a 1,45
      (22,5% per lato: 14% + 8,25%) */
-  margine += ((viva || Math.abs(occhio.x) > .01 ? 1.45 : 1.04) - margine) * (1 - Math.exp(-dt * .8));
+  /* 17/11 (Maurizio: «tenere l'immagine a tutta altezza»): niente più ingrandimento con la prospettiva viva; lo spostamento ai
+     lati lo regge spostaVivo (js/vista.js), che ai bordi usa solo la riserva normale */
+  margine += (1.04 - margine) * (1 - Math.exp(-dt * .8));
   const t0d = performance.now();
   const param = {
     t: (ora / 1000) % 3588, trasparente: !!scena.yt, movimento: scena.movimento !== false, prospettiva: scena.prospettiva !== false,

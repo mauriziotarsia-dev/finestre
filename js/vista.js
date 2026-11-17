@@ -218,13 +218,24 @@ vec3 riquadro(vec3 c, vec2 ti, vec4 box, vec4 tile, float sam){
   if (sam > 1.5) a *= s1 < .5 ? texture2D(uIns0, ut + vec2(0., .5)).g : texture2D(uIns1, ut + vec2(0., .5)).g;
   return mix(c, v, a);
 }
+/* ⚠ 17/11 · PROSPETTIVA VIVA A TUTTA ALTEZZA (Maurizio: «proviamo a tenere l'immagine a tutta altezza e a fare solo
+   spostamenti a destra e sinistra; se mi avvicino o mi allontano non deve cambiare niente»). L'immagine del TV è 16:9 come
+   lo schermo: senza ingrandirla, ai lati non c'è altro paesaggio da far entrare. Allora il centro scorre di tutto lo
+   spostamento e i bordi solo di quanto c'è di riserva (uOcchio.y, la metà del margine): in mezzo si raccorda con una
+   parabola. Il lontano scorre più del vicino, come prima. u = dove si è sullo schermo (0…1) */
+float spostaVivo(float u, float n){
+  float s = uOcchio.x * .08 * (1. - .7 * n);
+  float c = 1. - (2. * u - 1.) * (2. * u - 1.);
+  float wE = min(1., uOcchio.y / max(abs(s), 1e-4));
+  return s * mix(wE, 1., c);
+}
 vec3 paesaggio(sampler2D img, sampler2D imgB, float vk, sampler2D dep, vec4 crop, vec4 cropD, float haDep, float mov, sampler2D cie, vec4 cm, sampler2D fer, float haF, sampler2D rap, float haR, vec2 uv, out float n, out float sky){
   n = prof(dep, cropD, uv, haDep);
   /* prospettiva: le cose vicine si spostano di più fra una finestra e l'altra */
   vec2 p = uv; p.x += uLato * .012 * (n - .35);
   /* prospettiva viva: chi si sposta a destra vede più paesaggio a sinistra (il lontano scorre con lui, il vicino meno);
      chi si avvicina alla finestra vede un po' più di paesaggio */
-  p.x += uOcchio.x * .14 * (1. - .7 * n);
+  p.x += spostaVivo(uv.x, n);
   /* ⚠ 15/11 sera (Maurizio: «avvicinarsi alla finestra o allontanarsi dovrebbe cambiare cosa si vede, ampliando o restringendo
      la visuale»): c'era già ma si vedeva appena (7%). Ora il doppio: a un metro dal TV si vede il 15% di paesaggio in più, oltre
      i quattro metri il 15% in meno. Una finestra vera farebbe molto di più, ma serve immagine oltre i bordi: con la prospettiva
@@ -748,7 +759,7 @@ float fumo(vec2 uv){
     vec4 F = uFumo[i];
     float forzaF = uFumoI[i];
     /* dove appare il comignolo con la prospettiva (lo stesso spostamento del paesaggio a quella profondità) */
-    vec2 s = F.xy; float sh = uLato * .012 * (F.w - .35) + uOcchio.x * .14 * (1. - .7 * F.w);
+    vec2 s = F.xy; float sh = uLato * .012 * (F.w - .35) + spostaVivo(F.x, F.w);
     s = (s - .5) / k + .5; s.x -= sh;
     /* ⚠ 11/11 (Maurizio: «sistemerei i fumi che escono dalle case per renderli più realistici»). Prima la «canna» era un
        decimo del tetto senza limite: su una casa grande (tetto 0,1 dell'immagine) il pennacchio saliva per 600 pixel,
@@ -1593,7 +1604,7 @@ class Vista {
   /* i bagliori della vita del paesaggio, nel foro: stessa inquadratura e stessa prospettiva del paesaggio */
   disegnaBagliori(foro, s, lista, f0, marg){
     const gl = this.gl, ci = this.crop(f0, foro.aspetto, marg, f0.fuoco, foro.striscia, f0.fuoco), map = foro.map;
-    const oc = s.occhio || {x: 0, z: 0}, kz = 1 + (oc.z || 0) * .15, lato = s.prospettiva ? foro.lato : 0;
+    const oc = s.occhio || {x: 0, z: 0}, kz = 1 + (oc.z || 0) * .15, lato = s.prospettiva ? foro.lato : 0, ris = ((marg || 1.04) - 1) / 2;
     const scala = (foro.h / map[3]) / 1000;   /* pixel della vista intera su 1000 */
     const luce = (.45 + .55 * Math.sqrt(Math.max(0, s.luce || 0))) * (1 - (s.buio || 0));
     const d = this.datiBag;
@@ -1603,7 +1614,9 @@ class Vista {
         if (b.modo !== modo || n >= 96 * 6) continue;
         let u = (b.x - ci[0]) / ci[2], v = (b.y - ci[1]) / ci[3];
         u = (u - .5) / kz + .5; v = (v - .5) / kz + .5;
-        u -= lato * .012 * (b.n - .35) + (oc.x || 0) * .14 * (1 - .7 * b.n);
+        { const s0 = (oc.x || 0) * .08 * (1 - .7 * b.n), c0 = 1 - (2 * (u - map[0]) / map[2] - 1) ** 2;   /* come spostaVivo */
+          const wE = Math.min(1, ris / Math.max(Math.abs(s0), 1e-4));
+          u -= lato * .012 * (b.n - .35) + s0 * (wE + (1 - wE) * c0); }
         const px = (u - map[0]) / map[2] * foro.w, py = (v - map[1]) / map[3] * foro.h;
         const R = Math.max(2, b.alone * scala), cr = Math.min(1, Math.max(.6, b.core * scala) / R);
         if (px < -R || py < -R || px > foro.w + R || py > foro.h + R) continue;
@@ -1980,7 +1993,7 @@ class Vista {
     gl.uniform2f(u.uScuro, dentro === 1 ? (f0.scuro || 0) : 0, dentro === 1 && f0.pavimentoOk ? (f0.legnoOk && f0.legno ? f0.legno.k : f0.pavimento ? f0.pavimento.k : 0) : 0);   /* 16/11 sera */
     const me = s.meteora || null;
     gl.uniform4fv(u.uMeteora, me ? me.da : [0,0,0,0]); gl.uniform1f(u.uMeteoraK, me ? me.k : 0);
-    const oc = s.occhio || {x:0, z:0}; gl.uniform3f(u.uOcchio, oc.x || 0, 0, oc.z || 0);
+    const oc = s.occhio || {x:0, z:0}; gl.uniform3f(u.uOcchio, oc.x || 0, ((s.margine || 1.04) - 1) / 2, oc.z || 0);   /* y: la riserva ai lati (spostaVivo) */
     const marg = s.margine || 1.04;
     const campoU = uc.n ? this.campoUccelli(fori, marg) : {k: 1};   /* 14/11: con due finestrelle, la striscia di ognuna nel cielo degli uccelli */
     const tempo = (s.nebbia || 0) + (s.pioggia || 0) + (s.neve || 0) > .005 || (s.coperto || 0) > .01 || (s.lampo || 0) > .001;
