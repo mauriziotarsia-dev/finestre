@@ -40,6 +40,10 @@ const Ai = {
     const tutto = (codice + ' ' + m).toLowerCase();
     const fai = (tipo, testo) => { const e = new Error(testo); e.tipo = tipo; e.status = r.status; e.testo = m; e.chi = chi; return e; };
     const ricarica = chi.startsWith('OpenAI') ? 'platform.openai.com → Billing' : 'aistudio.google.com → Billing';
+    /* ⚠ 17/11 sera (Maurizio: «ho credito ma mi da errore», poi «Google dice di rallentare»): era il LIMITE DI SPESA MENSILE del
+       progetto in AI Studio (101 € su 100 €), che Google segnala con 429 o 402, e l'app lo scambiava per «troppe richieste» */
+    if (r.status === 402 || /spend(ing)? ?(cap|limit)|monthly spend|budget/.test(tutto))
+      return fai('credito', `${chi}: hai raggiunto il limite di spesa mensile del progetto. Alzalo su ${chi.startsWith('OpenAI') ? 'platform.openai.com → Limits' : 'aistudio.google.com → Spesa → Modifica limite di spesa'}, poi riprova.`);
     if (/insufficient_quota|billing_hard_limit|billing_not_active|exceeded your current quota|credit balance|out of credit|billing_disabled|billing to be enabled|enable billing|prepayment|credits? (are|is) depleted/.test(tutto))
       return fai('credito', `Credito ${chi} esaurito (o limite di spesa raggiunto). Ricarica su ${ricarica}, poi riprova.`);
     if (r.status === 401 || (r.status === 403 && /key|auth|permission|denied/.test(tutto)) || /invalid_api_key|api key not valid|api_key_invalid/.test(tutto))
