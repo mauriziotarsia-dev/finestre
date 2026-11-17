@@ -1389,7 +1389,8 @@ def _cuci_uno(cart, nomi, nome, base, parte, originale, larghezza, veloce, ricuc
                 except Exception as ex: print('  segno delle tappe illeggibile:', ex, file=sys.stderr, flush=True)
             # i pezzi in più del giro lungo (…_anim-notte-pezzo2.mp4 …): in fila dopo il primo
             # 14/11 · anche quando si ricuce: se i pezzi sono ancora lì, l'ha cucita un cucitore vecchio col solo primo pezzo
-            pezzi_n = [f'{base}_{parte[:-4]}-pezzo{k}.mp4' for k in range(2, 9) if f'{base}_{parte[:-4]}-pezzo{k}.mp4' in nomi]
+            # 17/11 sera · fino a 16 pezzi (prima 8: il nono gesto del giorno della taverna restava fuori senza dirlo)
+            pezzi_n = [f'{base}_{parte[:-4]}-pezzo{k}.mp4' for k in range(2, 17) if f'{base}_{parte[:-4]}-pezzo{k}.mp4' in nomi]
             if pezzi_n:
                 pz = [e]
                 for i, pn in enumerate(pezzi_n):
