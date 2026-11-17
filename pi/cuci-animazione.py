@@ -1254,7 +1254,7 @@ def aggiornati():
     """14/11 · Maurizio ha riacceso G10 e Ally dallo stop: il cucitore ripartito dallo stop era quello vecchio (lo si
     scarica solo all'avvio di Windows) e ha cucito il giorno dell'abbazia col solo primo pezzo. Ogni 10 minuti, fra un
     giro e l'altro (mai durante una cucitura), si guarda se su GitHub c'è un cucitore diverso: se sì, si scarica al posto
-    di questo e si riparte con gli stessi argomenti (il radar, già acceso, resta com'è)."""
+    di questo e si riparte con gli stessi argomenti."""
     if time.time() - _controllato[0] < 600: return
     _controllato[0] = time.time()
     try:
@@ -1402,26 +1402,6 @@ def _cuci_uno(cart, nomi, nome, base, parte, originale, larghezza, veloce, ricuc
             return 1
 
 
-def avvia_radar(chi):
-    """13/11 · il ricevitore del radar (pi/sensore.py) gira sul PC del TV. Dal 9/11 il TV ha la ROG Ally (prima il G10,
-    che lo faceva partire col suo installatore): l'Ally scarica a ogni avvio solo questo cucitore, quindi è il cucitore
-    a scaricare anche sensore.py e a farlo partire, se la porta 8788 è libera (= non gira già).
-    17/11: radar tolto (Maurizio: «togliamo il radar e risistema tutto senza»): non parte più niente."""
-    return
-    import socket
-    try:
-        with socket.socket() as so: so.bind(('127.0.0.1', 8788))
-    except OSError: return                                     # c'è già
-    dest = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'sensore.py')
-    try: urllib.request.urlretrieve('https://mauriziotarsia-dev.github.io/finestre/pi/sensore.py', dest)
-    except Exception as e: print('sensore.py non scaricato:', e, file=sys.stderr, flush=True)
-    if not os.path.exists(dest): return
-    exe = sys.executable.replace('python.exe', 'pythonw.exe')
-    subprocess.Popen([exe if os.path.exists(exe) else sys.executable, dest], cwd=os.path.dirname(dest),
-                     creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0) | getattr(subprocess, 'DETACHED_PROCESS', 0))
-    print('radar: ricevitore avviato', flush=True)
-
-
 def main():
     a = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     a.add_argument('entrata', nargs='?'); a.add_argument('uscita', nargs='?')
@@ -1446,9 +1426,6 @@ def main():
         DEPOSITO = 'atmosfera'                                   # la casa privata: il suo deposito
         print('stanza privata:', ACCESSO['casa'], flush=True)
         o.casa = o.casa or 'privata'
-    if o.casa:
-        try: avvia_radar(o.chi)
-        except Exception as e: print('radar non avviato:', e, file=sys.stderr, flush=True)
     if o.casa and not o.una and not ACCESSO:                   # la spinta: solo sul canale del link (la stanza privata resta al giro leggero al minuto)
         threading.Thread(target=ascolta_spinte, args=(o.casa,), daemon=True).start()
     if o.casa and o.pieno:
