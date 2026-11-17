@@ -47,6 +47,10 @@ const q = new URLSearchParams(location.search);
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
 const casa = (String(q.get('casa') || '').match(UUID) || [null])[0];
 const anteprima = q.get('anteprima') === '1';
+/* ⚠ 17/11 notte (mail di Supabase: traffico del piano gratuito superato, 18,7 GB su 11): in un giorno l'iPhone ha scaricato
+   290 volte il video del giorno del TV (2,5 GB), per le due anteprime piccole dell'app, a ogni apertura. Le anteprime piccole
+   (senzavideo=1) mostrano il dipinto con fiamme, inserti e luce; il video si vede solo «A tutto schermo» */
+const senzaVideo = q.get('senzavideo') === '1';
 /* 8/11 · ?guarda=1 (pagina guarda/, Maurizio: «vederle live su una pagina web, senza guardare la TV»): uno spettatore.
    Copia la scena dagli schermi veri (chiede «chi c'è?» e prende quella del suo stesso ruolo), segue scene, lampi e
    comandi come loro, ma non si presenta come schermo, non salva niente, non risponde a stato/foto/banco e non suona. */
@@ -329,6 +333,7 @@ function fonteDi(s){
   if (!dentroF && (!video || (q.get('ricolora') === 'forza' && an[o])) && an[fonteRic] && s.immagini[o] && o !== 'giorno' && o !== fonteRic && s.ricolora !== false && q.get('ricolora') !== '0' && vista.unita >= 13){ video = an[fonteRic]; ricolora = true; }
   /* il cielo che scorre: quello della luce che si vede; se la scena non lo porta (da DMaster, per esempio)
      si prova il file con lo stesso nome (…_alba.jpg → …_cielo-alba.jpg): se non c'è, niente */
+  if (senzaVideo){ video = null; ricolora = false; }
   const oraUsata = s.immagini[o] ? o : 'giorno';
   const cielo = s.immagini['cielo-' + oraUsata] || (/_(giorno|alba|tramonto|notte)\.jpg$/.test(url.split('?')[0]) ? url.split('?')[0].replace(/_(giorno|alba|tramonto|notte)\.jpg$/, '_cielo-$1.jpg') : null);
   /* video appena fatto, non ancora cucito dal Raspberry: il suo paesaggio fermo e dove si muove (js/fermo.js).

@@ -9,7 +9,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
 const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 const euro = n => (n < .1 ? n.toFixed(3) : n.toFixed(2)).replace('.', ',') + ' $';
-const VERSIONE = '6.84';
+const VERSIONE = '6.85';
 /* 8/11 · l'app si aggiorna da sola (Maurizio: «vedo ancora il quadrato con la doppia finestra»: sul telefono restava la
    versione vecchia anche dopo averla chiusa). Quando torna in primo piano, e ogni 10 minuti, chiede al server quale
    app.js c'è adesso; se è un'altra, ricarica (mai mentre un lavoro AI è in corso) */
@@ -634,8 +634,8 @@ function disegnaFinestre(){
     s.innerHTML = testa('bifora', 'Illusionist', 'Quello che si vede adesso') + `
       <!-- 8/11 · Maurizio: «le finestrelle dentro la TV», il paesaggio in onda grande; toccandolo si cambia paesaggio -->
       <div class="eroe" data-fai="apriScheda" data-v="paesaggi" role="button" aria-label="Cambia paesaggio">
-        <figure class="anteprima tv" id="anteprimaTv"><div class="fermo" style="inset:0"></div><iframe id="anteprimaTvFrame" title="Anteprima del TV" src="../finestra/?anteprima=1&vista=est"></iframe></figure>
-        <figure class="anteprima" id="anteprima"><iframe id="anteprimaFrame" title="Anteprima delle finestrelle" src="../finestra/?anteprima=1"></iframe></figure>
+        <figure class="anteprima tv" id="anteprimaTv"><div class="fermo" style="inset:0"></div><iframe id="anteprimaTvFrame" title="Anteprima del TV" src="../finestra/?anteprima=1&vista=est&senzavideo=1"></iframe></figure>
+        <figure class="anteprima" id="anteprima"><iframe id="anteprimaFrame" title="Anteprima delle finestrelle" src="../finestra/?anteprima=1&senzavideo=1"></iframe></figure>
         <div class="eroe-testo"><b id="nomeInOnda">—</b><small id="sottoInOnda"></small></div>
         <button class="eroe-intero" data-fai="schermoIntero" data-v="tv" aria-label="Guarda a tutto schermo">${icona('schermo', 16)}<span>Tutto schermo</span></button>
       </div>
