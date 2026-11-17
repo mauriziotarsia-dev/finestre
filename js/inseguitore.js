@@ -98,23 +98,37 @@
   class Molla {
     constructor(opz = {}){
       this.o = Object.assign({
-        anticipo: 0.12,          /* s: il ritardo da recuperare (radar, rete, molla) */
+        anticipo: 0.08,          /* s: il ritardo da recuperare (radar, rete, molla) */
         orizzonte: 0.25,         /* s: oltre non si prevede */
-        omega: 14,               /* rad/s: rigidità della molla (più alto = più pronta, meno liscia) */
+        omega: 11,               /* rad/s: rigidità della molla (più alto = più pronta, meno liscia) */
         campioniVel: 4,          /* letture per stimare la velocità */
         salto: 0.6,              /* unità: una lettura che salta più di così in un decimo di secondo è sospetta */
-        sogliaVel: [0.1, 0.4],   /* unità/s: sotto, fermo (niente previsione); sopra, previsione piena */
+        sogliaVel: [0.3, 0.8],   /* unità/s: sotto, fermo (niente previsione); sopra, previsione piena */
         silenzio: 0.4,           /* s: se il radar tace da tanto, niente previsione */
+        /* 17/11 mattina (Maurizio, fermo al centro a 2,5 m: «troppo nervoso, si muove anche se sto quasi immobile, quasi
+           ondeggiando»). Misurato: da fermi il corpo e il radar oscillano di ±5 cm (±2,3° in tutto), e la molla con la
+           previsione li seguiva amplificati. Davanti alla molla torna la quiete, ma «a elastico»: dentro 2,6° (11 cm a
+           2,5 m) dal punto fermo non succede niente; oltre, il punto fermo si trascina dietro alla lettura (niente salto,
+           perché la molla dopo smussa). La previsione entra solo con un passo vero (oltre 0,3 unità al secondo) */
+        quiete: [0.13, 0.10],
       }, opz);
       this.reset();
     }
-    reset(){ this.c = []; this.p = null; this.v = {x: 0, z: 0}; this.tp = null; this.saltato = false; }
+    reset(){ this.c = []; this.p = null; this.v = {x: 0, z: 0}; this.tp = null; this.saltato = false; this.fermo = null; }
     campione(x, z, t){
       const u = this.c[this.c.length - 1];
       if (u && t <= u.t) return;
       if (u && t - u.t > 0.6) this.c = [];
       else if (u && !this.saltato && t - u.t < 0.15 && (Math.abs(x - u.x) > this.o.salto || Math.abs(z - u.z) > this.o.salto)){ this.saltato = true; return; }
       this.saltato = false;
+      /* la quiete a elastico (vedi sopra) */
+      const q = this.o.quiete || [0, 0];
+      if (!this.fermo) this.fermo = {x, z};
+      for (const [k, r] of [['x', q[0]], ['z', q[1]]]){
+        const d = (k === 'x' ? x : z) - this.fermo[k];
+        if (Math.abs(d) > r) this.fermo[k] += d - Math.sign(d) * r;
+      }
+      x = this.fermo.x; z = this.fermo.z;
       this.c.push({x, z, t});
       while (this.c.length > this.o.campioniVel) this.c.shift();
       if (!this.p) this.p = {x, z};
