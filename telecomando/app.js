@@ -9,7 +9,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
 const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 const euro = n => (n < .1 ? n.toFixed(3) : n.toFixed(2)).replace('.', ',') + ' $';
-const VERSIONE = '6.81';
+const VERSIONE = '6.82';
 /* 8/11 · l'app si aggiorna da sola (Maurizio: «vedo ancora il quadrato con la doppia finestra»: sul telefono restava la
    versione vecchia anche dopo averla chiusa). Quando torna in primo piano, e ogni 10 minuti, chiede al server quale
    app.js c'è adesso; se è un'altra, ricarica (mai mentre un lavoro AI è in corso) */
@@ -1953,18 +1953,26 @@ let rifaiAnimFatti = new Set(leggi('atm-rifai-anim-fatti', []));
    {chiave, titolo, perche, immagine (indirizzo), fine ('stessa' o indirizzo), secondi, pezzi: [{prompt, immagine?}]}
    (6.80: ogni pezzo può avere la sua immagine: i due camini, il gatto, nella stessa richiesta) */
 let clipFatti = new Set(leggi('atm-clip-fatti', []));
-function chiediClip(d){
+/* 17/11 · un video corto già arrivato in banco (da un tentativo fermato a metà) non si rifà e non si paga di nuovo */
+const nomeClip = (d, k) => 'clip-' + bardSlug(d.chiave) + '-' + (k + 1) + '.mp4';
+async function clipGiaFatta(d, k){
+  try { const r = await fetch(SUPABASE_URL + '/storage/v1/object/public/dmaster-media/finestre/banco/' + nomeClip(d, k) + '?t=' + Date.now(), {method: 'HEAD', cache: 'no-store'}); return r.ok; }
+  catch(e) { return false; }
+}
+async function chiediClip(d){
   if (!d || !d.chiave || !Array.isArray(d.pezzi) || !d.pezzi.length || !(d.immagine || d.pezzi.every(x => x.immagine)) || clipFatti.has(d.chiave)) return;
   if (lavoro && !lavoro.finito) return;
   const mv = MODELLI_VIDEO.find(x => x.id === (d.modello || 'omni12-1080p')) || MODELLI_VIDEO.find(x => x.id === imp.video.modello) || MODELLI_VIDEO[0]; if (!mv) return;
-  const sec = Math.max(4, Math.min(10, +d.secondi || 10)), tot = mv.euroSecondo * sec * d.pezzi.length;
+  const gia = await Promise.all(d.pezzi.map((x, k) => clipGiaFatta(d, k)));
+  if (gia.every(Boolean)){ clipFatti.add(d.chiave); scrivi('atm-clip-fatti', [...clipFatti]); return; }
+  const sec = Math.max(4, Math.min(10, +d.secondi || 10)), tot = mv.euroSecondo * sec * gia.filter(g => !g).length;
   apriFoglio(`<h3 style="font:500 16px var(--display);letter-spacing:.12em;text-transform:uppercase;margin:4px 0 4px">${esc(d.titolo || 'Video corto')}</h3>
     <p class="nota" style="margin-top:0">${esc(d.perche || 'Claude ha chiesto un video corto.')}</p>
-    <ul class="membri">${d.pezzi.map((x, k) => `<li><span><b>${k + 1} · ${esc(x.nome || 'video')}</b><small>${esc(x.notaIt || '')} · ${sec} s con ${esc(mv.nome)}</small></span></li>`).join('')}</ul>
+    <ul class="membri">${d.pezzi.map((x, k) => `<li><span><b>${k + 1} · ${esc(x.nome || 'video')}</b><small>${gia[k] ? 'già fatto: non si rifà' : esc(x.notaIt || '') + ' · ' + sec + ' s con ' + esc(mv.nome)}</small></span></li>`).join('')}</ul>
     <button class="btn oro piena" style="margin-top:14px" data-fai="clipVia">${icona('anima', 18)}Avvia · ≈ ${euro(tot)}</button>
     <p class="nota">Ogni video richiede qualche minuto: tieni il telefono acceso con l'app aperta su questa pagina finché non ha finito.</p>
     <div id="lavoroFoglio"></div>`);
-  foglioAperto = 'clip'; chiediClip.d = d; chiediClip.mv = mv; chiediClip.sec = sec;
+  foglioAperto = 'clip'; chiediClip.d = d; chiediClip.mv = mv; chiediClip.sec = sec; chiediClip.gia = gia;
   rapportoLavoro({messaggio: 'clip: in attesa di «Avvia»', costo: Math.round(tot * 100) / 100});
 }
 async function clipVia(){
@@ -1977,17 +1985,20 @@ async function clipVia(){
       const prendi = async u => { const r = await fetch(u, {cache: 'no-store'}); if (!r.ok) throw new Error('Non trovo l\'immagine di partenza (' + r.status + ')'); return await r.blob(); };
       const prese = {}, prendiUna = async u => prese[u] || (prese[u] = await prendi(u));
       const pc = d.pezzi.map(() => 0);
+      let fila = Promise.resolve();                                 /* 17/11 · gli invii uno alla volta */
+      const invia = f => { const p = fila.then(f); fila = p.catch(() => {}); return p; };
       const uno = async k => {
         const x = d.pezzi[k], kp = 'clip-' + (k + 1), eti = (d.titolo || 'Video') + ' · ' + (k + 1) + (x.nome ? ' ' + x.nome : '');
+        if ((chiediClip.gia || [])[k] || await clipGiaFatta(d, k)){ passo(kp, 'fatto', eti + ': già fatto'); return; }
         const foto = await prendiUna(x.immagine || d.immagine), fF = x.fine || d.fine, fine = fF === 'stessa' ? foto : fF ? await prendiUna(fF) : null;
         passo(kp, 'ora', eti + ': in coda…');
         let senzaFine = false;
         for (let giro = 0; ; giro++){
           try {
-            const mp4 = await Ai.anima({chiave: imp.chiavi.google, modello: mv.id, foto, fotoFine: fine, secondi: sec, tv: true, prompt: x.prompt,
+            const mp4 = await Ai.anima({chiave: imp.chiavi.google, modello: mv.id, foto, fotoFine: fine, secondi: sec, tv: true, prompt: x.prompt, invia,
               promptSenzaFine: fine ? (x.promptSenzaFine || x.prompt) : null, senzaFine: () => { senzaFine = true; },
-              progresso: (v, st) => { pc[k] = v; passo(kp, 'ora', eti + ': ' + (st === 'invio' ? 'lo mando' : st === 'scarico' ? 'lo scarico' : 'lo sta girando') + '… ' + Math.round(v) + '%'); }});
-            const nome = 'clip-' + bardSlug(d.chiave) + '-' + (k + 1) + '.mp4';
+              progresso: (v, st) => { pc[k] = v; passo(kp, 'ora', eti + ': ' + (st === 'invio' ? 'lo mando' : st === 'riprovo' ? 'la rete è caduta, riprovo fra 10 s' : st === 'scarico' ? 'lo scarico' : 'lo sta girando') + '… ' + Math.round(v) + '%'); }});
+            const nome = nomeClip(d, k);
             const r = await fetch(SUPABASE_URL + '/storage/v1/object/dmaster-media/finestre/banco/' + nome, {method: 'POST',
               headers: {apikey: SUPABASE_CHIAVE_PUBBLICA, Authorization: 'Bearer ' + SUPABASE_CHIAVE_PUBBLICA, 'Content-Type': 'video/mp4', 'x-upsert': 'true'}, body: mp4});
             if (!r.ok) throw new Error('Video non salvato (' + r.status + ')');
@@ -1997,9 +2008,16 @@ async function clipVia(){
             for (let s2 = 60 + 30 * giro; s2 > 0; s2 -= 5){ passo(kp, 'ora', eti + ': Google chiede di rallentare, riprovo fra ' + s2 + ' s…'); await new Promise(ok => setTimeout(ok, 5000)); } }
         }
       };
+      /* 17/11 · un pezzo che sbaglia non ferma gli altri (prima il lavoro si chiudeva e i cinque in volo restavano senza
+         telefono acceso): si aspettano tutti, poi si dice quali mancano; al nuovo «Avvia» si rifanno solo quelli */
       const tutti = [];
-      for (let k = 0; k < d.pezzi.length; k++){ tutti.push(uno(k)); if (k < d.pezzi.length - 1) await new Promise(ok => setTimeout(ok, 8000)); }
-      await Promise.all(tutti);
+      for (let k = 0; k < d.pezzi.length; k++){ tutti.push(uno(k)); if (k < d.pezzi.length - 1) await new Promise(ok => setTimeout(ok, 3000)); }
+      const esiti = await Promise.allSettled(tutti), male = esiti.map((e, k) => e.status === 'rejected' ? k : -1).filter(k => k >= 0);
+      if (male.length){
+        const e0 = esiti[male[0]].reason, e = new Error((male.length === 1 ? 'Non è riuscito il video ' : 'Non sono riusciti i video ') + male.map(k => k + 1).join(', ') + ': ' + (e0 && e0.message || e0)
+          + (male.length < d.pezzi.length ? ' Gli altri sono fatti: chiudi e riapri l\'app e premi di nuovo «Avvia», rifà solo quelli che mancano.' : ''));
+        e.tipo = e0 && e0.tipo; throw e;
+      }
     });
     if (lavoro && lavoro.fatto){ clipFatti.add(d.chiave); scrivi('atm-clip-fatti', [...clipFatti]); }
     rapportoLavoro({messaggio: lavoro && lavoro.fatto ? 'clip: finito' : 'clip: fermato: ' + (lavoro && lavoro.errore)});

@@ -393,7 +393,16 @@ Answer ONLY with JSON: {"comignoli":[{"x":<0-1000>,"y":<0-1000>,"w":<0-1000>}]} 
       background: true};
     o.progresso && o.progresso(2, 'invio');
     let r;
-    try { r = await fetch(base, {method:'POST', headers:intest, body:JSON.stringify(corpo)}); } catch(e) { throw this.rete('Google', e); }
+    /* ⚠ 17/11 (Maurizio: «ho credito ma mi da errore»: sei video corti, tutti fermi a «lo mando», il sesto caduto per la rete).
+       o.invia: chi chiama può mettere gli invii in fila (uno alla volta, il telefono non regge sei caricamenti insieme);
+       se la rete cade nell'invio si riprova una volta dopo 10 s, come dice già il messaggio d'errore */
+    const invia = o.invia || (f => f());
+    try { r = await invia(() => fetch(base, {method:'POST', headers:intest, body:JSON.stringify(corpo)})); }
+    catch(e) {
+      o.progresso && o.progresso(2, 'riprovo');
+      await new Promise(ok => setTimeout(ok, 10000));
+      try { r = await invia(() => fetch(base, {method:'POST', headers:intest, body:JSON.stringify(corpo)})); } catch(e2) { throw this.rete('Google', e2); }
+    }
     if (r.status === 400){
       let e = await this.errore(r, 'Google');
       const riprova = async () => { r = await fetch(base, {method:'POST', headers:intest, body:JSON.stringify(corpo)});
