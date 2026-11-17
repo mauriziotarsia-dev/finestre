@@ -615,7 +615,7 @@ const radarDalleFinestre = q.get('radar') === 'finestre' || (q.get('radar') !== 
 const specchio = q.get('specchio') === '1' ? -1 : 1;
 /* 16/11 sera: il centro del radar in gradi (chi sta lì vede la sala dritta), tenuto in questo computer */
 let radarCentro = +(leggi('radar-centro') || 0) || 0, ultimaLettura = null;
-const RADAR_LONTANO = 4500;   /* mm: più in là non è uno che guarda il TV (nella prima prova un «bersaglio» fermo a 6,5 m) */
+const RADAR_LONTANO = 5600;   /* mm: la stanza arriva a 5,5 m (Maurizio, 17/11); più in là non è uno che guarda il TV (nella prima prova un «bersaglio» fermo a 6,5 m) */
 function verso(x, y){
   x *= specchio;
   /* radar dietro le finestrelle: il TV è a 90°, chi va verso le finestrelle (y più piccolo) per il TV va a sinistra,
