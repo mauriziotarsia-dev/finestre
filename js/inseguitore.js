@@ -98,9 +98,9 @@
   class Molla {
     constructor(opz = {}){
       this.o = Object.assign({
-        anticipo: 0.08,          /* s: il ritardo da recuperare (radar, rete, molla) */
+        anticipo: 0.10,          /* s: il ritardo da recuperare (radar, rete, molla) */
         orizzonte: 0.25,         /* s: oltre non si prevede */
-        omega: 11,               /* rad/s: rigidità della molla (più alto = più pronta, meno liscia) */
+        omega: 13,               /* rad/s: rigidità della molla (più alto = più pronta, meno liscia) */
         campioniVel: 4,          /* letture per stimare la velocità */
         salto: 0.6,              /* unità: una lettura che salta più di così in un decimo di secondo è sospetta */
         sogliaVel: [0.3, 0.8],   /* unità/s: sotto, fermo (niente previsione); sopra, previsione piena */
@@ -121,14 +121,17 @@
       if (u && t - u.t > 0.6) this.c = [];
       else if (u && !this.saltato && t - u.t < 0.15 && (Math.abs(x - u.x) > this.o.salto || Math.abs(z - u.z) > this.o.salto)){ this.saltato = true; return; }
       this.saltato = false;
-      /* la quiete a elastico (vedi sopra) */
-      const q = this.o.quiete || [0, 0];
-      if (!this.fermo) this.fermo = {x, z};
-      for (const [k, r] of [['x', q[0]], ['z', q[1]]]){
-        const d = (k === 'x' ? x : z) - this.fermo[k];
-        if (Math.abs(d) > r) this.fermo[k] += d - Math.sign(d) * r;
+      /* la quiete a scatto (17/11, seconda versione). Con l'elastico l'immagine restava sempre 2,6° indietro (Maurizio: «lo
+         fa solo parzialmente, con grossi ritardi»). Ora due stati: FERMO, l'immagine tiene il punto e le oscillazioni dentro
+         la quiete non contano; appena la lettura esce dalla quiete si passa a IN MOTO e la molla segue la lettura vera (nessun
+         ritardo fisso); quando per 0,4 s la lettura resta entro mezza quiete da dov'è, si torna FERMO lì */
+      const r = (this.o.quiete || [0])[0], f = this.fermo || (this.fermo = {x, z, moto: false, rif: x, tq: t});
+      if (!f.moto && Math.abs(x - f.x) > r){ f.moto = true; f.rif = x; f.tq = t; }
+      if (f.moto){
+        if (Math.abs(x - f.rif) > r * .5){ f.rif = x; f.tq = t; }
+        else if (t - f.tq > 0.4){ f.moto = false; f.x = x; f.z = z; }
       }
-      x = this.fermo.x; z = this.fermo.z;
+      if (!f.moto){ x = f.x; z = f.z; }
       this.c.push({x, z, t});
       while (this.c.length > this.o.campioniVel) this.c.shift();
       if (!this.p) this.p = {x, z};
