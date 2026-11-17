@@ -82,5 +82,74 @@
     }
   }
   radice.Inseguitore = Inseguitore;
-  if (typeof module !== 'undefined') module.exports = { Inseguitore };
+
+  /* ═══ 17/11 · LA MOLLA (seconda prova vera col radar sopra il TV) ═══════════════════════════════════
+     Maurizio: «fa schifo il movimento: va a scatti, arriva in ritardo, si sposta troppo poco».
+     Il radar dà una posizione 10 volte al secondo, a gradini, e da fermo la tiene identica. La quiete
+     dell'Inseguitore faceva «ferma… salto», e fra un gradino e l'altro l'immagine stava ferma.
+     Qui invece:
+       · il BERSAGLIO è l'ultima lettura portata avanti con la velocità (retta sulle ultime 4 letture,
+         ~0,3 s: molto meno ballerina della differenza fra due); da fermi la velocità è zero e non si
+         prevede niente, quindi niente tremolio;
+       · l'IMMAGINE segue il bersaglio come una molla smorzata al punto giusto, aggiornata a ogni
+         immagine (60 al secondo): niente gradini, niente rimbalzi;
+       · una lettura sola che salta lontano (riflesso) si scarta, se la successiva non la conferma.
+     Stessa interfaccia dell'Inseguitore: campione(x, z, t), posizione(ora), reset(), o.anticipo. */
+  class Molla {
+    constructor(opz = {}){
+      this.o = Object.assign({
+        anticipo: 0.12,          /* s: il ritardo da recuperare (radar, rete, molla) */
+        orizzonte: 0.25,         /* s: oltre non si prevede */
+        omega: 14,               /* rad/s: rigidità della molla (più alto = più pronta, meno liscia) */
+        campioniVel: 4,          /* letture per stimare la velocità */
+        salto: 0.6,              /* unità: una lettura che salta più di così in un decimo di secondo è sospetta */
+        sogliaVel: [0.1, 0.4],   /* unità/s: sotto, fermo (niente previsione); sopra, previsione piena */
+        silenzio: 0.4,           /* s: se il radar tace da tanto, niente previsione */
+      }, opz);
+      this.reset();
+    }
+    reset(){ this.c = []; this.p = null; this.v = {x: 0, z: 0}; this.tp = null; this.saltato = false; }
+    campione(x, z, t){
+      const u = this.c[this.c.length - 1];
+      if (u && t <= u.t) return;
+      if (u && t - u.t > 0.6) this.c = [];
+      else if (u && !this.saltato && t - u.t < 0.15 && (Math.abs(x - u.x) > this.o.salto || Math.abs(z - u.z) > this.o.salto)){ this.saltato = true; return; }
+      this.saltato = false;
+      this.c.push({x, z, t});
+      while (this.c.length > this.o.campioniVel) this.c.shift();
+      if (!this.p) this.p = {x, z};
+    }
+    vel(k){
+      const c = this.c, n = c.length;
+      if (n < 3) return 0;
+      let mt = 0, mv = 0;
+      for (const q of c){ mt += q.t; mv += q[k]; }
+      mt /= n; mv /= n;
+      let a = 0, b = 0;
+      for (const q of c){ a += (q.t - mt) * (q[k] - mv); b += (q.t - mt) ** 2; }
+      return b > 0 ? a / b : 0;
+    }
+    posizione(ora){
+      if (!this.p) return null;
+      const c = this.c, u = c[c.length - 1];
+      const eta = u ? ora - u.t : 9;
+      const h = !u || eta > this.o.silenzio ? 0 : Math.min(this.o.orizzonte, Math.max(0, eta + this.o.anticipo));
+      const [a, b] = this.o.sogliaVel, g = v => { const s = Math.abs(v); return s <= a ? 0 : s >= b ? 1 : (s - a) / (b - a); };
+      const vx = this.vel('x'), vz = this.vel('z');
+      const tx = u ? u.x + vx * h * g(vx) : this.p.x, tz = u ? u.z + vz * h * g(vz) : this.p.z;
+      const dt = this.tp == null ? 0 : Math.min(0.05, Math.max(0, ora - this.tp));
+      this.tp = ora;
+      const w = this.o.omega;
+      for (let resto = dt; resto > 1e-6; ){
+        const s = Math.min(0.008, resto); resto -= s;
+        for (const [k, tk] of [['x', tx], ['z', tz]]){
+          const acc = w * w * (tk - this.p[k]) - 2 * w * this.v[k];
+          this.v[k] += acc * s; this.p[k] += this.v[k] * s;
+        }
+      }
+      return {x: this.p.x, z: this.p.z, eta};
+    }
+  }
+  radice.Molla = Molla;
+  if (typeof module !== 'undefined') module.exports = { Inseguitore, Molla };
 })(typeof window !== 'undefined' ? window : globalThis);

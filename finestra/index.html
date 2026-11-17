@@ -28,8 +28,8 @@
 <script src="../js/accesso.js?v=8"></script>
 <script src="../js/qrcode.js?v=1"></script>
 <script src="../js/vita.js?v=5"></script>
-<script src="../js/vista.js?v=5.86"></script>
-<script src="../js/inseguitore.js?v=2"></script>
+<script src="../js/vista.js?v=5.87"></script>
+<script src="../js/inseguitore.js?v=3"></script>
 <script src="../js/uccelli.js?v=10"></script>
 <script src="../js/bard.js?v=9"></script>
 <script>
@@ -602,7 +602,8 @@ function intensitaLampo(ora){
    l'Inseguitore (js/inseguitore.js): ferma da fermi, pronta in movimento, e a ogni immagine disegna
    dove sarai fra un attimo. La molla resta solo per tornare al centro quando non c'è nessuno. */
 const occhio = {x:0, z:0}, occhioTgt = {x:0, z:0};
-const inseguitore = new Inseguitore(q.get('anticipo') ? {anticipo: +q.get('anticipo') / 1000} : {});
+/* 17/11: la Molla al posto dell'Inseguitore (js/inseguitore.js: «va a scatti, arriva in ritardo») */
+const inseguitore = new Molla(q.get('anticipo') ? {anticipo: +q.get('anticipo') / 1000} : {});
 let margine = 1.04, provaFino = 0, sensore = null, ultimoSensore = 0, ultimaPresenza = 0;
 const misura = {n:0, t0:0, eta:0, intervallo:0, ultimo:0};
 const registroRadar = [];   /* [ms, quante persone, x mm, y mm, x mostrata ×1000, z mostrata ×1000] */
@@ -612,7 +613,7 @@ const TV_POS = {x: +q.get('tvx') || 2600, y: +q.get('tvy') || 1800};
    TV a 90°) resta con &radar=finestre (o se l'indirizzo porta ancora tvx/tvy); &specchio=1 se destra e sinistra
    risultano scambiate. */
 const radarDalleFinestre = q.get('radar') === 'finestre' || (q.get('radar') !== 'tv' && q.has('tvx'));
-const specchio = q.get('specchio') === '1' ? -1 : 1;
+let specchio = (q.get('specchio') === '1' || leggi('radar-specchio')) ? -1 : 1;   /* 17/11: anche dall'evento radarVerso, tenuto qui */
 /* 16/11 sera: il centro del radar in gradi (chi sta lì vede la sala dritta), tenuto in questo computer */
 let radarCentro = +(leggi('radar-centro') || 0) || 0, ultimaLettura = null;
 const RADAR_LONTANO = 5600;   /* mm: la stanza arriva a 5,5 m (Maurizio, 17/11); più in là non è uno che guarda il TV (nella prima prova un «bersaglio» fermo a 6,5 m) */
@@ -713,6 +714,9 @@ if (anteprima){
       else if (evento === 'effetto') effetto(dati || {});
       else if (evento === 'tv'){ if (daDM) suTv(dati, rispondi); }
       else if (evento === 'fori') calibra(dati);
+      else if (evento === 'radarVerso'){   /* 17/11: {specchio:true} se destra e sinistra vanno al contrario */
+        if (tv){ const nuovo = dati.specchio ? -1 : 1; if (nuovo !== specchio){ radarCentro = -radarCentro; scrivi('radar-centro', radarCentro); }   /* il centro tarato si specchia con lui */
+          specchio = nuovo; scrivi('radar-specchio', !!dati.specchio); inseguitore.reset(); } }
       else if (evento === 'radarCentro'){   /* 16/11 sera: {qui:true} = il centro è dove sta adesso chi guarda; {gradi:n} = a mano */
         if (tv){ if (typeof dati.gradi === 'number') radarCentro = dati.gradi;
           else if (dati.qui && ultimaLettura) radarCentro = Math.round(Math.atan2(ultimaLettura.x * specchio, ultimaLettura.y) * 1800 / Math.PI) / 10;
@@ -1212,8 +1216,10 @@ function giro(ora){
     const testo = v ? v.currentTime.toFixed(1).replace('.', ',') + ' s  /  ' + (v.duration || 0).toFixed(1).replace('.', ',') : 'nessun video';
     if (orologio.textContent !== testo) orologio.textContent = testo; }
   /* 15/11 sera · con la prospettiva viva la riserva sale da 1,2 a 1,33: lo spostamento ai lati (fino al 7% della vista, che
-     avvicinandosi diventa l'8,3%) più l'allargamento di chi si avvicina (15%: l'8,25% per lato) fanno il 16,6% per lato */
-  margine += ((viva || Math.abs(occhio.x) > .01 ? 1.33 : 1.04) - margine) * (1 - Math.exp(-dt * .8));
+     avvicinandosi diventa l'8,3%) più l'allargamento di chi si avvicina (15%: l'8,25% per lato) fanno il 16,6% per lato.
+     17/11 (Maurizio: «per un passo di lato si sposta troppo poco»): lo spostamento ai lati sale al 14%, la riserva a 1,45
+     (22,5% per lato: 14% + 8,25%) */
+  margine += ((viva || Math.abs(occhio.x) > .01 ? 1.45 : 1.04) - margine) * (1 - Math.exp(-dt * .8));
   const t0d = performance.now();
   const param = {
     t: (ora / 1000) % 3588, trasparente: !!scena.yt, movimento: scena.movimento !== false, prospettiva: scena.prospettiva !== false,
