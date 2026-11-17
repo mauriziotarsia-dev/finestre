@@ -91,6 +91,7 @@ uniform float uNParte;
 uniform vec4 uCamino[2];      /* 16/11 · i fuochi dei camini di un interno: (x al centro e y della base nella vista, mezza larghezza in larghezze della vista, altezza in altezze della vista) */
 uniform float uNCamino;
 float gFiamma;                /* quanto di questo punto è fiamma (per il tremolio della luce, dopo) */
+float gFiammaW;               /* 17/11 notte · quanto il punto sta nel corpo di una fiamma dei punti (per lasciarla luminosa, dopo) */
 uniform float uNebV;          /* la nebbiolina viva (0 spenta) */
 uniform vec2 uChiar;          /* 10/11 · ricolorato: nitidezza fine (x) e «chiarezza», il contrasto locale largo (y) */
 
@@ -286,7 +287,7 @@ vec3 paesaggio(sampler2D img, sampler2D imgB, float vk, sampler2D dep, vec4 crop
      soffitto ondeggiavano come acqua. Ora si sposta solo la fiamma: una striscia larga poco più di lei (mezza altezza),
      dalla base a poco sopra la punta; la punta ondeggia di un decimo di altezza al massimo e la fiamma si allunga e si
      accorcia di meno. Il tremolio della luce resta, ma solo sulla fiamma e appena attorno, sfumato in tondo */
-  gFiamma = 0.;
+  gFiamma = 0.; gFiammaW = 0.;
   if (uNFiamma > .5){
     vec2 dpF = vec2(0.);
     for (int i = 0; i < 12; i++){
@@ -303,6 +304,7 @@ vec3 paesaggio(sampler2D img, sampler2D imgB, float vk, sampler2D dep, vec4 crop
         dpF += zona * vec2(sw * su * .2 * F.z / uAspetto, lu * su * .16 * F.z);
       }
       float tondo = smoothstep(1., .25, length(vec2(q.x, (q.y + .5) * .8)));
+      gFiammaW = max(gFiammaW, smoothstep(.5, .25, abs(q.x)) * smoothstep(1.45, 1.05, -q.y) * smoothstep(.3, .0, q.y));
       gFiamma += tondo * smoothstep(.45, -.1, q.y) * (rumore(vec2(t * 6.1, F.w)) * .65 + rumore(vec2(t * 11.3, F.w + 2.)) * .35 - .5);   /* la luce della fiamma trema (non la candela sotto) */
     }
     p += dpF;
@@ -787,7 +789,7 @@ float fumo(vec2 uv){
 }
 
 void main(){
-  gFiamma = 0.;
+  gFiamma = 0.; gFiammaW = 0.;
   vec2 uv = uMap.xy + vUv * uMap.zw;
   vec3 col = vec3(0.); float n = .5, sky = 0., alfa = 1.;
   float l0 = 0.; vec3 stelle = vec3(0.);
@@ -1088,7 +1090,11 @@ void main(){
   }
 #endif
   /* luce dello schermo, buio dei cambi, rumore finissimo contro le fasce */
-  col *= uLuce * (1. - uBuio);
+  /* ⚠ 17/11 notte (Maurizio: «nel giorno la candela sul tavolo a sinistra ha la fiamma poco luminosa»). La luce dello schermo
+     (70%) abbassava tutto, fiamme comprese: sul TV la fiamma bianca arrivava a 150-190 su 255 e sembrava grigia, trasparente.
+     Una fiamma è una luce: nel suo corpo (dai punti delle fiamme) i punti chiari restano a piena luce, il resto si abbassa */
+  float wF = gFiammaW * smoothstep(.45, .8, dot(col, vec3(.299, .587, .114)));
+  col *= mix(uLuce, 1., wF) * (1. - uBuio);
   /* stelle e stelle cadenti sono luci: dopo il buio della notte e la luce dello schermo (solo un po' attenuate) */
   col += stelle * (.45 + .55 * sqrt(uLuce)) * (1. - uBuio) * (1. - min(1., uNebbia * 1.1));   /* 9/11: nella nebbia fitta non si vedono le stelle (prima sì: col 100% brillavano sopra il muro) */
   col += (h1(gl_FragCoord.xy + fract(uT) * 97.) - .5) / 255.;
