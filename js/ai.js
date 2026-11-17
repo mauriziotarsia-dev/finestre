@@ -391,57 +391,82 @@ Answer ONLY with JSON: {"comignoli":[{"x":<0-1000>,"y":<0-1000>,"w":<0-1000>}]} 
       input: [{type:'image', data: await this.inBase64(rif), mime_type:'image/jpeg'}, ...(fine ? [{type:'image', data: await this.inBase64(fine), mime_type:'image/jpeg'}] : []), {type:'text', text:o.prompt}],
       response_format: {type:'video', aspect_ratio: o.tv ? '16:9' : '9:16', resolution: mv.risoluzione, ...(mv.durata && o.secondi ? {duration: Math.round(o.secondi) + 's'} : {})},
       background: true};
+    /* ⚠ 17/11 sera (Maurizio, secondo tentativo: cinque video «Load failed» e uno «lo scarico… 98%»): i video li aveva fatti
+       Google, li ha persi il telefono riportandoli indietro (20-30 MB l'uno, cinque insieme sul 5G), e senza l'id non si
+       recuperano: pagati per niente. Ora: o.avviato(id) appena Google accetta (chi chiama lo salva), o.ripresa = quell'id per
+       riprendere lo stesso video senza rifarlo (e pagarlo), o.scarica per mettere in fila i trasferimenti grossi, e ogni
+       lettura che cade si riprova invece di fermare tutto. */
+    const scarica = o.scarica || (f => f());
+    let r, it;
+    if (o.ripresa){ o.progresso && o.progresso(5, 'riprendo'); it = {id: o.ripresa, status: 'in_progress'}; }
+    else {
     o.progresso && o.progresso(2, 'invio');
-    let r;
-    /* ⚠ 17/11 (Maurizio: «ho credito ma mi da errore»: sei video corti, tutti fermi a «lo mando», il sesto caduto per la rete).
-       o.invia: chi chiama può mettere gli invii in fila (uno alla volta, il telefono non regge sei caricamenti insieme);
-       se la rete cade nell'invio si riprova una volta dopo 10 s, come dice già il messaggio d'errore */
-    const invia = o.invia || (f => f());
-    try { r = await invia(() => fetch(base, {method:'POST', headers:intest, body:JSON.stringify(corpo)})); }
-    catch(e) {
-      o.progresso && o.progresso(2, 'riprovo');
-      await new Promise(ok => setTimeout(ok, 10000));
-      try { r = await invia(() => fetch(base, {method:'POST', headers:intest, body:JSON.stringify(corpo)})); } catch(e2) { throw this.rete('Google', e2); }
-    }
-    if (r.status === 400){
-      let e = await this.errore(r, 'Google');
-      const riprova = async () => { r = await fetch(base, {method:'POST', headers:intest, body:JSON.stringify(corpo)});
-        if (r.status === 400) e = await this.errore(r, 'Google'); else if (!r.ok) throw await this.errore(r, 'Google'); };
-      if (corpo.response_format.duration && /duration/i.test(e.testo || e.message || '')){   /* 16/11 · la durata non accettata: si lascia scegliere a Google */
-        delete corpo.response_format.duration; await riprova();
-      }
-      /* 16/11 · la stessa immagine come prima e ultima (pezzo che parte e torna sul dipinto): se Google non la accetta, una sola */
-      if (r.status === 400 && fine && o.promptSenzaFine && !/background/i.test(e.testo || '')){
-        corpo.input = [corpo.input[0], {type:'text', text:o.promptSenzaFine}]; o.senzaFine && o.senzaFine(); await riprova();
+      let r;
+      /* ⚠ 17/11 (Maurizio: «ho credito ma mi da errore»: sei video corti, tutti fermi a «lo mando», il sesto caduto per la rete).
+         o.invia: chi chiama può mettere gli invii in fila (uno alla volta, il telefono non regge sei caricamenti insieme);
+         se la rete cade nell'invio si riprova una volta dopo 10 s, come dice già il messaggio d'errore */
+      const invia = o.invia || (f => f());
+      try { r = await invia(() => fetch(base, {method:'POST', headers:intest, body:JSON.stringify(corpo)})); }
+      catch(e) {
+        o.progresso && o.progresso(2, 'riprovo');
+        await new Promise(ok => setTimeout(ok, 10000));
+        try { r = await invia(() => fetch(base, {method:'POST', headers:intest, body:JSON.stringify(corpo)})); } catch(e2) { throw this.rete('Google', e2); }
       }
       if (r.status === 400){
-        if (!/background/i.test(e.testo || '')) throw e;
-        delete corpo.background;                                 /* se il sottofondo non è accettato, chiamata diretta */
-        r = await fetch(base, {method:'POST', headers:intest, body:JSON.stringify(corpo)});
+        let e = await this.errore(r, 'Google');
+        const riprova = async () => { r = await fetch(base, {method:'POST', headers:intest, body:JSON.stringify(corpo)});
+          if (r.status === 400) e = await this.errore(r, 'Google'); else if (!r.ok) throw await this.errore(r, 'Google'); };
+        if (corpo.response_format.duration && /duration/i.test(e.testo || e.message || '')){   /* 16/11 · la durata non accettata: si lascia scegliere a Google */
+          delete corpo.response_format.duration; await riprova();
+        }
+        /* 16/11 · la stessa immagine come prima e ultima (pezzo che parte e torna sul dipinto): se Google non la accetta, una sola */
+        if (r.status === 400 && fine && o.promptSenzaFine && !/background/i.test(e.testo || '')){
+          corpo.input = [corpo.input[0], {type:'text', text:o.promptSenzaFine}]; o.senzaFine && o.senzaFine(); await riprova();
+        }
+        if (r.status === 400){
+          if (!/background/i.test(e.testo || '')) throw e;
+          delete corpo.background;                                 /* se il sottofondo non è accettato, chiamata diretta */
+          r = await fetch(base, {method:'POST', headers:intest, body:JSON.stringify(corpo)});
+        }
       }
-    }
-    if (!r.ok) throw await this.errore(r, 'Google');
-    let it = await r.json();
-    const inizio = Date.now(); let controlli = 0;
-    while (it.status && it.status !== 'completed' && it.status !== 'failed' && it.status !== 'cancelled'){
-      const sec = (Date.now() - inizio) / 1000;
-      o.progresso && o.progresso(Math.min(95, 5 + sec / 1.8), it.status);       /* stima: 2-3 minuti */
-      await new Promise(ok => setTimeout(ok, 5000));
-      if (++controlli > 300) throw new Error('Google ci sta mettendo troppo: riprova più tardi.');   /* 14/11: controlli fatti, non orologio */
-      try { r = await fetch(base + '/' + encodeURIComponent(it.id), {headers:{'x-goog-api-key':o.chiave}}); } catch(e) { continue; }   /* un controllo perso non ferma niente */
       if (!r.ok) throw await this.errore(r, 'Google');
       it = await r.json();
+      if (it.id && o.avviato) o.avviato(it.id);
     }
-    if (it.status === 'failed' || it.status === 'cancelled') throw new Error('Google non è riuscito a fare il video: ' + ((it.error && it.error.message) || it.status));
+    const inizio = Date.now(); let controlli = 0, cadute = 0, primo = true;
+    const leggi = async () => {
+      const r2 = await fetch(base + '/' + encodeURIComponent(it.id), {headers:{'x-goog-api-key':o.chiave}, cache:'no-store'});
+      if (!r2.ok){ const e = await this.errore(r2, 'Google'); e.http = r2.status; throw e; }
+      return await r2.json();                       /* a video fatto la risposta è grossa (il video dentro): può cadere qui */
+    };
+    while (it.status && it.status !== 'completed' && it.status !== 'failed' && it.status !== 'cancelled'){
+      const sec = (Date.now() - inizio) / 1000;
+      o.progresso && o.progresso(Math.min(95, 5 + sec / 1.8), cadute ? 'riscarico' : it.status);       /* stima: 2-3 minuti */
+      if (!primo || !o.ripresa) await new Promise(ok => setTimeout(ok, cadute ? Math.min(30000, 5000 * cadute) : 5000));
+      if (++controlli > 300) throw new Error('Google ci sta mettendo troppo: riprova più tardi.');   /* 14/11: controlli fatti, non orologio */
+      try { it = await scarica(leggi); cadute = 0; }
+      catch(e) {
+        if (e.http){ if (o.ripresa && primo && (e.http === 404 || e.http === 400)){ const x = new Error('Il video di prima non c\'è più da Google.'); x.tipo = 'perso'; throw x; } throw e; }
+        if (++cadute > 8){ const x = new Error('Il video è fatto (o quasi) ma il telefono non riesce a scaricarlo: la rete cade. Premi di nuovo «Avvia» con una rete più stabile: lo riprende senza rifarlo.'); x.tipo = 'rete'; throw x; }
+        it = {id: it.id, status: 'in_progress'};    /* non si sa: si richiede */
+      }
+      primo = false;
+    }
+    if (it.status === 'failed' || it.status === 'cancelled'){ const x = new Error('Google non è riuscito a fare il video: ' + ((it.error && it.error.message) || it.status)); x.tipo = 'fallito'; throw x; }
     const parti = (it.steps || []).filter(x => x.type === 'model_output').flatMap(x => x.content || []);
     const v = parti.find(x => x.type === 'video') || (it.output_video || null);
     if (!v) throw new Error('Google non ha mandato il video' + (parti.find(x => x.type === 'text') ? ': ' + parti.find(x => x.type === 'text').text.slice(0, 200) : '.'));
     o.progresso && o.progresso(98, 'scarico');
     if (v.data) return b64aBlob(v.data, v.mime_type || 'video/mp4');
     if (v.uri){
-      const d = await fetch(v.uri, {headers:{'x-goog-api-key':o.chiave}});
-      if (!d.ok) throw await this.errore(d, 'Google');
-      return await d.blob();
+      for (let g = 0; ; g++){
+        try {
+          return await scarica(async () => { const d = await fetch(v.uri, {headers:{'x-goog-api-key':o.chiave}}); if (!d.ok){ const e = await this.errore(d, 'Google'); e.http = d.status; throw e; } return await d.blob(); });
+        } catch(e) {
+          if (e.http || g >= 5){ if (!e.http){ const x = new Error('Il video è fatto ma il telefono non riesce a scaricarlo: la rete cade. Premi di nuovo «Avvia» con una rete più stabile: lo riprende senza rifarlo.'); x.tipo = 'rete'; throw x; } throw e; }
+          o.progresso && o.progresso(98, 'riscarico'); await new Promise(ok => setTimeout(ok, 5000 * (g + 1)));
+        }
+      }
     }
     throw new Error('Video vuoto.');
   },

@@ -9,7 +9,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
 const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 const euro = n => (n < .1 ? n.toFixed(3) : n.toFixed(2)).replace('.', ',') + ' $';
-const VERSIONE = '6.82';
+const VERSIONE = '6.83';
 /* 8/11 · l'app si aggiorna da sola (Maurizio: «vedo ancora il quadrato con la doppia finestra»: sul telefono restava la
    versione vecchia anche dopo averla chiusa). Quando torna in primo piano, e ogni 10 minuti, chiede al server quale
    app.js c'è adesso; se è un'altra, ricarica (mai mentre un lavoro AI è in corso) */
@@ -1982,11 +1982,17 @@ async function clipVia(){
   const t = setInterval(() => rapportoLavoro(), 20000);
   try {
     await conLavoro('clip', async L => {
-      const prendi = async u => { const r = await fetch(u, {cache: 'no-store'}); if (!r.ok) throw new Error('Non trovo l\'immagine di partenza (' + r.status + ')'); return await r.blob(); };
-      const prese = {}, prendiUna = async u => prese[u] || (prese[u] = await prendi(u));
+      const prendi = async u => { for (let g = 0; ; g++){ try { const r = await fetch(u, {cache: 'no-store'}); if (!r.ok) throw Object.assign(new Error('Non trovo l\'immagine di partenza (' + r.status + ')'), {http: 1}); return await r.blob(); }
+        catch(e) { if (e.http || g >= 3) throw e.http ? e : new Error('Non riesco a prendere l\'immagine di partenza (rete): riprova con una rete più stabile.'); await new Promise(ok => setTimeout(ok, 4000 * (g + 1))); } } };
+      const prese = {}, prendiUna = u => prese[u] || (prese[u] = prendi(u).catch(e => { delete prese[u]; throw e; }));   /* 17/11 sera: una sola volta anche se la chiedono insieme */
       const pc = d.pezzi.map(() => 0);
       let fila = Promise.resolve();                                 /* 17/11 · gli invii uno alla volta */
       const invia = f => { const p = fila.then(f); fila = p.catch(() => {}); return p; };
+      let filaGiu = Promise.resolve();                              /* 17/11 sera · anche i trasferimenti grossi (video giù e su) */
+      const scarica = f => { const p = filaGiu.then(f); filaGiu = p.catch(() => {}); return p; };
+      /* 17/11 sera · l'id che Google dà a ogni video si tiene sul telefono finché il video non è in banco: se il telefono
+         lo perde scaricandolo, al nuovo «Avvia» si riprende quello stesso video (già pagato) invece di farne un altro */
+      const chiaveId = k => 'atm-clip-id-' + bardSlug(d.chiave) + '-' + (k + 1);
       const uno = async k => {
         const x = d.pezzi[k], kp = 'clip-' + (k + 1), eti = (d.titolo || 'Video') + ' · ' + (k + 1) + (x.nome ? ' ' + x.nome : '');
         if ((chiediClip.gia || [])[k] || await clipGiaFatta(d, k)){ passo(kp, 'fatto', eti + ': già fatto'); return; }
@@ -1995,16 +2001,28 @@ async function clipVia(){
         let senzaFine = false;
         for (let giro = 0; ; giro++){
           try {
-            const mp4 = await Ai.anima({chiave: imp.chiavi.google, modello: mv.id, foto, fotoFine: fine, secondi: sec, tv: true, prompt: x.prompt, invia,
+            const ripresa = leggi(chiaveId(k), null);
+            const mp4 = await Ai.anima({chiave: imp.chiavi.google, modello: mv.id, foto, fotoFine: fine, secondi: sec, tv: true, prompt: x.prompt, invia, scarica, ripresa,
+              avviato: id => { scrivi(chiaveId(k), id); rapportoLavoro(); },
               promptSenzaFine: fine ? (x.promptSenzaFine || x.prompt) : null, senzaFine: () => { senzaFine = true; },
-              progresso: (v, st) => { pc[k] = v; passo(kp, 'ora', eti + ': ' + (st === 'invio' ? 'lo mando' : st === 'riprovo' ? 'la rete è caduta, riprovo fra 10 s' : st === 'scarico' ? 'lo scarico' : 'lo sta girando') + '… ' + Math.round(v) + '%'); }});
+              progresso: (v, st) => { pc[k] = v; passo(kp, 'ora', eti + ': ' + (st === 'invio' ? 'lo mando' : st === 'riprovo' ? 'la rete è caduta, riprovo fra 10 s' : st === 'riprendo' ? 'riprendo quello di prima (già pagato)' : st === 'scarico' ? 'lo scarico' : st === 'riscarico' ? 'la rete è caduta, lo riscarico' : 'lo sta girando') + '… ' + Math.round(v) + '%'); }});
             const nome = nomeClip(d, k);
-            const r = await fetch(SUPABASE_URL + '/storage/v1/object/dmaster-media/finestre/banco/' + nome, {method: 'POST',
-              headers: {apikey: SUPABASE_CHIAVE_PUBBLICA, Authorization: 'Bearer ' + SUPABASE_CHIAVE_PUBBLICA, 'Content-Type': 'video/mp4', 'x-upsert': 'true'}, body: mp4});
-            if (!r.ok) throw new Error('Video non salvato (' + r.status + ')');
+            for (let g = 0; ; g++){                                 /* 17/11 sera · il caricamento in banco si riprova */
+              passo(kp, 'ora', eti + ': lo metto da parte per Claude…' + (g ? ' (di nuovo)' : ''));
+              try {
+                const r = await scarica(() => fetch(SUPABASE_URL + '/storage/v1/object/dmaster-media/finestre/banco/' + nome, {method: 'POST',
+                  headers: {apikey: SUPABASE_CHIAVE_PUBBLICA, Authorization: 'Bearer ' + SUPABASE_CHIAVE_PUBBLICA, 'Content-Type': 'video/mp4', 'x-upsert': 'true'}, body: mp4}));
+                if (!r.ok) throw new Error('Video non salvato (' + r.status + ')');
+                break;
+              } catch(e) { if (g >= 4) throw new Error('Il video è fatto ma non riesco a metterlo da parte (rete): premi di nuovo «Avvia», lo riprende senza rifarlo.'); await new Promise(ok => setTimeout(ok, 5000 * (g + 1))); }
+            }
+            try { localStorage.removeItem(chiaveId(k)); } catch(e) {}
             passo(kp, 'fatto', eti + (senzaFine ? ' (senza immagine di fine)' : '') + ': Claude lo mette nel video');
             return;
-          } catch(e) { if (e.tipo !== 'troppe' || giro >= 4) { passo(kp, 'errore', eti + ': ' + e.message); throw e; }
+          } catch(e) {
+            /* il video di prima non c'è più o Google non l'ha fatto: si dimentica l'id e se ne chiede uno nuovo (una volta) */
+            if ((e.tipo === 'perso' || e.tipo === 'fallito') && leggi(chiaveId(k), null)){ try { localStorage.removeItem(chiaveId(k)); } catch(e2) {} if (e.tipo === 'perso' && giro < 1) continue; }
+            if (e.tipo !== 'troppe' || giro >= 4) { passo(kp, 'errore', eti + ': ' + e.message); throw e; }
             for (let s2 = 60 + 30 * giro; s2 > 0; s2 -= 5){ passo(kp, 'ora', eti + ': Google chiede di rallentare, riprovo fra ' + s2 + ' s…'); await new Promise(ok => setTimeout(ok, 5000)); } }
         }
       };
