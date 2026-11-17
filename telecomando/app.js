@@ -9,7 +9,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
 const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 const euro = n => (n < .1 ? n.toFixed(3) : n.toFixed(2)).replace('.', ',') + ' $';
-const VERSIONE = '6.80';
+const VERSIONE = '6.81';
 /* 8/11 · l'app si aggiorna da sola (Maurizio: «vedo ancora il quadrato con la doppia finestra»: sul telefono restava la
    versione vecchia anche dopo averla chiusa). Quando torna in primo piano, e ogni 10 minuti, chiede al server quale
    app.js c'è adesso; se è un'altra, ricarica (mai mentre un lavoro AI è in corso) */
@@ -83,6 +83,9 @@ const salvaImp = () => scrivi('finestre-impostazioni', imp);
 const SCENA_PRED = {acceso:true, yt:'', t:0, immagini:null, animati:null, paesaggio:'', fuoco:null, ora:'vera', meteo:'sereno',
   intensita:.75, vento:null, nebbiaSale:false, fps:60, prospettivaViva:false, movimento:true, luceGiorno:70, luceNotte:50, prospettiva:true, zoom:1, vx:0};
 let scena = Object.assign({}, SCENA_PRED, leggi('finestre-scena', {}));
+/* 17/11 (Maurizio: «togliamo il radar e risistema tutto senza; togli anche la possibilità di selezionarlo nelle impostazioni»):
+   la prospettiva viva non c'è più; chi l'aveva accesa la ritrova spenta */
+scena.prospettivaViva = false;
 /* 9/11 (Maurizio: «farei come se la notte fosse leggermente più illuminata, altrimenti è troppo buio»): la luce dello
    schermo di notte passa dal 30% al 40%. Una volta sola: chi l'aveva lasciata al 30 di prima va al 40; un valore scelto
    a mano (diverso da 30) resta */
@@ -2771,7 +2774,6 @@ function disegnaImpostazioni(){
       <div class="pannello" style="margin-top:10px">
         ${cursore('zoom', 'lente', 'Ingrandisci', 100, 200, Math.round(scena.zoom * 100), Math.round(scena.zoom * 100) + '%')}
         ${cursore('vx', 'destra', 'Sposta', -30, 30, Math.round(scena.vx * 100), Math.round(scena.vx * 100))}</div>
-      ${interruttore('prospettivaViva', 'persona', 'Segui chi si muove', 'Serve il sensore accanto al TV: il paesaggio si sposta come da una finestra vera', !!scena.prospettivaViva)}
       ${a.n === 2 && !schermi.destra ? '<p class="nota">La finestra destra non ha ancora risposto: si collega quando c\'è il secondo schermo.</p>' : ''}`)}
     <p class="nota" style="text-align:center;margin-top:18px">DMaster Atmosphere ${VERSIONE} · powered by DMaster Stage</p>`;
   for (const [id, k] of [['kOpenai','openai'], ['kGoogle','google'], ['kEleven','elevenlabs'], ['kPexels','pexels']]){ const el = document.getElementById(id); el.oninput = () => { imp.chiavi[k] = el.value.trim(); salvaImp(); if (problema && problema.tipo === 'chiave') risolto(); }; }
@@ -2874,7 +2876,6 @@ const AZIONI = {
   vento: v => cambia({vento: v === '' ? null : +v}),
   movimento: (v, b) => { cambia({movimento: scena.movimento === false}); b.setAttribute('aria-checked', String(scena.movimento !== false)); },
   prospettiva: (v, b) => { cambia({prospettiva: scena.prospettiva === false}); b.setAttribute('aria-checked', String(scena.prospettiva !== false)); },
-  prospettivaViva: (v, b) => { cambia({prospettivaViva: !scena.prospettivaViva}); b.setAttribute('aria-checked', String(!!scena.prospettivaViva)); },
   vistaP: v => { vistaPaesaggi = v; disegnaPaesaggi(); },
   apri: v => { const p = libreria.find(x => x.id === v); if (p) apriPaesaggio(p); },
   apriWeb: v => apriWeb(risultatiWeb[+v]),

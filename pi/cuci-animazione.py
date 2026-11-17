@@ -1405,8 +1405,9 @@ def _cuci_uno(cart, nomi, nome, base, parte, originale, larghezza, veloce, ricuc
 def avvia_radar(chi):
     """13/11 · il ricevitore del radar (pi/sensore.py) gira sul PC del TV. Dal 9/11 il TV ha la ROG Ally (prima il G10,
     che lo faceva partire col suo installatore): l'Ally scarica a ogni avvio solo questo cucitore, quindi è il cucitore
-    a scaricare anche sensore.py e a farlo partire, se la porta 8788 è libera (= non gira già)."""
-    if os.name != 'nt' or chi.lower() not in ('ally', 'tv'): return
+    a scaricare anche sensore.py e a farlo partire, se la porta 8788 è libera (= non gira già).
+    17/11: radar tolto (Maurizio: «togliamo il radar e risistema tutto senza»): non parte più niente."""
+    return
     import socket
     try:
         with socket.socket() as so: so.bind(('127.0.0.1', 8788))

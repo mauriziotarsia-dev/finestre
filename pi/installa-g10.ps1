@@ -6,7 +6,6 @@
     2. scarica il programma delle finestre in C:\Users\<tu>\finestre;
     3. installa i pacchetti Python, compreso l'ingrandimento AI (Real-ESRGAN sulla Radeon del G10);
     4. all'accesso a Windows fa partire da solo:
-         · il ricevitore del radar (pi\sensore.py), per la prospettiva viva sul TV;
          · la rifinitura dei video e l'ingrandimento AI (pi\cuci-animazione.py, «forza 3»: è il più potente di casa);
          · il TV: Edge a tutto schermo sulla pagina della finestra con &vista=est;
     5. toglie la sospensione, così il TV non si spegne da solo.
@@ -16,15 +15,11 @@
         Set-ExecutionPolicy -Scope Process Bypass
         irm https://raw.githubusercontent.com/mauriziotarsia-dev/finestre/main/pi/installa-g10.ps1 -OutFile $env:TEMP\installa-g10.ps1
         & $env:TEMP\installa-g10.ps1
-    · quando Windows chiede se lasciare usare la rete a Python, rispondi Consenti (reti private): serve al radar.
   Le cose che restano a te, nelle impostazioni di Windows: TV a 3840×2160 e 60 Hz (Impostazioni → Schermo),
   e l'accesso automatico senza password se vuoi che dopo una mancanza di corrente riparta tutto da solo.
 #>
 param(
   [string]$Casa = 'bbb55e2f-69f4-4522-9c19-e940637e90c1',
-  [switch]$RadarDalleFinestre,   # solo se il radar NON è accanto al TV ma dietro una finestrella (montaggio vecchio):
-  [int]$TvX = 2600,   # allora: dove sta il centro del TV rispetto al radar, in mm (x: verso destra guardando le finestrelle)
-  [int]$TvY = 1800,   #                                                             (y: dal muro delle finestrelle verso la stanza)
   [switch]$Abbina     # abbina questo computer alla casa privata: mostra un codice da scrivere sul telefono
 )
 $ErrorActionPreference = 'Stop'
@@ -44,10 +39,7 @@ if (Test-Path (Join-Path $Cartella '.git')) { git -C $Cartella pull --ff-only } 
 Passo "Pacchetti Python (con l'ingrandimento AI)"
 py -3.12 -m pip install --upgrade opencv-python numpy realesrgan-ncnn-py
 
-Passo 'Prova del radar e della rete (se Windows chiede, rispondi Consenti)'
-$prova = Start-Process py -ArgumentList '-3.12', (Join-Path $Cartella 'pi\sensore.py') -PassThru -WindowStyle Minimized
-Start-Sleep -Seconds 12
-if (-not $prova.HasExited) { Stop-Process -Id $prova.Id -Force }
+# 17/11: radar tolto (Maurizio: «togliamo il radar e risistema tutto senza»): niente più ricevitore né prova del radar
 
 if ($Abbina) {
   Passo 'Abbinamento alla casa (scrivi sul telefono il codice che compare qui sotto)'
@@ -55,9 +47,7 @@ if ($Abbina) {
 }
 
 Passo 'Avvio automatico'
-# 2/11: il radar sta accanto al TV, rivolto verso la stanza: il TV non ha bisogno di sapere altro
 $Url = "https://mauriziotarsia-dev.github.io/finestre/finestra/?casa=$Casa&vista=est&uscite=1"
-if ($RadarDalleFinestre) { $Url += "&radar=finestre&tvx=$TvX&tvy=$TvY" }
 # &uscite=1 + --use-fake-ui-for-media-stream (1/11, Bard): la pagina vede i nomi delle casse (TV, JBL...) e il telefono sceglie da quale suonare.
 # Il permesso del microfono si accetta da solo: in questo profilo di Edge c'è solo la pagina del TV, e il microfono non si usa.
 $Edge = Join-Path ${env:ProgramFiles(x86)} 'Microsoft\Edge\Application\msedge.exe'
@@ -65,10 +55,9 @@ if (-not (Test-Path $Edge)) { $Edge = Join-Path $env:ProgramFiles 'Microsoft\Edg
 $Avvio = Join-Path $Cartella 'avvio-g10.cmd'
 @"
 @echo off
-rem Illusionist sul G10: aggiorna il programma, poi radar, rifinitura dei video e il TV
+rem Illusionist sul G10: aggiorna il programma, poi rifinitura dei video e il TV
 cd /d "$Cartella"
 git pull --ff-only >nul 2>&1
-start "" /min pyw -3.12 pi\sensore.py
 start "" /min pyw -3.12 pi\cuci-animazione.py --casa $Casa --forza 3 --chi g10
 start "" "$Edge" --kiosk "$Url" --edge-kiosk-type=fullscreen --no-first-run --autoplay-policy=no-user-gesture-required --use-fake-ui-for-media-stream --user-data-dir="%LOCALAPPDATA%\IllusionistTV"
 "@ | Set-Content -Encoding ASCII $Avvio
