@@ -28,7 +28,7 @@
 <script src="../js/accesso.js?v=8"></script>
 <script src="../js/qrcode.js?v=1"></script>
 <script src="../js/vita.js?v=5"></script>
-<script src="../js/vista.js?v=5.90"></script>
+<script src="../js/vista.js?v=5.91"></script>
 <script src="../js/inseguitore.js?v=5"></script>
 <script src="../js/uccelli.js?v=10"></script>
 <script src="../js/bard.js?v=9"></script>
@@ -698,6 +698,9 @@ function calibra(d){
 }
 let canale = null;
 if (anteprima){
+  /* 18/11 sera · chiamata dall'app dentro un tocco vero (a tutto schermo i tocchi non arrivano qui): fa partire i video che
+     l'iPhone teneva fermi (js/vista.js, sveglia) */
+  window.svegliaVideo = () => { try { dispatchEvent(new Event('pointerdown')); vista.sveglia(); } catch(e) {} };
   addEventListener('message', e => { const d = e.data || {}; if (d.tipo === 'occhio') daTelefono(d.x, d.z); else if (d.tipo === 'scena') applica(d.scena, false); else if (d.tipo === 'fori') calibra(Object.assign({}, d, {salva:false})); else if (d.tipo === 'lampo') scocca(); else if (d.tipo === 'effetto') effetto(d.effetto || {}); else if (d.tipo === 'tv') suTv(d.tv, null); });
 } else if (window.supabase){
   /* DMaster al comando: finché arriva il suo battito (ogni 10 s, 30 s di tolleranza) scene, lampi e

@@ -9,7 +9,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
 const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 const euro = n => (n < .1 ? n.toFixed(3) : n.toFixed(2)).replace('.', ',') + ' $';
-const VERSIONE = '6.86';
+const VERSIONE = '6.87';
 /* 8/11 · l'app si aggiorna da sola (Maurizio: «vedo ancora il quadrato con la doppia finestra»: sul telefono restava la
    versione vecchia anche dopo averla chiusa). Quando torna in primo piano, e ogni 10 minuti, chiede al server quale
    app.js c'è adesso; se è un'altra, ricarica (mai mentre un lavoro AI è in corso) */
@@ -545,7 +545,10 @@ function fermiAnteprima(){
   if (nuovo){ attesaAnteprima = k; [anteprimaFrame, anteprimaTvFrame].forEach(f => { if (f) f.style.opacity = 0; }); }
 }
 addEventListener('message', e => {
-  const d = e.data || {}; if (d.tipo !== 'pronta' || d.paesaggio !== attesaAnteprima) return;
+  const d = e.data || {};
+  /* 18/11 sera · a tutto schermo l'iPhone tiene fermo il video (risparmio energetico): si dice di toccare */
+  if (d.tipo === 'toccaPerVideo'){ if (siFrame && e.source === siFrame.contentWindow){ const h = $('#siTocca'); if (h) h.hidden = false; } return; }
+  if (d.tipo !== 'pronta' || d.paesaggio !== attesaAnteprima) return;
   [anteprimaFrame, anteprimaTvFrame].forEach(f => { if (f && e.source === f.contentWindow) f.style.opacity = 1; });
 });
 function forieAnteprima(){
@@ -572,24 +575,33 @@ function mostraComandiSi(){
   const o = $('#schermoIntero'); if (!o) return;
   o.classList.add('comandi'); clearTimeout(siTimer); siTimer = setTimeout(() => o.classList.remove('comandi'), 3500);
 }
+/* ⚠ 18/11 sera (Maurizio: «anche cliccando tutto schermo non va»): l'iframe non riceve tocchi (pointer-events:none, per i
+   comandi), così il video che l'iPhone teneva fermo aspettava un tocco che non arrivava mai. Dentro il tocco vero di qui si
+   chiama la pagina dentro (stessa origine): i suoi video partono (finestra/index.html, svegliaVideo) */
+function svegliaSi(){
+  try { const w = siFrame && siFrame.contentWindow; if (w && w.svegliaVideo) w.svegliaVideo(); } catch(e) {}
+  const h = $('#siTocca'); if (h) h.hidden = true;
+}
 function apriSchermoIntero(chi){
   siChi = chi === 'finestrelle' ? 'finestrelle' : 'tv';
   let o = $('#schermoIntero');
   if (!o){
     o = document.createElement('div'); o.id = 'schermoIntero';
     o.innerHTML = `<div class="si-quadro"><iframe id="siFrame" title="A tutto schermo" allow="autoplay"></iframe></div>
+      <div class="si-tocca" id="siTocca" hidden>Tocca lo schermo per far muovere le persone</div>
       <div class="si-barra">
         <button class="si-scelta" data-fai="schermoIntero" data-v="tv">${icona('tv', 18)}<span>TV</span></button>
         <button class="si-scelta" data-fai="schermoIntero" data-v="finestrelle">${icona('bifora', 18)}<span>Finestrelle</span></button>
         <button class="si-chiudi" data-fai="chiudiSchermoIntero" aria-label="Chiudi">${icona('chiudi', 20)}</button>
       </div>`;
-    o.addEventListener('click', e => { if (!e.target.closest('[data-fai]')) mostraComandiSi(); });
+    o.addEventListener('click', e => { svegliaSi(); if (!e.target.closest('[data-fai]')) mostraComandiSi(); });
+    o.addEventListener('touchend', svegliaSi, {passive: true});
     document.body.appendChild(o);
   }
   o.querySelectorAll('.si-scelta').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.v === siChi)));
   const fa = siChi === 'tv' ? {aspetto: 16 / 9} : foriSchermoIntero();
   o.style.setProperty('--asp', String(fa.aspetto));
-  siPronto = false; siFrame = o.querySelector('#siFrame');
+  siPronto = false; siFrame = o.querySelector('#siFrame'); { const h = o.querySelector('#siTocca'); if (h) h.hidden = true; }
   siFrame.onload = () => {
     siPronto = true;
     siFrame.contentWindow.postMessage({tipo: 'scena', scena}, '*');

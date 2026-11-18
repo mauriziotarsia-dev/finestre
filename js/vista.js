@@ -1759,6 +1759,19 @@ class Vista {
     this.vecchiaDaLiberare = dur > 0 ? vecchia : null;
   }
   togli(){ for (const f of this.fonti) this.libera(f); this.fonti = [this.fonteVuota(), this.fonteVuota()]; this.mix = 0; }
+  /* ⚠ 18/11 sera (Maurizio: «anche cliccando tutto schermo non va», persone ferme a tutte le ore). Quando l'iPhone non lascia
+     partire i video da soli (risparmio energetico) il video principale aspetta un tocco (apriVideo), ma nell'app, a tutto
+     schermo, i tocchi non arrivano alla pagina (iframe con pointer-events:none) e gli altri video, il secondo del cucito e
+     gli inserti (gatto, fuochi), partono più tardi da soli e venivano rifiutati. Qui, chiamato dentro un tocco vero della
+     pagina che ci contiene: ogni video ancora fermo parte e si rimette subito dov'era; da lì in poi l'iPhone lo lascia
+     partire quando lo chiede il motore. Il principale lo fa partire apriVideo, col suo «pointerdown» */
+  sveglia(){
+    for (const f of this.fonti) for (const v of [...(f.video || []), ...(f.ins || []).map(I => I && I.v)]){
+      if (!v || !v.paused || v._sveglio) continue;
+      v._sveglio = true; const t = v.currentTime;
+      const p = v.play(); if (p && p.then) p.then(() => { v.pause(); try { v.currentTime = t; } catch(e) {} }).catch(() => { v._sveglio = false; });
+    }
+  }
   /* ⚠ 16/11 sera · I VIDEO «INSERTO» (il gatto, i fuochi della taverna): ognuno è un <video> piccolo e muto con la sua texture.
      «continuo»: gira in tondo (i fuochi). «riposo»: fermo sul primo fotogramma (il dipinto); dopo un'attesa a caso fa uno dei
      suoi tratti, a caso e mai lo stesso due volte di fila, e si ferma sull'ultimo fotogramma, che è di nuovo il dipinto */
@@ -2628,6 +2641,7 @@ function apriVideo(url){
     a.onerror = () => no(new Error('video non caricato'));
     a.play().then(pronto).catch(e => {
       if (!e || e.name !== 'NotAllowedError') return no(e || new Error('video non partito'));
+      try { if (parent !== window) parent.postMessage({tipo: 'toccaPerVideo'}, '*'); } catch(e2) {}   /* 18/11: l'app dice di toccare */
       const via = () => { removeEventListener('pointerdown', via, true); a.play().catch(() => {}); };
       addEventListener('pointerdown', via, true); pronto();
     });
