@@ -1518,7 +1518,7 @@ class Vista {
   async mostra({url, profondita = null, video = null, fuoco = null, cielo = null, fermo = null, maschera = null, comignoli = null, alberi = null, ricolora = false, notte = null, interno = false, stelle = false}, dur = 0){
     if (this.fonti[0].ok && this.fonti[0].url === url + '|' + (video || '')){
       this.fonti[0].fuoco = fuoco;
-      if ((comignoli || null) !== (this.fonti[0].fumiUrl || null)) this.caricaFumi(this.fonti[0], comignoli, this.fonti[0].dimg);   /* spostati dal telefono */
+      if ((comignoli || null) !== (this.fonti[0].fumiUrl || null)) this.aggiornaPunti(comignoli);   /* spostati dal telefono */
       return;
     }
     if (ricolora && this.unita < 13) video = null;   /* il ricolorato vuole una texture in più */
@@ -1527,6 +1527,17 @@ class Vista {
     this.inArrivo = chiave;
     this.internoInArrivo = !!interno;   /* 13/11: un interno (la taverna) non ha cielo: la maschera del cielo resta vuota */
     try { await this._mostra(chiave, url, profondita, video, dur, fuoco, cielo, fermo, maschera, comignoli, alberi, ricolora && !!video, notte, stelle); } finally { if (this.inArrivo === chiave) this.inArrivo = null; }
+  }
+  /* ⚠ 18/11 sera · stessa immagine, file dei punti nuovo (rimandata la scena dopo averlo cambiato). I video «inserto» si aprivano
+     solo con un'immagine nuova: al giorno, dopo aver messo torce e lampadario dell'alba nell'inserto dei fuochi, il TV teneva il
+     video e i riquadri di prima. Se gli inserti cambiano, si riaprono */
+  aggiornaPunti(url){
+    const f = this.fonti[0], prima = JSON.stringify(f.inserti || []);
+    return this.caricaFumi(f, url, f.dimg).then(() => {
+      if (this.fonti[0] !== f || !f.ok || f.fumiUrl !== (url || null) || JSON.stringify(f.inserti || []) === prima) return;
+      for (const I of f.ins || []) if (I){ try { I.v.pause(); I.v.removeAttribute('src'); I.v.load(); } catch(e) {} if (I.tex) this.gl.deleteTexture(I.tex); }
+      this.apriInserti(f);
+    }).catch(() => {});
   }
   /* dove sale il fumo: i punti dell'AI (o messi a mano dal telefono), con la profondità di ciascuno per la prospettiva */
   async caricaFumi(f, url, dimg){

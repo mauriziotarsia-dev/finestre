@@ -28,7 +28,7 @@
 <script src="../js/accesso.js?v=8"></script>
 <script src="../js/qrcode.js?v=1"></script>
 <script src="../js/vita.js?v=5"></script>
-<script src="../js/vista.js?v=5.91"></script>
+<script src="../js/vista.js?v=5.92"></script>
 <script src="../js/inseguitore.js?v=5"></script>
 <script src="../js/uccelli.js?v=10"></script>
 <script src="../js/bard.js?v=9"></script>
@@ -390,7 +390,7 @@ function applica(nuova, salva = true){
     if (f && vista.urlInVista && vista.urlInVista !== chiaveFonte(f)) vista.mostra(f, 3.5).catch(console.warn);
     else if (f && vista.fonti[0].ok){
       vista.fonti[0].fuoco = f.fuoco;
-      if ((f.comignoli || null) !== (vista.fonti[0].fumiUrl || null)) vista.caricaFumi(vista.fonti[0], f.comignoli, vista.fonti[0].dimg);   /* comignoli spostati dal telefono */
+      if ((f.comignoli || null) !== (vista.fonti[0].fumiUrl || null)) vista.aggiornaPunti(f.comignoli);   /* comignoli spostati dal telefono; 18/11: e gli inserti, se cambiano */
     }
     scuroVerso = scuroDi();
     impagina();
