@@ -1362,6 +1362,60 @@ def metti_in_fila(pezzi, uscita, sfuma=None):
     subprocess.run(cmd, check=True, creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
 
 
+def accorda_luce(video, fermo, maschera, segmenti=None, veloce=False):
+    """⚠ 18/11 · LA LUCE DEL VIDEO COME QUELLA DEL DIPINTO (taverna, giorno e tramonto). Dove il TV prende il video (persone,
+    zone «pieni») il video dell'AI era 7–11 livelli più scuro del dipinto (fuori, dove il video è il dipinto, 2–4): sul TV
+    rettangoli più bui su muro e pavimento attorno ai tavoli e alla cuoca. Qui un guadagno lento, per colore, misurato solo dove
+    il TV mostra il video e nel video non passa nessuno (media della luce su una zona, poi il rapporto: i bordi di persone e
+    oggetti, appena spostati fra video e dipinto, non contano), riporta il video alla luce del dipinto; dettagli e movimento
+    restano. Provato a mano sul tramonto (−7,6 → −3,5) e sul giorno (−11,1 → −4,3). Riscrive il video al suo posto; None se
+    non serve (scarto piccolo o niente di vivo da misurare)."""
+    w, h = 480, 270
+    F = cv2.resize(cv2.imread(fermo), (w, h), interpolation=cv2.INTER_AREA).astype(np.float32)
+    vivo = np.clip(2 * cv2.resize(cv2.imread(maschera, 0), (w, h), interpolation=cv2.INTER_LINEAR).astype(np.float32) / 255 - 1, 0, 1)
+    c = cv2.VideoCapture(video); fps = c.get(5); W, H = int(c.get(3)), int(c.get(4)); n = int(c.get(7))
+    s1 = np.zeros((h, w, 3), np.float64); s2 = np.zeros((h, w), np.float64); k = i = 0
+    while True:                                                   # in fila: saltare avanti col seek ridecodifica ogni volta
+        if not c.grab(): break
+        if i % 6 == 0:
+            ok, f = c.retrieve()
+            if ok:
+                x = cv2.resize(f, (w, h), interpolation=cv2.INTER_AREA).astype(np.float64); s1 += x; g = x.mean(2); s2 += g * g; k += 1
+        i += 1
+    c.release()
+    if not k: return None
+    Mv = (s1 / k).astype(np.float32); Sv = np.sqrt(np.maximum(s2 / k - Mv.mean(2).astype(np.float64) ** 2, 0)).astype(np.float32)
+    fermo_punto = cv2.erode((Sv < 3.5).astype(np.uint8), np.ones((5, 5), np.uint8)).astype(np.float32)
+    pv = fermo_punto * (vivo > .3)
+    if pv.sum() < 200: return None
+    def guadagno(peso, sg):
+        Wb = cv2.GaussianBlur(peso, (0, 0), sg) + 1e-4
+        return np.dstack([(cv2.GaussianBlur(F[..., q] * peso, (0, 0), sg) / Wb + 6) / (cv2.GaussianBlur(Mv[..., q] * peso, (0, 0), sg) / Wb + 6) for q in range(3)]), Wb
+    Gv, Wv = guadagno(pv, 7); Gl, _ = guadagno(pv, 20); Gt, _ = guadagno(fermo_punto, 14)
+    a = np.clip(Wv / .15, 0, 1)[..., None]                        # vicino a punti vivi e fermi il loro guadagno, più in là quello largo
+    G = np.clip(Gv * a + np.where((vivo > .05)[..., None], Gl, Gt) * (1 - a), .9, 1.2)
+    d0 = cv2.GaussianBlur((Mv - F).mean(2), (0, 0), 3)
+    dentro, fuori = float(d0[(vivo > .9) & (Sv < 3.5)].mean()), float(d0[vivo < .1].mean()) if (vivo < .1).any() else 0.
+    if abs(dentro - fuori) < 3.5: return None                     # alba della taverna: −4,8 contro −2,0 (parte viva 3%), non si vede
+    Gb = cv2.resize(G, (W, H), interpolation=cv2.INTER_CUBIC).astype(np.float32)
+    kbps = max(4000, int(44e6 * 8 / max(1., n / max(1., fps)) / 1000))   # il deposito accetta file fino a 50 MB
+    tmp = video + '.luce.mp4'
+    cmd = ['ffmpeg', '-v', 'error', '-y', '-threads', FF_THREADS, '-f', 'rawvideo', '-pix_fmt', 'bgr24', '-s', f'{W}x{H}', '-r', str(fps), '-i', '-'] + \
+          (['-force_key_frames', ','.join('%.3f' % s['da'] for s in segmenti[1:])] if segmenti else []) + \
+          ['-an', '-c:v', 'libx264', '-preset', 'veryfast' if veloce else 'slow', '-crf', '19', '-maxrate', f'{kbps}k', '-bufsize', f'{kbps}k',
+           '-profile:v', 'high', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', tmp]
+    p = subprocess.Popen(cmd, stdin=subprocess.PIPE, creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+    c = cv2.VideoCapture(video); scritti = 0
+    while True:
+        ok, f = c.read()
+        if not ok: break
+        p.stdin.write(np.clip(f * Gb, 0, 255).astype(np.uint8).tobytes()); scritti += 1
+    c.release(); p.stdin.close()
+    if p.wait() != 0 or scritti != n: raise RuntimeError(f'luce: ffmpeg {p.returncode}, {scritti} fotogrammi su {n}')
+    os.replace(tmp, video)
+    return {'prima': round(dentro, 1), 'fuori': round(fuori, 1), 'guadagno': [round(float(v), 3) for v in G[vivo > .5].mean(0)] if (vivo > .5).any() else None}
+
+
 def _cuci_uno(cart, nomi, nome, base, parte, originale, larghezza, veloce, ricuci=False):
     """ricuci: l'animazione è già cucita (con il cucitore di prima): si riparte dal video originale dell'AI, che resta
     com'è, e si rifanno video, fermo e maschera (14/11: il fermo dalla foto a piena risoluzione anche per i paesaggi vecchi)."""
@@ -1426,6 +1480,12 @@ def _cuci_uno(cart, nomi, nome, base, parte, originale, larghezza, veloce, ricuc
                 alta = os.path.join(d, 'a.jpg'); _scarica(cart, f'{base}_{pre}{ora_f}.jpg', alta)
             fxv = 0.5 if (pre or 'largo' in (base.split('@', 1)[1].split('.') if '@' in base else []) or 'interno' in (base.split('@', 1)[1].split('.') if '@' in base else [])) else fx
             info = cuci(e, u, prof, imm, fx, larghezza, veloce, fj, mp, alta, 1.5 if (pezzi_n or (ricuci and leggi_info(e)[0] / max(1, leggi_info(e)[1]) > 12)) else None, fxv)
+            if SENZA_CIELO:                                              # 18/11 · la luce del video come quella del dipinto (accorda_luce)
+                try:
+                    lu = accorda_luce(u, fj, mp, info.get('segmenti'), veloce)
+                    info['luce'] = lu or 'già uguale'
+                    if lu: print('  luce del video accordata al dipinto:', lu, flush=True)
+                except Exception as ex: print('  luce non accordata:', ex, file=sys.stderr, flush=True)
             if not ricuci or pezzi_n:                                    # l'originale lungo, con tutti i pezzi in fila
                 _chiedi('POST', f'/storage/v1/object/{DEPOSITO}/{cart}/' + urllib.parse.quote(originale), open(e, 'rb').read(), 'video/mp4', {'x-upsert': 'true'})
             # 16/11 · i tratti per gli allacci a caso (vedi cuci): prima del video, così chi carica il video li trova già
