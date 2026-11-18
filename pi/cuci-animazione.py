@@ -1398,9 +1398,8 @@ def accorda_luce(video, fermo, maschera, segmenti=None, veloce=False):
     dentro, fuori = float(d0[(vivo > .9) & (Sv < 3.5)].mean()), float(d0[vivo < .1].mean()) if (vivo < .1).any() else 0.
     if abs(dentro - fuori) < 3.5: return None                     # alba della taverna: −4,8 contro −2,0 (parte viva 3%), non si vede
     Gb = cv2.resize(G, (W, H), interpolation=cv2.INTER_CUBIC).astype(np.float32)
-    # il deposito accetta file fino a 50 MB; e 18/11 sera: sul telefono («Tutto schermo») il tramonto a 3,8 Mbit/s partiva molto
-    # in ritardo e si fermava a caricare, il giorno a 2,8 no. Tetto a 3 Mbit/s
-    kbps = min(3000, int(44e6 * 8 / max(1., n / max(1., fps)) / 1000))
+    # il deposito accetta file fino a 50 MB (18/11 sera: il tetto a 3 Mbit/s per il telefono tolto, Maurizio: «si perde qualità»)
+    kbps = max(4000, int(44e6 * 8 / max(1., n / max(1., fps)) / 1000))
     tmp = video + '.luce.mp4'
     cmd = ['ffmpeg', '-v', 'error', '-y', '-threads', FF_THREADS, '-f', 'rawvideo', '-pix_fmt', 'bgr24', '-s', f'{W}x{H}', '-r', str(fps), '-i', '-'] + \
           (['-force_key_frames', ','.join('%.3f' % s['da'] for s in segmenti[1:])] if segmenti else []) + \
