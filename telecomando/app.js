@@ -9,7 +9,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
 const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 const euro = n => (n < .1 ? n.toFixed(3) : n.toFixed(2)).replace('.', ',') + ' $';
-const VERSIONE = '6.85';
+const VERSIONE = '6.86';
 /* 8/11 · l'app si aggiorna da sola (Maurizio: «vedo ancora il quadrato con la doppia finestra»: sul telefono restava la
    versione vecchia anche dopo averla chiusa). Quando torna in primo piano, e ogni 10 minuti, chiede al server quale
    app.js c'è adesso; se è un'altra, ricarica (mai mentre un lavoro AI è in corso) */
@@ -1633,8 +1633,10 @@ async function bozzeVia(){
         const testo = x.prompt ? x.prompt : x.interno ? promptInterno(x.descrizione, x.centro || 'the main counter', stile, x.vista, {luce: x.luce, persone: x.persone, lati: x.lati}) : promptLargo(x.descrizione, stile);
         const stato = (st, sec) => passo(kn, 'ora', x.id + ' · ' + st + ' da ' + Math.floor(sec / 60) + ':' + String(sec % 60).padStart(2, '0'));
         const bN = x.baseNord || d.baseNord, bE = x.baseEst || d.baseEst;
+        /* 18/11 · i riferimenti anche per singola bozza (x.riferimenti): la gatta del tramonto va alle bozze della gatta, non al ritocco dell'avventore */
+        const rx = x.riferimenti ? await Promise.all(x.riferimenti.map(baseB)) : rifs;
         const rn = bN
-          ? await Ai.modifica({modello, chiavi: imp.chiavi, qualita, grande, stato, misura: 'tv', foto: await baseB(bN), riferimenti: rifs, prompt: testo})
+          ? await Ai.modifica({modello, chiavi: imp.chiavi, qualita, grande, stato, misura: 'tv', foto: await baseB(bN), riferimenti: rx, prompt: testo})
           : rif && x.prompt
           ? await Ai.modifica({modello, chiavi: imp.chiavi, qualita, grande, stato, misura: 'tv', foto: rif, prompt: testo + (d.stanzaInPiu ? '\n\n' + d.stanzaInPiu : '')})
           : rif && x.conStanza !== false
@@ -1646,10 +1648,10 @@ async function bozzeVia(){
         if (d.soloFinestrelle){ bozzeStato.fatte[x.id] = {nord: urlNord, chi, grande}; salvaBozze(); rapportoLavoro({bozze: bozzeStato.fatte}); return; }
         passo(ke, 'ora', x.id + ' · TV…');
         const re = bE
-          ? await Ai.modifica({modello, chiavi: imp.chiavi, qualita, grande, misura: 'tv', foto: await baseB(bE), riferimenti: rifs, prompt: x.promptEst || testo})
+          ? await Ai.modifica({modello, chiavi: imp.chiavi, qualita, grande, misura: 'tv', foto: await baseB(bE), riferimenti: rx, prompt: x.promptEst || testo})
           /* 15/11 sera · varianti libere: il TV nasce dalla bozza delle finestrelle (stessa locanda), col suo testo e le foto della stanza */
           : x.promptEst
-          ? await Ai.modifica({modello, chiavi: imp.chiavi, qualita, grande, misura: 'tv', foto: nord, riferimenti: rifs, prompt: x.promptEst})
+          ? await Ai.modifica({modello, chiavi: imp.chiavi, qualita, grande, misura: 'tv', foto: nord, riferimenti: rx, prompt: x.promptEst})
           : await Ai.modifica({modello, chiavi: imp.chiavi, qualita, grande, misura: 'tv', foto: nord,
           prompt: x.interno ? promptEstInterno(x.descEst, x.vista) : promptEst(x.descEst || '')});
         const est = await inJpeg(b64aBlob(re.b64, re.mime), lato);
