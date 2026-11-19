@@ -2146,7 +2146,7 @@ class Vista {
       }
       gl.uniform1f(u.uNFumo, fumi.length); gl.uniform1f(u.uFumoA, 1 - (this.mix || 0));
       /* 15/11: le fiamme vive degli interni, nella vista (come il fumo) */
-      const fiamme = haImg && f0.ok && s.movimento && !sp.has('fiamme') && s.vita && s.vita.interno ? (f0.fiamme || []) : [];
+      const fiamme = haImg && f0.ok && s.movimento && !sp.has('fiamme') && !sp.has('candele') && s.vita && s.vita.interno ? (f0.fiamme || []) : [];   /* 19/11: «candele» solo queste, «camini» solo i camini (banco) */
       if (fiamme.length){
         const ci = this.crop(f0, foro.aspetto, marg, f0.fuoco, foro.striscia, f0.fuoco);
         if (!this.fiammaDati) this.fiammaDati = new Float32Array(48);
@@ -2161,7 +2161,7 @@ class Vista {
         gl.uniform4fv(u.uFiammaS, this.fiammaS); gl.uniform4fv(u.uFiammaL, this.fiammaL);
       }
       gl.uniform1f(u.uNFiamma, fiamme.length);
-      const camini = haImg && f0.ok && s.movimento && !sp.has('fiamme') && s.vita && s.vita.interno ? (f0.camini || []) : [];
+      const camini = haImg && f0.ok && s.movimento && !sp.has('fiamme') && !sp.has('camini') && s.vita && s.vita.interno ? (f0.camini || []) : [];
       if (camini.length){
         const ci = this.crop(f0, foro.aspetto, marg, f0.fuoco, foro.striscia, f0.fuoco);
         if (!this.caminoDati) this.caminoDati = new Float32Array(8);
