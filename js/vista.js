@@ -1797,6 +1797,7 @@ class Vista {
       v.addEventListener('seeked', () => { I.nuovo = true; });
       v.addEventListener('error', () => { I.errore = true; });
       if (q.modo === 'continuo') v.play().catch(() => {}); else v.load();
+      nuovoFotogramma(v);   /* 19/11 sera: solo per annotare i buchi (lo stato); l'inserto si carica a ogni disegno */
       f.ins[j] = I;
     });
   }
@@ -2615,7 +2616,13 @@ function caricaImg(url){
 function nuovoFotogramma(v){
   if ('requestVideoFrameCallback' in v){
     if (!v._ascolto){ v._ascolto = performance.now(); v._nuovo = true;
-      const giro = () => { v._nuovo = true; v._ascolto = performance.now(); v.requestVideoFrameCallback(giro); }; v.requestVideoFrameCallback(giro); }
+      /* 19/11 sera (Maurizio: «ogni tanto gli avventori è come se si fermassero immobili»): si annotano i buchi fra un
+         fotogramma e l'altro mentre il video corre (più di 140 ms, o più di 0,1 s di video saltati), per lo stato */
+      const giro = (ora, md) => { const adesso = performance.now(), g = adesso - v._ascolto, mt = md && md.mediaTime != null ? md.mediaTime : v.currentTime;
+        v._nCb = (v._nCb || 0) + 1;
+        if (v._vaV && !v.paused && !v.seeking && (g > 140 || (v._mt != null && mt - v._mt > .1 && mt - v._mt < 2))){
+          (v._fermi = v._fermi || []).push([Math.round(mt * 100) / 100, Math.round(g), Math.round(((v._mt != null ? mt - v._mt : 0)) * 1000)]); if (v._fermi.length > 30) v._fermi.shift(); v._nFermi = (v._nFermi || 0) + 1; }
+        v._vaV = !v.paused && !v.seeking; v._mt = mt; v._nuovo = true; v._ascolto = adesso; v.requestVideoFrameCallback(giro); }; v.requestVideoFrameCallback(giro); }
     /* se il lettore non avvisa (video fuori pagina su qualche browser), si carica sempre come prima */
     if (!v.paused && performance.now() - v._ascolto > 300) return true;
     const n = v._nuovo; v._nuovo = false; return n;

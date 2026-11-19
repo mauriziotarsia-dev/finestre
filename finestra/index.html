@@ -28,7 +28,7 @@
 <script src="../js/accesso.js?v=8"></script>
 <script src="../js/qrcode.js?v=1"></script>
 <script src="../js/vita.js?v=5"></script>
-<script src="../js/vista.js?v=5.93"></script>
+<script src="../js/vista.js?v=5.94"></script>
 <script src="../js/inseguitore.js?v=5"></script>
 <script src="../js/uccelli.js?v=10"></script>
 <script src="../js/bard.js?v=9"></script>
@@ -747,7 +747,7 @@ if (anteprima){
         if (dati.tetti === 'via'){ tetti = {}; scrivi('fin-tetti', tetti); chiaveTetto = ''; }
         /* 15/11 · {orologio: true|false}: i secondi del video in un angolo (Maurizio: «puoi mettere i secondi che
            avanzano così ti dico a che secondo?»), per dire dove si vede un salto */
-        if (dati.orologio != null) mostraOrologio(!!dati.orologio);
+        if (dati.orologio != null){ mostraOrologio(!!dati.orologio); if (orologio && typeof dati.orologio === 'object'){ orologio.style.left = (+dati.orologio.x || 2) + '%'; orologio.style.top = (+dati.orologio.y || 3) + '%'; } }
         /* 14/11 sera · {senzaNuvole: true|false}: dalla prossima ricarica il disegno si compila senza (o con) le stelle dietro
            le nuvole (js/vista.js): per misurare su questo schermo quanto pesa quel pezzo */
         if (dati.senzaNuvole != null){ try { if (dati.senzaNuvole) localStorage.setItem('fin-senza-nuvole', '1'); else localStorage.removeItem('fin-senza-nuvole'); } catch(e) {} } } }
@@ -948,7 +948,10 @@ async function statoRemoto(d, schedaVideo){
     fonteOk: vista.fonti[0].ok, fonteUrl: vista.fonti[0].url, inArrivo: vista.inArrivo, fonteAttesa: f,
     versione: ([...document.scripts].map(x => x.src).find(x => /vista\.js/.test(x)) || '').split('?')[1] || '',
     nebbiolina: vista.spegni ? !vista.spegni.has('nebbiolina') : true, movimento: scena.movimento !== false,
-    video: (() => { const f0 = vista.fonti[0], v = f0.video && f0.video[0]; return {c: !!v, fermo: !!f0.fTex, cucito: !!f0.cucito, unita: vista.unita, durata: v ? v.duration : null, t: v ? v.currentTime : null, w: v ? v.videoWidth : null, pronti: f0.video ? f0.video.map(x => x.readyState) : null, tratti: f0.tratti ? f0.tratti.length : 0, tratto: f0.tratti ? f0.tratto : null, storia: f0.storia || null, saltiMancati: f0.saltiMancati || 0, saltiFatti: f0.saltiFatti || 0, ritardi: f0.ritardi || null}; })(),
+    video: (() => { const f0 = vista.fonti[0], v = f0.video && f0.video[0]; return {c: !!v, fermo: !!f0.fTex, cucito: !!f0.cucito, unita: vista.unita, durata: v ? v.duration : null, t: v ? v.currentTime : null, w: v ? v.videoWidth : null, pronti: f0.video ? f0.video.map(x => x.readyState) : null, tratti: f0.tratti ? f0.tratti.length : 0, tratto: f0.tratti ? f0.tratto : null, storia: f0.storia || null, saltiMancati: f0.saltiMancati || 0, saltiFatti: f0.saltiFatti || 0, ritardi: f0.ritardi || null,
+      buchi: f0.video ? f0.video.map(x => ({cb: x._nCb || 0, n: x._nFermi || 0, ultimi: x._fermi || [], persi: x.getVideoPlaybackQuality ? x.getVideoPlaybackQuality().droppedVideoFrames : null, tot: x.getVideoPlaybackQuality ? x.getVideoPlaybackQuality().totalVideoFrames : null})) : null,
+      inserti: (f0.ins || []).map(x => { const v = x && x.v; return v && v.getVideoPlaybackQuality ? {cb: v._nCb || 0, n: v._nFermi || 0, ultimi: (v._fermi || []).slice(-8), persi: v.getVideoPlaybackQuality().droppedVideoFrames, tot: v.getVideoPlaybackQuality().totalVideoFrames} : null; }),
+      giroBuchi: giroBuchi.slice(-20), giroNBuchi}; })(),
     scena: {acceso: scena.acceso, paesaggio: scena.paesaggio, ora: scena.ora, meteo: scena.meteo, yt: scena.yt, haImmagini: !!scena.immagini},
     pixel: (() => { try { if (!ultimoParam) return null; vista.disegna(geomGL, ultimoParam); const g = vista.gl, out = {}, b = new Uint8Array(4);
       for (const [n, x, y] of [['centro', .5, .5], ['alto', .5, .15], ['basso', .5, .85]]){ g.readPixels(Math.floor(c.width * x), Math.floor(c.height * y), 1, 1, g.RGBA, g.UNSIGNED_BYTE, b); out[n] = Array.from(b); }
@@ -976,9 +979,25 @@ async function fotoRemota(d){
     const rt = Array.isArray(d.ritaglio) && d.ritaglio.length === 4 ? d.ritaglio.map(v => Math.max(0, Math.min(1, +v || 0))) : [0, 0, 1, 1];
     const sx = Math.round(rt[0] * c.width), sy = Math.round(rt[1] * c.height), sw = Math.max(2, Math.min(c.width - sx, Math.round(rt[2] * c.width))), sh = Math.max(2, Math.min(c.height - sy, Math.round(rt[3] * c.height)));
     const k = Math.min(1, maxW / sw), o = document.createElement('canvas'); o.width = Math.round(sw * k); o.height = Math.round(sh * k);
-    const x = o.getContext('2d'), blobs = [];
+    const x = o.getContext('2d'), blobs = [], note = [];
+    /* 19/11 sera · {attendi: {prossimo: 5, prima: .45}} parte quando sta per arrivare quel tratto (a tanto dalla fine di
+       quello di adesso); {attendi: {tratto: 5, t: 42}} quando quel tratto è in corso ed è passato quel secondo. Ogni
+       scatto annota i secondi dei due lettori, la dissolvenza e il tratto: si confronta il TV coi fotogrammi del file */
+    const f0 = () => vista.fonti[0] || {};
+    if (d.attendi){
+      const A = d.attendi, fino = performance.now() + Math.min(600, +A.max || 240) * 1000;
+      const pronto = () => { const f = f0(), v = f.video && f.video[0]; if (!v || !f.tratti || f.tratto == null) return false;
+        const fine = f.tratti[f.tratto].a, t = v.currentTime;
+        if (A.prossimo != null) return f.prossimo === +A.prossimo && t > fine - (A.prima != null ? +A.prima : .45);
+        if (A.tratto != null) return f.tratto === +A.tratto && t >= (+A.t || 0);
+        return true; };
+      while (!pronto()){ if (performance.now() > fino) break; await new Promise(r => setTimeout(r, 8)); }
+    }
+    const t0 = performance.now();
     for (let i = 0; i < n; i++){
       if (i) await new Promise(r => setTimeout(r, ogni));
+      { const f = f0(), va = f.video && f.video[0], vb = f.video && f.video[1];
+        note.push({ms: Math.round(performance.now() - t0), a: va ? Math.round(va.currentTime * 1000) / 1000 : null, b: vb ? Math.round(vb.currentTime * 1000) / 1000 : null, bFermo: vb ? vb.paused : null, vk: Math.round((f.vk || 0) * 100) / 100, tr: f.tratto, pr: f.prossimo}); }
       if (!coperto && !bancoInCorso) vista.disegna(geomGL, ultimoParam);
       x.fillStyle = '#000'; x.fillRect(0, 0, o.width, o.height); x.drawImage(c, sx, sy, sw, sh, 0, 0, o.width, o.height);
       blobs.push(await new Promise(r => o.toBlob(r, 'image/jpeg', d.ritaglio ? .93 : .85)));
@@ -986,7 +1005,7 @@ async function fotoRemota(d){
     const su = (nome, corpo, tipo) => fetch(SUPABASE_URL + '/storage/v1/object/dmaster-media/finestre/banco/' + nome, {method: 'POST',
       headers: {apikey: SUPABASE_CHIAVE_PUBBLICA, Authorization: 'Bearer ' + SUPABASE_CHIAVE_PUBBLICA, 'Content-Type': tipo, 'x-upsert': 'true'}, body: corpo});
     for (let i = 0; i < blobs.length; i++) await su('foto-' + mio + '-' + i + '.jpg', blobs[i], 'image/jpeg');
-    await su('foto-' + mio + '.json', JSON.stringify({chi: mio, quando: new Date().toISOString(), n, ogni, w: o.width, h: o.height, paesaggio: paesaggioInVista, ora: oraDi(scena), meteo: scena.meteo, scala}), 'image/png');
+    await su('foto-' + mio + '.json', JSON.stringify({chi: mio, quando: new Date().toISOString(), n, ogni, w: o.width, h: o.height, note, paesaggio: paesaggioInVista, ora: oraDi(scena), meteo: scena.meteo, scala}), 'image/png');
   } finally { fotoInCorso = false; }
 }
 /* in prova sul computer: ?banco=1 (non salva niente) */
@@ -996,7 +1015,7 @@ if (q.get('banco')) setTimeout(() => banco({salva: false, giri: +q.get('banco') 
 impagina();
 applica(scena, false);
 let prima = performance.now(), lento = 0, qualita = 1, lentoR = 0, fluido = 0, ultimoCalo = -1e9, prossimo = 0;
-let ultimoRaf = 0, intervalloSchermo = 1000 / 60, msDisegno = 0;
+let ultimoRaf = 0, intervalloSchermo = 1000 / 60, msDisegno = 0, giroBuchi = [], giroNBuchi = 0;
 const avvioGiro = performance.now();
 /* 4/11 · il pavimento della scala: il TV (G10) non scende sotto metà; le finestrelle sì, fino a 0,3, perché sul
    Raspberry 4 due finestrelle fluide (30 immagini al secondo, anche col temporale) stanno a circa 324×576 ciascuna */
@@ -1057,7 +1076,9 @@ function giro(ora){
   }
   const dt = Math.min(.1, (ora - prima) / 1000); prima = ora;
   if (dt > 0) fpsMisurati = fpsMisurati * .97 + (1 / dt) * .03;
-  giriRecenti[giroN++ % 900] = ora - (giro.ultimo || ora); giro.ultimo = ora;
+  giriRecenti[giroN++ % 900] = ora - (giro.ultimo || ora);
+  if (giro.ultimo && ora - giro.ultimo > 120 && !document.hidden){ const v = vista && vista.fonti[0] && vista.fonti[0].video && vista.fonti[0].video[0]; giroNBuchi++; giroBuchi.push([v ? Math.round(v.currentTime * 100) / 100 : null, Math.round(ora - giro.ultimo)]); if (giroBuchi.length > 40) giroBuchi.shift(); }   /* 19/11 sera: i giri lenti (immagine ferma più di 120 ms) */
+  giro.ultimo = ora;
   controllaSchermo(ora);
   /* il tetto di questo momento: per fluidità e per tempo (vedi «IL TETTO RICORDATO») */
   /* ⚠ 14/11 sera · LA NOTTE HA IL SUO TETTO. Di notte il disegno pesa di più (il video del giorno ricolorato, le stelle,
@@ -1226,7 +1247,7 @@ function giro(ora){
   }
   if (misuraVisibile && ora - misura.t0 > 500){ misura.t0 = ora; mostraMisura(); }
   if (orologio){ const f0 = vista.fonti[0], v = f0 && f0.video && f0.video[0];
-    const testo = v ? v.currentTime.toFixed(1).replace('.', ',') + ' s  /  ' + (v.duration || 0).toFixed(1).replace('.', ',') : 'nessun video';
+    const testo = v ? v.currentTime.toFixed(1).replace('.', ',') + ' s  /  ' + (v.duration || 0).toFixed(1).replace('.', ',') + (f0.tratti && f0.tratto != null ? '  · ' + (f0.tratto + 1) + (f0.vk > .01 ? ' ⇄ ' + (f0.prossimo + 1) : '') : '') : 'nessun video';
     if (orologio.textContent !== testo) orologio.textContent = testo; }
   /* 15/11 sera · con la prospettiva viva la riserva sale da 1,2 a 1,33: lo spostamento ai lati (fino al 7% della vista, che
      avvicinandosi diventa l'8,3%) più l'allargamento di chi si avvicina (15%: l'8,25% per lato) fanno il 16,6% per lato.
