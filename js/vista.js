@@ -83,6 +83,8 @@ uniform vec4 uFiammaS[12];    /* 19/11 sera · per ogni fiamma, calcolati una vo
 uniform vec4 uFiammaL[12];    /* 19/11 sera · per ogni fiamma: x l'allungarsi, y il tremolio della luce */
 uniform vec4 uFiamma[12];     /* 15/11 · fiamme di candele e torce negli interni: (x, y della base nella vista, altezza in altezze della vista, seme). 17/11: 12 (lampadario, torce e tre candele della taverna non ci stavano in 8) */
 uniform float uNFiamma;
+uniform sampler2D uFiamT;     /* 19/11 sera · le fiamme a metà risoluzione (FIAMME_FRAG): rg spostamento, b tremolio della luce, a corpo della fiamma */
+uniform float uHaFiamT;
 uniform sampler2D uIns0, uIns1;   /* 16/11 sera · i video «inserto» (il gatto, i fuochi): video corti messi in un riquadro dell'immagine */
 uniform vec4 uRiqBox[4];      /* fino a quattro riquadri: dove stanno nell'immagine intera (x0, y0, x1, y1) */
 uniform vec4 uRiqTile[4];     /* da quale parte del loro video (u0, v0, u1, v1) */
@@ -295,7 +297,16 @@ vec3 paesaggio(sampler2D img, sampler2D imgB, float vk, sampler2D dep, vec4 crop
      anche lontano da ogni fiamma. Con GLSL 3 (WebGL2: TV e finestrelle) il giro ora dura quanto le fiamme che ci sono ed è
      un giro vero: i punti lontani escono subito. Con WebGL1 com'era */
   gFiamma = 0.; gFiammaW = 0.;
-  if (uNFiamma > .5){
+  /* ⚠ 19/11 sera · 4K PIENO (Maurizio: «Possiamo dimezzare invece che un quarto?»). Il giro qui sotto, su ogni punto dello
+     schermo, costava al TV ~6 ms su 19,5 in 4K (col compilatore della scheda i punti lontani da ogni fiamma non escono
+     davvero prima). Ora lo stesso conto si fa in un passaggio a metà risoluzione (FIAMME_FRAG): qui si legge e basta
+     (spostamento, tremolio della luce, corpo della fiamma). Il giro resta per chi non ha il passaggio (WebGL1, poche unità) */
+  if (uHaFiamT > .5){
+    vec2 tf = (p - uMap.xy) / uMap.zw;
+    vec4 ft = texture2D(uFiamT, vec2(tf.x, 1. - tf.y));
+    p += (ft.xy - 128. / 255.) / 64.;
+    gFiamma = (ft.z - 128. / 255.) * 2.; gFiammaW = ft.w;
+  } else if (uNFiamma > .5){
     vec2 dpF = vec2(0.);
 #if __VERSION__ >= 300
     for (int i = 0; i < int(uNFiamma + .5); i++){   /* 19/11: con GLSL 3 il giro è vero (non srotolato): fuori dalle zone niente conti */
@@ -1136,6 +1147,40 @@ void main(){
    sedici volte meno. Esce una piccola immagine che il programma principale legge. */
 /* ── il vento sugli alberi, a un quarto di risoluzione: raffiche che attraversano il paesaggio come onde,
    rami che si piegano a gruppi, un po' di tremolio più fine ── */
+/* ── 19/11 sera · le fiamme dei punti (candele, torce, lampadario) a metà risoluzione: lo stesso conto che il disegno
+   faceva su ogni punto (vedi paesaggio), scritto in un'immagine piccola che il disegno legge. rg: spostamento × 64 (+ 128/255),
+   b: tremolio della luce × 0,5 (+ 128/255), a: quanto il punto è corpo di fiamma ── */
+const FIAMME_FRAG = `
+precision highp float;
+varying vec2 vUv;
+uniform vec4 uMap;
+uniform float uAspetto, uNFiamma;
+uniform vec4 uFiamma[12], uFiammaS[12], uFiammaL[12];
+void main(){
+  vec2 p = uMap.xy + vUv * uMap.zw;
+  vec2 dpF = vec2(0.); float gF = 0., gW = 0.;
+#if __VERSION__ >= 300
+  for (int i = 0; i < int(uNFiamma + .5); i++){
+#else
+  for (int i = 0; i < 12; i++){
+    if (float(i) >= uNFiamma) break;
+#endif
+    vec4 F = uFiamma[i];
+    vec2 q = vec2((p.x - F.x) * uAspetto, p.y - F.y) / F.z;
+    if (abs(q.x) > .9 || q.y > .45 || q.y < -1.7) continue;
+    float su = clamp(-q.y, 0., 1.3);
+    float zona = smoothstep(.42, .2, abs(q.x)) * smoothstep(1.35, 1.05, -q.y);
+    if (zona > 0.){
+      vec4 S4 = uFiammaS[i]; float kS = clamp(su / .4333, 0., 3.);
+      float sw = kS < 1. ? mix(S4.x, S4.y, kS) : (kS < 2. ? mix(S4.y, S4.z, kS - 1.) : mix(S4.z, S4.w, kS - 2.));
+      dpF += zona * vec2(sw * su * .2 * F.z / uAspetto, uFiammaL[i].x * su * .16 * F.z);
+    }
+    float tondo = smoothstep(1., .25, length(vec2(q.x, (q.y + .5) * .8)));
+    gW = max(gW, smoothstep(.5, .25, abs(q.x)) * smoothstep(1.45, 1.05, -q.y) * smoothstep(.3, .0, q.y));
+    gF += tondo * smoothstep(.45, -.1, q.y) * uFiammaL[i].y;
+  }
+  gl_FragColor = vec4(clamp(dpF * 64. + 128. / 255., 0., 1.), clamp(gF * .5 + 128. / 255., 0., 1.), gW);
+}`;
 const VENTO_FRAG = `
 precision highp float;
 varying vec2 vUv;
@@ -1471,16 +1516,19 @@ class Vista {
     /* il programma principale: paesaggio, cielo, nebbia, lampo, luce */
     this.p = programma(VERT, FRAG, ['aPos']);
     this.fumoDati = new Float32Array(32); this.fumoForza = new Float32Array(8);
-    this.u = posizioni(this.p, ['uOcchio','uImg0b','uVmix','uImg0','uImg1','uDep0','uDep1','uMap','uCrop0','uCrop1','uCropD0','uCropD1','uUccelli','uCielo0','uCielo1','uCieloM0','uCieloM1','uCieloX','uFermo0','uFermo1','uHaFermo0','uHaFermo1','uRap0','uHaRap0','uVentoT','uAlberiM','uHaVento','uU','uNU','uUBox','uFumo','uFumoI','uNFumo','uFumoA','uFiamma','uFiammaS','uFiammaL','uNFiamma','uCamino','uNCamino','uParte','uNParte','uIns0','uIns1','uRiqBox','uRiqTile','uRiqSam','uNebV','uNebG','uDentro','uFascioD','uFascioC','uScuro','uChiar','uNotte','uOmbre','uMeteora','uMeteoraK','uMix','uHaImg','uHaDep0','uHaDep1','uMovimento0','uMovimento1',
+    this.u = posizioni(this.p, ['uOcchio','uImg0b','uVmix','uImg0','uImg1','uDep0','uDep1','uMap','uCrop0','uCrop1','uCropD0','uCropD1','uUccelli','uCielo0','uCielo1','uCieloM0','uCieloM1','uCieloX','uFermo0','uFermo1','uHaFermo0','uHaFermo1','uRap0','uHaRap0','uVentoT','uAlberiM','uHaVento','uU','uNU','uUBox','uFumo','uFumoI','uNFumo','uFumoA','uFiamma','uFiammaS','uFiammaL','uNFiamma','uFiamT','uHaFiamT','uCamino','uNCamino','uParte','uNParte','uIns0','uIns1','uRiqBox','uRiqTile','uRiqSam','uNebV','uNebG','uDentro','uFascioD','uFascioC','uScuro','uChiar','uNotte','uOmbre','uMeteora','uMeteoraK','uMix','uHaImg','uHaDep0','uHaDep1','uMovimento0','uMovimento1',
       'uLato','uT','uTV','uRaf','uAspetto','uPix','uCoperto','uNebbia','uPioggia','uNeve','uTempesta','uVento','uLampo','uLampoX','uLampoS','uLampoB',
       'uNotteFinta','uLuce','uBuio','uQualita','uColNebbia','uMeteo','uSale','uFuori']);
     gl.useProgram(this.p);
-    gl.uniform1i(this.u.uImg0, 0); gl.uniform1i(this.u.uImg1, 1); gl.uniform1i(this.u.uDep0, 2); gl.uniform1i(this.u.uDep1, 3); gl.uniform1i(this.u.uImg0b, 4); gl.uniform1i(this.u.uMeteo, 5); gl.uniform1i(this.u.uCielo0, 6); gl.uniform1i(this.u.uCielo1, 7); gl.uniform1i(this.u.uFermo0, 8); gl.uniform1i(this.u.uFermo1, 9); gl.uniform1i(this.u.uVentoT, 10); if (this.u.uAlberiM) gl.uniform1i(this.u.uAlberiM, 11); if (this.u.uRap0) gl.uniform1i(this.u.uRap0, 12); if (this.u.uIns0) gl.uniform1i(this.u.uIns0, 14); if (this.u.uIns1) gl.uniform1i(this.u.uIns1, 15);
+    gl.uniform1i(this.u.uImg0, 0); gl.uniform1i(this.u.uImg1, 1); gl.uniform1i(this.u.uDep0, 2); gl.uniform1i(this.u.uDep1, 3); gl.uniform1i(this.u.uImg0b, 4); gl.uniform1i(this.u.uMeteo, 5); gl.uniform1i(this.u.uCielo0, 6); gl.uniform1i(this.u.uCielo1, 7); gl.uniform1i(this.u.uFermo0, 8); gl.uniform1i(this.u.uFermo1, 9); gl.uniform1i(this.u.uVentoT, 10); if (this.u.uAlberiM) gl.uniform1i(this.u.uAlberiM, 11); if (this.u.uRap0) gl.uniform1i(this.u.uRap0, 12); if (this.u.uFiamT) gl.uniform1i(this.u.uFiamT, 13); if (this.u.uIns0) gl.uniform1i(this.u.uIns0, 14); if (this.u.uIns1) gl.uniform1i(this.u.uIns1, 15);
     this.unita = gl.getParameter(gl.MAX_TEXTURE_IMAGE_UNITS) || 8;   /* il fermo vuole 10 unità (il Raspberry 4 ne ha 16) */
     this.maxTex = gl.getParameter(gl.MAX_TEXTURE_SIZE) || 4096;       /* Raspberry 4 e telefoni vecchi: 4096; il G10 16384 */
     /* nebbia e nuvole a bassa risoluzione */
     this.pm = programma(VERT, METEO_FRAG, ['aPos']);
     this.um = posizioni(this.pm, ['uMap','uT','uTV','uRaf','uVento']);
+    /* 19/11 sera · le fiamme a metà risoluzione: solo con WebGL2 e 16 unità (l'immagine piccola va nella 13) */
+    try { if (this.gl2 && this.unita >= 16){ this.pfi = programma(VERT, FIAMME_FRAG, ['aPos']); this.ufi = posizioni(this.pfi, ['uMap','uAspetto','uNFiamma','uFiamma','uFiammaS','uFiammaL']); } } catch(e) { this.pfi = null; }
+    this.fiamBuf = [];
     this.pv = programma(VERT, VENTO_FRAG, ['aPos']);
     this.uv = posizioni(this.pv, ['uMap','uT','uCropD','uCieloM','uCieloX','uAlberi','uCielo','uVento','uNuvole','uHaNuvole','uDentro','uFascioD']);
     gl.useProgram(this.pv); gl.uniform1i(this.uv.uAlberi, 11); gl.uniform1i(this.uv.uCielo, 6); if (this.uv.uNuvole) gl.uniform1i(this.uv.uNuvole, 13);
@@ -1510,8 +1558,8 @@ class Vista {
   quad(){ const gl = this.gl; gl.bindBuffer(gl.ARRAY_BUFFER, this.bQuad); gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
     if (this.ist){ this.ist.div(1, 0); gl.disableVertexAttribArray(1); } }
   /* la piccola immagine della nebbia per il foro i, grande un quarto per lato */
-  bufferMeteo(i, w, h, lista = this.meteo){
-    const gl = this.gl, W = Math.max(8, Math.ceil(w / 4)), H = Math.max(8, Math.ceil(h / 4));
+  bufferMeteo(i, w, h, lista = this.meteo, div = 4){
+    const gl = this.gl, W = Math.max(8, Math.ceil(w / div)), H = Math.max(8, Math.ceil(h / div));
     let m = lista[i];
     if (m && m.w === W && m.h === H) return m;
     if (m){ gl.deleteTexture(m.tex); gl.deleteFramebuffer(m.fb); }
@@ -2118,6 +2166,32 @@ class Vista {
         gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
         gl.bindFramebuffer(gl.FRAMEBUFFER, null);
       }
+      /* 15/11: le fiamme vive degli interni, nella vista (come il fumo) */
+      const fiamme = haImg && f0.ok && s.movimento && !sp.has('fiamme') && !sp.has('candele') && s.vita && s.vita.interno ? (f0.fiamme || []) : [];   /* 19/11: «candele» solo queste, «camini» solo i camini (banco) */
+      if (fiamme.length){
+        const ci = this.crop(f0, foro.aspetto, marg, f0.fuoco, foro.striscia, f0.fuoco);
+        if (!this.fiammaDati) this.fiammaDati = new Float32Array(48);
+        fiamme.forEach((q, j) => { this.fiammaDati[j * 4] = (q.x - ci[0]) / ci[2]; this.fiammaDati[j * 4 + 1] = (q.y - ci[1]) / ci[3]; this.fiammaDati[j * 4 + 2] = q.h / ci[3]; this.fiammaDati[j * 4 + 3] = q.s; });
+        /* 19/11 sera: i rumori delle fiamme, una volta per immagine (stesse formule che il disegno faceva su ogni punto) */
+        if (!this.fiammaS){ this.fiammaS = new Float32Array(48); this.fiammaL = new Float32Array(48); }
+        fiamme.forEach((q, j) => { const w = this.fiammaDati[j * 4 + 3], t = s.t * 1.25 + w * 13.7;
+          for (let k = 0; k < 4; k++){ const su = k * .43333; this.fiammaS[j * 4 + k] = (rumoreJ(t * 1.9, su * 1.1 + w * 5) - .5) * .6 + (rumoreJ(t * 5.3, su * 2.3 + w * 9) - .5) * .4; }
+          this.fiammaL[j * 4] = (rumoreJ(t * 3.1 + 3.7, w * 7) - .5) * .6 + (rumoreJ(t * 7.9, w * 3) - .5) * .4;
+          this.fiammaL[j * 4 + 1] = rumoreJ(t * 6.1, w) * .65 + rumoreJ(t * 11.3, w + 2) * .35 - .5; });
+      }
+      /* 1c. 19/11 sera · le fiamme dei punti a metà risoluzione (FIAMME_FRAG), se il disegno ha il passaggio */
+      let ftx = null;
+      if (fiamme.length && this.pfi && !sp.has('fiammeIntere')){
+        lega(13, null);   /* prima: bufferMeteo, quando crea l'immagine, la lega all'unità attiva (così è la 13, non il cielo della 6) */
+        const m = this.bufferMeteo(i, foro.w, foro.h, this.fiamBuf, 2); ftx = m.tex;
+        lega(13, null);
+        gl.bindFramebuffer(gl.FRAMEBUFFER, m.fb); gl.disable(gl.SCISSOR_TEST); gl.viewport(0, 0, m.w, m.h);
+        gl.useProgram(this.pfi);
+        gl.uniform4fv(this.ufi.uMap, foro.map); gl.uniform1f(this.ufi.uAspetto, foro.aspetto); gl.uniform1f(this.ufi.uNFiamma, fiamme.length);
+        gl.uniform4fv(this.ufi.uFiamma, this.fiammaDati); gl.uniform4fv(this.ufi.uFiammaS, this.fiammaS); gl.uniform4fv(this.ufi.uFiammaL, this.fiammaL);
+        gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+        gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      }
       /* 2. il paesaggio col suo tempo */
       gl.useProgram(this.p);
       lega(5, tm); if (this.unita >= 12) lega(10, tv); gl.uniform1f(u.uHaVento, tv ? 1 : 0);
@@ -2145,22 +2219,9 @@ class Vista {
         gl.uniform4fv(u.uFumo, this.fumoDati); gl.uniform1fv(u.uFumoI, this.fumoForza);
       }
       gl.uniform1f(u.uNFumo, fumi.length); gl.uniform1f(u.uFumoA, 1 - (this.mix || 0));
-      /* 15/11: le fiamme vive degli interni, nella vista (come il fumo) */
-      const fiamme = haImg && f0.ok && s.movimento && !sp.has('fiamme') && !sp.has('candele') && s.vita && s.vita.interno ? (f0.fiamme || []) : [];   /* 19/11: «candele» solo queste, «camini» solo i camini (banco) */
-      if (fiamme.length){
-        const ci = this.crop(f0, foro.aspetto, marg, f0.fuoco, foro.striscia, f0.fuoco);
-        if (!this.fiammaDati) this.fiammaDati = new Float32Array(48);
-        fiamme.forEach((q, j) => { this.fiammaDati[j * 4] = (q.x - ci[0]) / ci[2]; this.fiammaDati[j * 4 + 1] = (q.y - ci[1]) / ci[3]; this.fiammaDati[j * 4 + 2] = q.h / ci[3]; this.fiammaDati[j * 4 + 3] = q.s; });
-        gl.uniform4fv(u.uFiamma, this.fiammaDati);
-        /* 19/11 sera: i rumori delle fiamme, una volta per immagine (stesse formule che il disegno faceva su ogni punto) */
-        if (!this.fiammaS){ this.fiammaS = new Float32Array(48); this.fiammaL = new Float32Array(48); }
-        fiamme.forEach((q, j) => { const w = this.fiammaDati[j * 4 + 3], t = s.t * 1.25 + w * 13.7;
-          for (let k = 0; k < 4; k++){ const su = k * .43333; this.fiammaS[j * 4 + k] = (rumoreJ(t * 1.9, su * 1.1 + w * 5) - .5) * .6 + (rumoreJ(t * 5.3, su * 2.3 + w * 9) - .5) * .4; }
-          this.fiammaL[j * 4] = (rumoreJ(t * 3.1 + 3.7, w * 7) - .5) * .6 + (rumoreJ(t * 7.9, w * 3) - .5) * .4;
-          this.fiammaL[j * 4 + 1] = rumoreJ(t * 6.1, w) * .65 + rumoreJ(t * 11.3, w + 2) * .35 - .5; });
-        gl.uniform4fv(u.uFiammaS, this.fiammaS); gl.uniform4fv(u.uFiammaL, this.fiammaL);
-      }
+      if (fiamme.length){ gl.uniform4fv(u.uFiamma, this.fiammaDati); gl.uniform4fv(u.uFiammaS, this.fiammaS); gl.uniform4fv(u.uFiammaL, this.fiammaL); }
       gl.uniform1f(u.uNFiamma, fiamme.length);
+      lega(13, ftx); gl.uniform1f(u.uHaFiamT, ftx ? 1 : 0);   /* 19/11 sera: le fiamme già fatte a metà risoluzione */
       const camini = haImg && f0.ok && s.movimento && !sp.has('fiamme') && !sp.has('camini') && s.vita && s.vita.interno ? (f0.camini || []) : [];
       if (camini.length){
         const ci = this.crop(f0, foro.aspetto, marg, f0.fuoco, foro.striscia, f0.fuoco);
