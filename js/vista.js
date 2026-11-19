@@ -79,6 +79,8 @@ uniform float uHaVento;   /* (il passaggio a bassa risoluzione scrive dal basso:
 uniform vec4 uFumo[8];        /* fumo dai comignoli: (x, y nella vista, larghezza del tetto in larghezze della vista, profondità) */
 uniform float uFumoI[8];      /* 9/11: quanto fuma ognuno (i comignoli 1, i fuochi lontani quando sono accesi: js/vita.js) */
 uniform float uNFumo, uFumoA; /* quanti, e quanto si vedono (sfumano col paesaggio) */
+uniform vec4 uFiammaS[12];    /* 19/11 sera · per ogni fiamma, calcolati una volta per immagine (vedi Vista, fiammaRumori): l'ondeggiare a 0, 0,43, 0,87, 1,3 altezze */
+uniform vec4 uFiammaL[12];    /* 19/11 sera · per ogni fiamma: x l'allungarsi, y il tremolio della luce */
 uniform vec4 uFiamma[12];     /* 15/11 · fiamme di candele e torce negli interni: (x, y della base nella vista, altezza in altezze della vista, seme). 17/11: 12 (lampadario, torce e tre candele della taverna non ci stavano in 8) */
 uniform float uNFiamma;
 uniform sampler2D uIns0, uIns1;   /* 16/11 sera · i video «inserto» (il gatto, i fuochi): video corti messi in un riquadro dell'immagine */
@@ -308,13 +310,16 @@ vec3 paesaggio(sampler2D img, sampler2D imgB, float vk, sampler2D dep, vec4 crop
       float t = uT * 1.25 + F.w * 13.7;
       float zona = smoothstep(.42, .2, abs(q.x)) * smoothstep(1.35, 1.05, -q.y);   /* il corpo della fiamma (la base non si muove comunque: lo spostamento cresce salendo) */
       if (zona > 0.){
-        float sw = (rumore(vec2(t * 1.9, su * 1.1 + F.w * 5.)) - .5) * .6 + (rumore(vec2(t * 5.3, su * 2.3 + F.w * 9.)) - .5) * .4;
-        float lu = (rumore(vec2(t * 3.1 + 3.7, F.w * 7.)) - .5) * .6 + (rumore(vec2(t * 7.9, F.w * 3.)) - .5) * .4;
+        /* 19/11 sera: i rumori (prima calcolati qui, su ogni punto di ogni fiamma: col disegno «srotolato» del TV, su ogni punto
+           dello schermo) arrivano già fatti per fiamma: l'ondeggiare in quattro punti dell'altezza, interpolato */
+        vec4 S4 = uFiammaS[i]; float kS = clamp(su / .4333, 0., 3.);
+        float sw = kS < 1. ? mix(S4.x, S4.y, kS) : (kS < 2. ? mix(S4.y, S4.z, kS - 1.) : mix(S4.z, S4.w, kS - 2.));
+        float lu = uFiammaL[i].x;
         dpF += zona * vec2(sw * su * .2 * F.z / uAspetto, lu * su * .16 * F.z);
       }
       float tondo = smoothstep(1., .25, length(vec2(q.x, (q.y + .5) * .8)));
       gFiammaW = max(gFiammaW, smoothstep(.5, .25, abs(q.x)) * smoothstep(1.45, 1.05, -q.y) * smoothstep(.3, .0, q.y));
-      gFiamma += tondo * smoothstep(.45, -.1, q.y) * (rumore(vec2(t * 6.1, F.w)) * .65 + rumore(vec2(t * 11.3, F.w + 2.)) * .35 - .5);   /* la luce della fiamma trema (non la candela sotto) */
+      gFiamma += tondo * smoothstep(.45, -.1, q.y) * uFiammaL[i].y;   /* la luce della fiamma trema (non la candela sotto); 19/11: il rumore già fatto per fiamma */
     }
     p += dpF;
   }
@@ -1466,7 +1471,7 @@ class Vista {
     /* il programma principale: paesaggio, cielo, nebbia, lampo, luce */
     this.p = programma(VERT, FRAG, ['aPos']);
     this.fumoDati = new Float32Array(32); this.fumoForza = new Float32Array(8);
-    this.u = posizioni(this.p, ['uOcchio','uImg0b','uVmix','uImg0','uImg1','uDep0','uDep1','uMap','uCrop0','uCrop1','uCropD0','uCropD1','uUccelli','uCielo0','uCielo1','uCieloM0','uCieloM1','uCieloX','uFermo0','uFermo1','uHaFermo0','uHaFermo1','uRap0','uHaRap0','uVentoT','uAlberiM','uHaVento','uU','uNU','uUBox','uFumo','uFumoI','uNFumo','uFumoA','uFiamma','uNFiamma','uCamino','uNCamino','uParte','uNParte','uIns0','uIns1','uRiqBox','uRiqTile','uRiqSam','uNebV','uNebG','uDentro','uFascioD','uFascioC','uScuro','uChiar','uNotte','uOmbre','uMeteora','uMeteoraK','uMix','uHaImg','uHaDep0','uHaDep1','uMovimento0','uMovimento1',
+    this.u = posizioni(this.p, ['uOcchio','uImg0b','uVmix','uImg0','uImg1','uDep0','uDep1','uMap','uCrop0','uCrop1','uCropD0','uCropD1','uUccelli','uCielo0','uCielo1','uCieloM0','uCieloM1','uCieloX','uFermo0','uFermo1','uHaFermo0','uHaFermo1','uRap0','uHaRap0','uVentoT','uAlberiM','uHaVento','uU','uNU','uUBox','uFumo','uFumoI','uNFumo','uFumoA','uFiamma','uFiammaS','uFiammaL','uNFiamma','uCamino','uNCamino','uParte','uNParte','uIns0','uIns1','uRiqBox','uRiqTile','uRiqSam','uNebV','uNebG','uDentro','uFascioD','uFascioC','uScuro','uChiar','uNotte','uOmbre','uMeteora','uMeteoraK','uMix','uHaImg','uHaDep0','uHaDep1','uMovimento0','uMovimento1',
       'uLato','uT','uTV','uRaf','uAspetto','uPix','uCoperto','uNebbia','uPioggia','uNeve','uTempesta','uVento','uLampo','uLampoX','uLampoS','uLampoB',
       'uNotteFinta','uLuce','uBuio','uQualita','uColNebbia','uMeteo','uSale','uFuori']);
     gl.useProgram(this.p);
@@ -2147,6 +2152,13 @@ class Vista {
         if (!this.fiammaDati) this.fiammaDati = new Float32Array(48);
         fiamme.forEach((q, j) => { this.fiammaDati[j * 4] = (q.x - ci[0]) / ci[2]; this.fiammaDati[j * 4 + 1] = (q.y - ci[1]) / ci[3]; this.fiammaDati[j * 4 + 2] = q.h / ci[3]; this.fiammaDati[j * 4 + 3] = q.s; });
         gl.uniform4fv(u.uFiamma, this.fiammaDati);
+        /* 19/11 sera: i rumori delle fiamme, una volta per immagine (stesse formule che il disegno faceva su ogni punto) */
+        if (!this.fiammaS){ this.fiammaS = new Float32Array(48); this.fiammaL = new Float32Array(48); }
+        fiamme.forEach((q, j) => { const w = this.fiammaDati[j * 4 + 3], t = s.t * 1.25 + w * 13.7;
+          for (let k = 0; k < 4; k++){ const su = k * .43333; this.fiammaS[j * 4 + k] = (rumoreJ(t * 1.9, su * 1.1 + w * 5) - .5) * .6 + (rumoreJ(t * 5.3, su * 2.3 + w * 9) - .5) * .4; }
+          this.fiammaL[j * 4] = (rumoreJ(t * 3.1 + 3.7, w * 7) - .5) * .6 + (rumoreJ(t * 7.9, w * 3) - .5) * .4;
+          this.fiammaL[j * 4 + 1] = rumoreJ(t * 6.1, w) * .65 + rumoreJ(t * 11.3, w + 2) * .35 - .5; });
+        gl.uniform4fv(u.uFiammaS, this.fiammaS); gl.uniform4fv(u.uFiammaL, this.fiammaL);
       }
       gl.uniform1f(u.uNFiamma, fiamme.length);
       const camini = haImg && f0.ok && s.movimento && !sp.has('fiamme') && s.vita && s.vita.interno ? (f0.camini || []) : [];
@@ -2671,6 +2683,11 @@ function tratti(j, D){
   return S.map(s => ({da: +s.da, a: +s.a, nome: String(s.nome || ''), peso: +s.peso > 0 ? +s.peso : 1, noDiFila: !!s.noDiFila,
     ogni: Array.isArray(s.ogni) && s.ogni.length === 2 ? [Math.max(0, s.ogni[0] | 0), Math.max(s.ogni[0] | 0, s.ogni[1] | 0)] : null}));
 }
+/* 19/11 sera · il rumore del disegno (h1, rumore) in JavaScript, per i conti fatti una volta per fiamma */
+const frJ = x => x - Math.floor(x);
+function h1J(x, y){ let a = frJ(x * .1031), b = frJ(y * .1031), c = frJ(x * .1031); const d = a * (b + 33.33) + b * (c + 33.33) + c * (a + 33.33); a += d; b += d; c += d; return frJ((a + b) * c); }
+function rumoreJ(x, y){ const ix = Math.floor(x), iy = Math.floor(y); let fx = x - ix, fy = y - iy; fx = fx * fx * (3 - 2 * fx); fy = fy * fy * (3 - 2 * fy);
+  const a = h1J(ix, iy), b = h1J(ix + 1, iy), c = h1J(ix, iy + 1), d = h1J(ix + 1, iy + 1); return (a + (b - a) * fx) + ((c + (d - c) * fx) - (a + (b - a) * fx)) * fy; }
 const sogliaOgni = s => s.ogni[0] + Math.floor(Math.random() * (s.ogni[1] - s.ogni[0] + 1));
 /* il tratto dopo: quello raro quando ne sono passati abbastanza degli altri; altrimenti a caso secondo il peso,
    senza ripetere di fila quelli che non vogliono */
