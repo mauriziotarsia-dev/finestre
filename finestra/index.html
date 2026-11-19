@@ -28,7 +28,7 @@
 <script src="../js/accesso.js?v=8"></script>
 <script src="../js/qrcode.js?v=1"></script>
 <script src="../js/vita.js?v=5"></script>
-<script src="../js/vista.js?v=5.94"></script>
+<script src="../js/vista.js?v=5.95"></script>
 <script src="../js/inseguitore.js?v=5"></script>
 <script src="../js/uccelli.js?v=10"></script>
 <script src="../js/bard.js?v=9"></script>
@@ -168,7 +168,7 @@ let mostraBordi = false;
 
 const c = document.getElementById('c');
 let vista = null;
-try { vista = new Vista(c); } catch(e) {
+try { vista = new Vista(c); vista.videoIntero = !anteprima; } catch(e) {
   document.body.innerHTML = '<p style="color:#d4af37;font:20px system-ui;padding:40px">Questa finestra non riesce a usare la grafica (WebGL): ' + e.message + '<br><small>Riprovo da sola fra un minuto.</small></p>';
   /* ⚠ 9/11: il Raspberry è rimasto così ore senza che da lontano si sapesse (non rispondeva e basta). Ora lo dice nello
      stato (finestre/banco/stato-<chi>.json, con il motivo) e riprova da solo ogni minuto */
@@ -951,7 +951,7 @@ async function statoRemoto(d, schedaVideo){
     video: (() => { const f0 = vista.fonti[0], v = f0.video && f0.video[0]; return {c: !!v, fermo: !!f0.fTex, cucito: !!f0.cucito, unita: vista.unita, durata: v ? v.duration : null, t: v ? v.currentTime : null, w: v ? v.videoWidth : null, pronti: f0.video ? f0.video.map(x => x.readyState) : null, tratti: f0.tratti ? f0.tratti.length : 0, tratto: f0.tratti ? f0.tratto : null, storia: f0.storia || null, saltiMancati: f0.saltiMancati || 0, saltiFatti: f0.saltiFatti || 0, ritardi: f0.ritardi || null,
       buchi: f0.video ? f0.video.map(x => ({cb: x._nCb || 0, n: x._nFermi || 0, ultimi: x._fermi || [], persi: x.getVideoPlaybackQuality ? x.getVideoPlaybackQuality().droppedVideoFrames : null, tot: x.getVideoPlaybackQuality ? x.getVideoPlaybackQuality().totalVideoFrames : null})) : null,
       inserti: (f0.ins || []).map(x => { const v = x && x.v; return v && v.getVideoPlaybackQuality ? {cb: v._nCb || 0, n: v._nFermi || 0, ultimi: (v._fermi || []).slice(-8), persi: v.getVideoPlaybackQuality().droppedVideoFrames, tot: v.getVideoPlaybackQuality().totalVideoFrames} : null; }),
-      giroBuchi: giroBuchi.slice(-20), giroNBuchi}; })(),
+      giroBuchi: giroBuchi.slice(-20), giroNBuchi, intero: !!vista.videoIntero, scaricati: typeof scaricati !== 'undefined' ? scaricati : null}; })(),
     scena: {acceso: scena.acceso, paesaggio: scena.paesaggio, ora: scena.ora, meteo: scena.meteo, yt: scena.yt, haImmagini: !!scena.immagini},
     pixel: (() => { try { if (!ultimoParam) return null; vista.disegna(geomGL, ultimoParam); const g = vista.gl, out = {}, b = new Uint8Array(4);
       for (const [n, x, y] of [['centro', .5, .5], ['alto', .5, .15], ['basso', .5, .85]]){ g.readPixels(Math.floor(c.width * x), Math.floor(c.height * y), 1, 1, g.RGBA, g.UNSIGNED_BYTE, b); out[n] = Array.from(b); }

@@ -1535,7 +1535,7 @@ class Vista {
     const f = this.fonti[0], prima = JSON.stringify(f.inserti || []);
     return this.caricaFumi(f, url, f.dimg).then(() => {
       if (this.fonti[0] !== f || !f.ok || f.fumiUrl !== (url || null) || JSON.stringify(f.inserti || []) === prima) return;
-      for (const I of f.ins || []) if (I){ try { I.v.pause(); I.v.removeAttribute('src'); I.v.load(); } catch(e) {} if (I.tex) this.gl.deleteTexture(I.tex); }
+      for (const I of f.ins || []) if (I){ lasciaVideo(I.v); if (I.tex) this.gl.deleteTexture(I.tex); }
       this.apriInserti(f);
     }).catch(() => {});
   }
@@ -1667,7 +1667,7 @@ class Vista {
     const pDep = profondita ? caricaImg(profondita).catch(() => null) : null;
     const pAlberi = alberi && alberi !== url ? caricaImg(alberi).catch(() => null) : null;
     const pCielo = cielo ? caricaImg(cielo).catch(() => null) : null;
-    const pVideo = video ? apriVideo(video).catch(() => null) : null;
+    const pVideo = video ? apriVideo(video, this.videoIntero).catch(() => null) : null;
     const pCucito = video ? fetch(video.split('?')[0].replace(/\.mp4$/, '-originale.mp4'), {method:'HEAD', cache:'no-store'}).then(r => r.ok).catch(() => false) : null;
     /* 16/11 · i tratti per gli allacci a caso (aggiornaTratti), se il cucitore li ha scritti accanto al video */
     const pTratti = video ? fetch(video.split('?')[0].replace(/\.mp4$/, '-segmenti.png') + '?t=' + Date.now(), {cache:'no-store'}).then(r => r.ok ? r.json() : null).catch(() => null) : null;
@@ -1791,14 +1791,17 @@ class Vista {
     if (!(f.inserti || []).length || this.unita < 16) return;
     f.inserti.forEach((q, j) => {
       const v = document.createElement('video'); v.crossOrigin = 'anonymous'; v.muted = v.defaultMuted = true; v.playsInline = true;
-      v.setAttribute('muted', ''); v.setAttribute('playsinline', ''); v.preload = 'auto'; v.loop = q.modo === 'continuo'; v.src = q.url;
+      v.setAttribute('muted', ''); v.setAttribute('playsinline', ''); v.preload = 'auto'; v.loop = q.modo === 'continuo';
       const I = {q, v, tex: this.texture(), pronto: false, nuovo: true, attivo: -1, ultimo: -1, prossimo: performance.now() + 1000 * (3 + Math.random() * 6), fatti: 0};
       v.addEventListener('loadeddata', () => { I.pronto = true; I.nuovo = true; if (q.modo === 'continuo') v.play().catch(() => {}); });
       v.addEventListener('seeked', () => { I.nuovo = true; });
       v.addEventListener('error', () => { I.errore = true; });
-      if (q.modo === 'continuo') v.play().catch(() => {}); else v.load();
       nuovoFotogramma(v);   /* 19/11 sera: solo per annotare i buchi (lo stato); l'inserto si carica a ogni disegno */
       f.ins[j] = I;
+      /* 19/11 sera · anche l'inserto scaricato intero prima di partire (vedi scaricaIntero): fino ad allora lì resta il dipinto */
+      const avvia = src => { v.src = src; if (q.modo === 'continuo') v.play().catch(() => {}); else v.load(); };
+      if (this.videoIntero) scaricaIntero(q.url, 300).then(u => { if (f.ins[j] === I) avvia(u || q.url); else if (u) URL.revokeObjectURL(u); });
+      else avvia(q.url);
     });
   }
   aggiornaInserti(f){
@@ -1825,10 +1828,10 @@ class Vista {
     }
   }
   libera(f){ const gl = this.gl; if (!f) return;
-    for (const I of f.ins || []) if (I){ try { I.v.pause(); I.v.removeAttribute('src'); I.v.load(); } catch(e) {} if (I.tex) gl.deleteTexture(I.tex); }
+    for (const I of f.ins || []) if (I){ lasciaVideo(I.v); if (I.tex) gl.deleteTexture(I.tex); }
     f.ins = [];
     for (const t of [f.tex, f.depTex, f.vtex, f.vtexB, f.cTex, f.fTex, f.aTex, f.rTex, f.nTex]) if (t) gl.deleteTexture(t);
-    if (f.video) f.video.forEach(v => { v.pause(); v.removeAttribute('src'); v.load(); });
+    if (f.video) f.video.forEach(lasciaVideo);
     f.tex = f.depTex = f.vtex = f.vtexB = f.cTex = f.fTex = f.aTex = f.rTex = f.nTex = null; f.ok = false; }
   get urlInVista(){ return this.fonti[0].ok ? this.fonti[0].url : null; }
 
@@ -2660,10 +2663,37 @@ function scegliTratto(f){
   return conta(c[c.length - 1]);
 }
 
-function apriVideo(url){
+/* ⚠ 19/11 sera · VIDEO SCARICATI INTERI (Maurizio, col video del TV fatto dal telefono: «ogni tanto gli avventori è come se
+   si fermassero immobili»). Misurato sul TV (motore 5.94): nei primi minuti dopo un video nuovo il lettore si fermava 300–500 ms
+   ogni 0,7 s, col tempo del video fermo (il file arrivava dalla rete appena in tempo, e a ogni salto fra i tratti andava riletto
+   da un altro punto); anche gli inserti, centinaia di volte. Tutta la taverna immobile, fuoco compreso, poi ripartiva. Sul TV e
+   sulle finestrelle (non nell'anteprima del telefono: `videoIntero`) il video si scarica tutto prima di partire e si suona dalla
+   memoria: nessuna attesa della rete, salti immediati. Se in 5 minuti non arriva, o non arriva proprio, si suona dalla rete come
+   prima. Nello stato: `scaricati` (MB e secondi di ogni file) */
+const scaricati = [];
+async function scaricaIntero(url, maxS){
+  const t0 = performance.now(), nome = decodeURIComponent(url.split('?')[0].split('/').pop()).slice(-40);
+  const ac = typeof AbortController !== 'undefined' ? new AbortController() : null;
+  const tm = setTimeout(() => { try { if (ac) ac.abort(); } catch(e) {} }, maxS * 1000);
+  const nota = o => { scaricati.push(Object.assign({file: nome, s: Math.round((performance.now() - t0) / 100) / 10}, o)); if (scaricati.length > 12) scaricati.shift(); };
+  try {
+    const r = await fetch(url, ac ? {signal: ac.signal} : {});
+    if (!r.ok) throw new Error('http ' + r.status);
+    const b = await r.blob();
+    if (b.size < 2048) throw new Error('vuoto');
+    nota({mb: Math.round(b.size / 104857.6) / 10});
+    return URL.createObjectURL(b.type ? b : new Blob([b], {type: 'video/mp4'}));
+  } catch(e){ nota({errore: String(e && e.message || e).slice(0, 60)}); return null; }
+  finally { clearTimeout(tm); }
+}
+function lasciaVideo(v){
+  try { const s = v.currentSrc || v.src; v.pause(); v.removeAttribute('src'); v.load(); if (s && s.startsWith('blob:')) URL.revokeObjectURL(s); } catch(e) {}
+}
+async function apriVideo(url, intero = false){
   url += (url.includes('?') ? '&' : '?') + VERSIONE_VIDEO;
+  const tutto = intero ? await scaricaIntero(url, 300) : null, src = tutto || url;
   const fai = () => { const v = document.createElement('video'); v.crossOrigin = 'anonymous'; v.muted = v.defaultMuted = true; v.playsInline = true;
-    v.setAttribute('muted', ''); v.setAttribute('playsinline', ''); v.preload = 'auto'; v.src = url; return v; };
+    v.setAttribute('muted', ''); v.setAttribute('playsinline', ''); v.preload = 'auto'; v.src = src; return v; };
   const a = fai(), b = fai();
   /* ⚠ 15/11 (Maurizio: «sullo smartphone in full screen la mugnaia la vedo ferma, come il resto del paesaggio»).
      Prima si aspettava «canplay» e solo dopo si faceva partire il video. Safari sull'iPhone però non scarica un video
