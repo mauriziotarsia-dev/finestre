@@ -287,11 +287,20 @@ vec3 paesaggio(sampler2D img, sampler2D imgB, float vk, sampler2D dep, vec4 crop
      soffitto ondeggiavano come acqua. Ora si sposta solo la fiamma: una striscia larga poco più di lei (mezza altezza),
      dalla base a poco sopra la punta; la punta ondeggia di un decimo di altezza al massimo e la fiamma si allunga e si
      accorcia di meno. Il tremolio della luce resta, ma solo sulla fiamma e appena attorno, sfumato in tondo */
+  /* ⚠ 19/11 sera · (Maurizio: «Puoi alzare al massimo possibile la risoluzione…»). Misurato col banco sul TV in 4K: le fiamme
+     e il fuoco dei camini costavano 8,5 ms su 21 a ogni immagine. Con un giro di lunghezza fissa (12) il compilatore della
+     scheda (ANGLE → Direct3D) lo srotola e fa i conti di tutte e 12 le fiamme, rumori compresi, su ogni punto dello schermo,
+     anche lontano da ogni fiamma. Con GLSL 3 (WebGL2: TV e finestrelle) il giro ora dura quanto le fiamme che ci sono ed è
+     un giro vero: i punti lontani escono subito. Con WebGL1 com'era */
   gFiamma = 0.; gFiammaW = 0.;
   if (uNFiamma > .5){
     vec2 dpF = vec2(0.);
+#if __VERSION__ >= 300
+    for (int i = 0; i < int(uNFiamma + .5); i++){   /* 19/11: con GLSL 3 il giro è vero (non srotolato): fuori dalle zone niente conti */
+#else
     for (int i = 0; i < 12; i++){
       if (float(i) >= uNFiamma) break;
+#endif
       vec4 F = uFiamma[i];
       vec2 q = vec2((p.x - F.x) * uAspetto, p.y - F.y) / F.z;      /* in altezze di fiamma: 0 alla base, -1 alla punta */
       if (abs(q.x) > .9 || q.y > .45 || q.y < -1.7) continue;   /* lontano dalla fiamma: niente conti (in 4K sono milioni di punti) */
@@ -317,8 +326,12 @@ vec3 paesaggio(sampler2D img, sampler2D imgB, float vk, sampler2D dep, vec4 crop
      calda vera. La luce del fuoco pulsa un poco (gFiamma) */
   if (uNCamino > .5){
     vec2 dpK = vec2(0.);
+#if __VERSION__ >= 300
+    for (int i = 0; i < int(uNCamino + .5); i++){   /* 19/11: con GLSL 3 il giro è vero (non srotolato): fuori dalle zone niente conti */
+#else
     for (int i = 0; i < 2; i++){
       if (float(i) >= uNCamino) break;
+#endif
       vec4 K = uCamino[i];
       vec2 a = vec2((p.x - K.x) / K.z, (K.y - p.y) / K.w);       /* x in mezze larghezze (−1 … 1), y in altezze dalla base (0 … 1 la punta) */
       if (abs(a.x) > 1.05 || a.y < -.1 || a.y > 1.45) continue;
@@ -341,8 +354,12 @@ vec3 paesaggio(sampler2D img, sampler2D imgB, float vk, sampler2D dep, vec4 crop
      dà una frustata e torna giù. Solo nel loro ovale, che sfuma sul collo e sul pavimento */
   if (uNParte > .5){
     vec2 dpP = vec2(0.);
+#if __VERSION__ >= 300
+    for (int i = 0; i < int(uNParte + .5); i++){   /* 19/11: con GLSL 3 il giro è vero (non srotolato): fuori dalle zone niente conti */
+#else
     for (int i = 0; i < 3; i++){
       if (float(i) >= uNParte) break;
+#endif
       vec4 A = uParte[i * 3], B = uParte[i * 3 + 1], C = uParte[i * 3 + 2];
       vec2 e = vec2((p.x - A.z) * uAspetto, p.y - A.w) / B.xy;
       float r = length(e);
