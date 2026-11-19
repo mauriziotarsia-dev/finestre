@@ -555,6 +555,12 @@ vec3 paesaggio(sampler2D img, sampler2D imgB, float vk, sampler2D dep, vec4 crop
        della nebbiolina si leggeva dove il cipresso stava, il pixel nitido che la spegne dove il cipresso è adesso
        (spostato dal vento): accanto alla sagoma restava una riga scura staccata di qualche pixel, che la seguiva.
        Ora anche la maschera si legge dove sta quello che si vede (pS) */
+    /* ⚠ 19/11 sera · (Maurizio: «Puoi alzare al massimo possibile la risoluzione in alba, giorno e tramonto?»). Misurato
+       sul TV (banco, taverna al tramonto): 25 ms a immagine in 4K, 22 al 90%, 18 all'80%: per 60 immagini al secondo ne
+       servono meno di 16,7, e reggeva solo l'80%. La nebbiolina e la foschia lontana qui sotto leggevano nove volte le
+       immagini a ogni punto anche quando sono spente (dentro la pagina le spegne: uNebV 0) e non cambiavano niente: ora
+       si fanno solo se accese. Fuori, con la nebbiolina accesa, tutto come prima */
+    if (uNebV > .001){
     vec2 pS = p + dSp;
     vec3 cbm = haF > .5 ? fotoL(fer, crop, pS, 2.) : fotoL(img, crop, pS, 2.);
     /* e intorno alle sagome ferme (campanile, pietra calda e chiara): nell'immagine sfocata la torre «sbordava» sul cielo
@@ -668,6 +674,7 @@ vec3 paesaggio(sampler2D img, sampler2D imgB, float vk, sampler2D dep, vec4 crop
       }
     }
 #endif
+    }   /* uNebV */
   }
   return c;
 }
