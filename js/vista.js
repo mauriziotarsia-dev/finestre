@@ -1878,29 +1878,43 @@ class Vista {
      sulla posa, si sceglie il tratto dopo: se è quello che segue nel file non si fa niente, altrimenti il secondo lettore
      si mette per tempo (2,5 s prima) sull'inizio di quel tratto, fermo, e alla fine del tratto di adesso parte e si
      sfuma in un quinto di secondo (la posa è la stessa). Se il secondo lettore non è pronto, si resta sul file. */
+  /* ⚠ 19/11 · GLI AVVENTORI CHE SI BLOCCANO (Maurizio, tramonto della taverna: «gli avventori ogni tanto è come se si
+     blocchino»). Al salto il secondo lettore partiva solo un quinto di secondo prima della fine del tratto, e il motore
+     passava a lui a fine sfumata anche se non era ancora partito davvero (sulla Ally, con tre video aperti, il play ci mette
+     più di così): sullo schermo restava ferma la posa, a lettore di prima già fermo, finché il secondo non partiva. In più
+     il primo segno di «fotogramma nuovo» arrivava subito dopo la ricerca, anche da fermo. Ora: il secondo lettore parte
+     mezzo secondo prima, da mezzo secondo prima dell'inizio del suo tratto (lì nel file c'è la fine di un altro tratto, che
+     va sulla stessa posa: il cucitore ci mette un pezzo anche prima del primo tratto); conta solo quando il suo tempo è
+     andato avanti davvero; la sfumata comincia quando corre, e il primo lettore non si ferma prima. Se non parte entro
+     0,6 s dalla fine del tratto, si va avanti nel file come prima */
   aggiornaTratti(f, a, b){
-    const S = f.tratti, P = .2, t = a.currentTime;
+    const S = f.tratti, P = .2, PRE = .5, t = a.currentTime;
     if (f.tratto == null){ f.tratto = Math.max(0, S.findIndex(s => t < s.a - .05)); f.dopo = S.map(() => 0); f.soglia = S.map(s => s.ogni ? sogliaOgni(s) : 0); f.storia = []; }
     const fine = S[f.tratto].a;
     if (f.prossimo == null && t > fine - 2.5 && !a.paused){
       f.prossimo = scegliTratto(f); f.salto = f.prossimo !== f.tratto + 1;          /* dall'ultimo al primo è sempre un salto: il file finisce */
-      if (f.salto){ b.pause(); b.currentTime = S[f.prossimo].da; f.bPartito = false; }
+      if (f.salto){ const da = S[f.prossimo].da; f.pre = Math.min(PRE, da); b.pause(); b.currentTime = da - f.pre; f.bPartito = false; }
     }
     if (f.prossimo != null && !f.salto && t >= fine){ f.tratto = f.prossimo; f.prossimo = null; }
     if (f.salto){
-      if (!f.bPartito && t > fine - P && b.readyState >= 2 && !b.seeking){ b.play().catch(() => {}); f.bPartito = true; f.bCaricato = false; }
+      if (!f.bPartito && t > fine - Math.max(P, f.pre) && b.readyState >= 2 && !b.seeking){ b.play().catch(() => {}); f.bPartito = true; f.bCaricato = false; f.bT = b.currentTime; f.kDa = null; }
       if (f.bPartito){
-        const k = Math.min(1, Math.max(0, (t - (fine - P)) / P));
-        if (b.readyState >= 2 && nuovoFotogramma(b)){ if (!f.vtexB) f.vtexB = this.texture(); this.carica(f.vtexB, b); f.bCaricato = true; }
-        f.vk = f.bCaricato ? k : 0;
-        if (a.ended || k >= 1){ a.pause(); f.video = [b, a]; f.tratto = f.prossimo; f.prossimo = null; f.salto = f.bPartito = false; f.vNuovo = true; return this.aggiornaVideo(f); }
-      } else if (t > fine + .6 || a.ended){                                           /* il salto non riesce: si va avanti nel file */
-        f.salto = false; f.prossimo = null; f.tratto = a.ended ? 0 : Math.min(S.length - 1, f.tratto + 1); f.saltiMancati = (f.saltiMancati || 0) + 1;
-        if (a.ended){ a.currentTime = 0; a.play().catch(() => {}); }
-      }
+        const corre = !b.paused && b.currentTime > f.bT + .03;
+        if (corre && b.readyState >= 2 && nuovoFotogramma(b)){ if (!f.vtexB) f.vtexB = this.texture(); this.carica(f.vtexB, b); f.bCaricato = true; }
+        if (f.bCaricato && f.kDa == null) f.kDa = Math.max(fine - P, t);
+        const k = f.kDa == null ? 0 : Math.min(1, Math.max(0, (t - f.kDa) / P));
+        f.vk = k;
+        if (f.bCaricato && (a.ended || k >= 1)){ a.pause(); f.video = [b, a]; f.tratto = f.prossimo; f.prossimo = null; f.salto = f.bPartito = false; f.vNuovo = true; f.saltiFatti = (f.saltiFatti || 0) + 1; f.ritardi = (f.ritardi || []).concat(Math.round((f.kDa - (fine - P)) * 100) / 100).slice(-20); return this.aggiornaVideo(f); }
+        if (!f.bCaricato && (t > fine + .6 || a.ended)){ b.pause(); f.vk = 0; this.mancato(f, a, S); }
+      } else if (t > fine + .6 || a.ended) this.mancato(f, a, S);                     /* il salto non riesce: si va avanti nel file */
     }
     if (a.readyState >= 2){ if (nuovoFotogramma(a) || f.vNuovo){ this.carica(f.vtex, a); f.vNuovo = false; } return true; }
     return false;
+  }
+
+  mancato(f, a, S){
+    f.salto = f.bPartito = false; f.prossimo = null; f.tratto = a.ended ? 0 : Math.min(S.length - 1, f.tratto + 1); f.saltiMancati = (f.saltiMancati || 0) + 1;
+    if (a.ended){ a.currentTime = 0; a.play().catch(() => {}); }
   }
 
   /* ⚠ 30/10: la mappa di profondità è dell'immagine intera, il video invece ne è un taglio 9:16 (fatto quando
@@ -2617,7 +2631,9 @@ function tratti(j, D){
   const S = j && Array.isArray(j.segmenti) ? j.segmenti : null;
   if (!S || S.length < 2 || !(D > 4)) return null;
   for (let i = 0; i < S.length; i++){ const s = S[i]; if (!(s.a - s.da >= 1.5) || (i && (s.da < S[i - 1].a - .05 || s.da - S[i - 1].a > 1))) return null; }   /* fra un tratto e l'altro può restare il passaggio (meno di 1 s) */
-  if (Math.abs(S[0].da) > .05 || Math.abs(S[S.length - 1].a - D) > .4) return null;
+  /* 19/11: il primo tratto può cominciare fino a 1 s dopo l'inizio del file: lì c'è la fine dell'ultimo tratto, che va sulla
+     posa (il secondo lettore parte da lì quando si salta al primo, vedi aggiornaTratti) */
+  if (S[0].da < -.05 || S[0].da > 1.05 || Math.abs(S[S.length - 1].a - D) > .4) return null;
   return S.map(s => ({da: +s.da, a: +s.a, nome: String(s.nome || ''), peso: +s.peso > 0 ? +s.peso : 1, noDiFila: !!s.noDiFila,
     ogni: Array.isArray(s.ogni) && s.ogni.length === 2 ? [Math.max(0, s.ogni[0] | 0), Math.max(s.ogni[0] | 0, s.ogni[1] | 0)] : null}));
 }

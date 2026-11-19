@@ -61,6 +61,7 @@ import cv2
 SECONDI_GIRO = 3.0          # quanto dura la sfumatura fra la fine e l'inizio (nebbia e fumo la nascondono bene)
 SECONDI_RIFERIMENTO = 2.0   # da quanti secondi iniziali nasce l'immagine ferma
 FPS_USCITA = 30
+FPS_SORGENTE = False        # 19/11: True per gli interni con persone (segno con «ritmo»): fotogrammi interi, niente interpolate
 FF_THREADS = '0'
 CATENA = False              # 16/11: True mentre si cuce un'animazione a tappe (…_anim-alba-catena.png)
 CATENA_PEZZI = 0            # 16/11: quanti pezzi a tappe ci sono in fila (dal segno «-catena.png»)
@@ -628,8 +629,13 @@ def cuci(entrata, uscita, profondita=None, immagine=None, fuoco_x=0.5, larghezza
     W, H = (larghezza, int(round(h * larghezza / w / 2)) * 2) if larghezza else (w, h)
     filtro = (f'minterpolate=fps={FPS_USCITA}:mi_mode=mci:mc_mode=aobmc:me_mode=bidir:vsbmc=1' if not veloce
               else f'framerate=fps={FPS_USCITA}')
+    # ⚠ 19/11 · LA MANO CHE SPARISCE (Maurizio, tramonto della taverna: «subito dopo che li tira sparisce la mano e parte della
+    # testa»). Da 24 a 30 immagini al secondo i fotogrammi in mezzo li inventa minterpolate: sui gesti svelti (il lancio dei
+    # dadi, un pugno alzato) la mano diventa una macchia trasparente. Negli interni con persone (segno con «ritmo») si tengono
+    # i fotogrammi veri dell'AI: il video resta a 24 al secondo (sui 60 Hz come un film alla TV); le nuvole restano a 30.
+    if FPS_SORGENTE: filtro = 'null'
     if (W, H) != (w, h): filtro += f',scale={W}:{H}:flags=lanczos'
-    n_uscita = int(round(lung / fps * FPS_USCITA))
+    n_uscita = lung if FPS_SORGENTE else int(round(lung / fps * FPS_USCITA))
     cmd = ['ffmpeg', '-v', 'error', '-y', '-threads', FF_THREADS, '-f', 'rawvideo', '-pix_fmt', 'bgr24', '-s', f'{w}x{h}', '-r', str(fps), '-i', '-',
            '-vf', filtro, '-frames:v', str(n_uscita)] + (['-force_key_frames', ','.join('%.3f' % s['da'] for s in info['segmenti'][1:])] if info.get('segmenti') else []) + ['-an', '-c:v', 'libx264', '-preset', 'slow' if not veloce else 'veryfast', '-crf', '19',
            '-profile:v', 'high', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', uscita]
@@ -1324,10 +1330,10 @@ def ritma(entrata, uscita, inizio=None, fine=None, durata_tipo=10.0):
             buf[letti] = f; letti += 1
         for j in [j for j in buf if j < k - 1]: del buf[j]
         return buf.get(k, buf[max(buf)])
+    # ⚠ 19/11: il fotogramma più vicino, non la fusione dei due vicini. Fusi, a metà pezzo il tempo cadeva quasi sempre fra
+    # due fotogrammi (86% dei fotogrammi): sui gesti svelti due mani mezze trasparenti invece di una (il lancio dei dadi)
     for x in dove:
-        k = int(np.floor(x)); a = x - k
-        if a < 1e-3 or k + 1 > n - 1: f = prendi(min(k, n - 1))
-        else: f = cv2.addWeighted(prendi(k), 1 - a, prendi(k + 1), a, 0)
+        f = prendi(min(int(round(x)), n - 1))
         ff.stdin.write(f.tobytes())
     ff.stdin.close(); ff.wait()
     return L
@@ -1420,8 +1426,9 @@ def accorda_luce(video, fermo, maschera, segmenti=None, veloce=False):
 def _cuci_uno(cart, nomi, nome, base, parte, originale, larghezza, veloce, ricuci=False):
     """ricuci: l'animazione è già cucita (con il cucitore di prima): si riparte dal video originale dell'AI, che resta
     com'è, e si rifanno video, fermo e maschera (14/11: il fermo dalla foto a piena risoluzione anche per i paesaggi vecchi)."""
-    global CATENA, CATENA_PEZZI, CATENA_LIBERE, FERMI, PIENI, CATENA_SEQ, CATENA_ALLACCI, CATENA_SFUMA, CATENA_VINCOLATA
+    global CATENA, CATENA_PEZZI, CATENA_LIBERE, FERMI, PIENI, CATENA_SEQ, CATENA_ALLACCI, CATENA_SFUMA, CATENA_VINCOLATA, FPS_SORGENTE
     CATENA, CATENA_PEZZI, CATENA_LIBERE, FERMI, PIENI, CATENA_SEQ, CATENA_ALLACCI, CATENA_SFUMA, CATENA_VINCOLATA = False, 0, [], [], [], [], None, None, False   # 16/11: vale solo per questo video (17/11: anche PIENI)
+    FPS_SORGENTE = False
     cj = {}
     if True:
         with tempfile.TemporaryDirectory() as d:
@@ -1454,6 +1461,7 @@ def _cuci_uno(cart, nomi, nome, base, parte, originale, larghezza, veloce, ricuc
                 # 17/11 · «ritmo» nel segno: gli estremi dei pezzi più svelti (vedi ritma); l'originale lungo li tiene già così
                 rt = cj.get('ritmo') if CATENA else None
                 if rt:
+                    FPS_SORGENTE = True
                     rt = rt if isinstance(rt, dict) else {}
                     for i, x in enumerate(pz):
                         y = os.path.join(d, f'r{i + 1}.mp4'); ritma(x, y, rt.get('inizio'), rt.get('fine')); pz[i] = y
