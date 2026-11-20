@@ -2859,9 +2859,31 @@ async function scaricaIntero(url, maxS){
 function lasciaVideo(v){
   try { const s = v.currentSrc || v.src; v.pause(); v.removeAttribute('src'); v.load(); if (s && s.startsWith('blob:')) URL.revokeObjectURL(s); } catch(e) {}
 }
+/* ⚠ 20/11 · VIDEO IN PIÙ PEZZI (Maurizio: «ok a ritornare a otto gesti per la notte … aumentare la qualità»). Il deposito
+   accetta al più 50 MB a file: la notte con 8 gesti (70 s) ci stava solo a 5,3 Mbit/s. Ora accanto al video ci può essere
+   `…_est-anim-<ora>-parti.png` (JSON {versione, byte, parti: [nomi dei file accanto]}): i pezzi sono il video di qualità
+   piena tagliato a byte, uno dopo l'altro; scaricati (o presi dalla memoria del dispositivo) e rimessi in fila danno il
+   file intero, che si suona dalla memoria. Il video col nome di sempre resta un video intero più leggero (≤ 50 MB): lo
+   usano il telefono (che suona dalla rete), i computer vecchi, e questo stesso motore se un pezzo non arriva. */
+async function scaricaPezzi(url, maxS){
+  if (!/^https?:/.test(url)) return null;
+  let m = null;
+  try { const r = await fetch(url.split('?')[0].replace(/\.mp4$/, '-parti.png') + '?t=' + Date.now(), {cache: 'no-store'}); if (r.ok) m = await r.json(); } catch(e) { m = null; }
+  if (!m || !Array.isArray(m.parti) || !m.parti.length || !(m.byte > 0)) return null;
+  const t0 = performance.now(), dir = url.split('?')[0].replace(/[^/]*$/, ''), nome = decodeURIComponent(url.split('?')[0].split('/').pop()).slice(-40);
+  const nota = o => { scaricati.push(Object.assign({file: nome, pezzi: m.parti.length, s: Math.round((performance.now() - t0) / 100) / 10}, o)); if (scaricati.length > 12) scaricati.shift(); };
+  try {
+    const pz = [], prima = MEM.stato.daMemoria;
+    for (const n of m.parti) pz.push(await prendiFile(dir + encodeURIComponent(n) + '?v=' + encodeURIComponent(String(m.versione || '1')), maxS));
+    const b = new Blob(pz, {type: 'video/mp4'});
+    if (b.size !== +m.byte) throw new Error('pezzi ' + b.size + ' invece di ' + m.byte);
+    nota({mb: Math.round(b.size / 104857.6) / 10, da: MEM.stato.daMemoria - prima === m.parti.length ? 'memoria' : 'rete'});
+    return URL.createObjectURL(b);
+  } catch(e){ nota({errore: String(e && e.message || e).slice(0, 60)}); return null; }
+}
 async function apriVideo(url, intero = false){
   url += (url.includes('?') ? '&' : '?') + VERSIONE_VIDEO;
-  const tutto = intero ? await scaricaIntero(url, 300) : null, src = tutto || url;
+  const tutto = intero ? (await scaricaPezzi(url, 300)) || await scaricaIntero(url, 300) : null, src = tutto || url;
   const fai = () => { const v = document.createElement('video'); v.crossOrigin = 'anonymous'; v.muted = v.defaultMuted = true; v.playsInline = true;
     v.setAttribute('muted', ''); v.setAttribute('playsinline', ''); v.preload = 'auto'; v.src = src; return v; };
   const a = fai(), b = fai();
