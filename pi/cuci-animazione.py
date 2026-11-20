@@ -1198,6 +1198,111 @@ def _ws_messaggi(buf, parz):
     return fuori
 
 
+# ⚠ 20/11 · LA CARTELLA DEI FILE DEGLI SCHERMI (Maurizio: «diamo anche la possibilità di scegliere se salvare su una cartella o
+# salvare nella cache del browser, mettiamolo nell'app»). Le pagine del TV e delle finestrelle, se nell'app si sceglie
+# «Cartella», chiedono video, inserti e dipinti qui (js/vista.js, «I FILE SALVATI SUL DISPOSITIVO»): http://127.0.0.1:8790/file?u=
+# <indirizzo del deposito>. Il file si tiene in Illusionist/file, nella cartella dell'utente: la prima volta si scarica, poi si
+# dà da lì; una versione nuova (indirizzo con un altro «v=») toglie le vecchie dello stesso file. Solo indirizzi pubblici del
+# nostro deposito, solo da questo computer (127.0.0.1). /stato: dove, quanti file, quanti MB; POST /svuota: via tutto.
+PORTA_CARTELLA = 8790
+CARTELLA_FILE = os.path.join(os.path.expanduser('~'), 'Illusionist', 'file')
+_blocchi_cartella = collections.defaultdict(threading.Lock)
+
+
+def _nome_in_cartella(u):
+    q = urllib.parse.urlsplit(u)
+    base = re.sub(r'[^A-Za-z0-9._-]+', '_', urllib.parse.unquote(q.path.rsplit('/', 1)[-1]))[-120:]
+    return base, base + '__' + hashlib.sha1(u.encode()).hexdigest()[:12]
+
+
+def _file_dalla_cartella(u):
+    """il percorso del file nella cartella (scaricato ora se non c'è), o None se l'indirizzo non è del nostro deposito"""
+    q = urllib.parse.urlsplit(u)
+    if q.scheme != 'https' or q.netloc != urllib.parse.urlsplit(URL).netloc or not q.path.startswith('/storage/v1/object/public/'): return None
+    if not re.search(r'(^|&)v=[^&]', q.query): return None                  # solo file con la versione: cambiato il file, cambia l'indirizzo
+    base, nome = _nome_in_cartella(u)
+    os.makedirs(CARTELLA_FILE, exist_ok=True)
+    dest = os.path.join(CARTELLA_FILE, nome)
+    with _blocchi_cartella[nome]:
+        if os.path.exists(dest): return dest
+        tmp = dest + '.scarica'
+        with urllib.request.urlopen(u, timeout=60) as r, open(tmp, 'wb') as f:
+            while True:
+                b = r.read(1 << 20)
+                if not b: break
+                f.write(b)
+        os.replace(tmp, dest)
+        for x in os.listdir(CARTELLA_FILE):                                # le versioni vecchie dello stesso file
+            if x != nome and x.startswith(base + '__') and not x.endswith('.scarica'):
+                try: os.remove(os.path.join(CARTELLA_FILE, x))
+                except OSError: pass
+    return dest
+
+
+def servi_cartella():
+    import http.server
+
+    class Servi(http.server.BaseHTTPRequestHandler):
+        def log_message(self, *a): pass
+
+        def _intestazioni(self, codice, tipo=None, lung=None):
+            self.send_response(codice)
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.send_header('Access-Control-Allow-Private-Network', 'true')  # Chrome: una pagina in rete che chiede a questo computer
+            self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+            self.send_header('Cache-Control', 'no-store')
+            if tipo: self.send_header('Content-Type', tipo)
+            if lung is not None: self.send_header('Content-Length', str(lung))
+            self.end_headers()
+
+        def do_OPTIONS(self): self._intestazioni(204)
+
+        def do_POST(self):
+            if self.path.startswith('/svuota'):
+                try:
+                    for x in os.listdir(CARTELLA_FILE): os.remove(os.path.join(CARTELLA_FILE, x))
+                except OSError: pass
+                return self._intestazioni(204)
+            self._intestazioni(404)
+
+        def do_GET(self):
+            q = urllib.parse.urlsplit(self.path)
+            if q.path == '/stato':
+                n, tot = 0, 0
+                try:
+                    for x in os.listdir(CARTELLA_FILE):
+                        if not x.endswith('.scarica'): n += 1; tot += os.path.getsize(os.path.join(CARTELLA_FILE, x))
+                except OSError: pass
+                corpo = json.dumps({'dove': CARTELLA_FILE, 'file': n, 'mb': round(tot / 1048576), 'versione': VERSIONE_CUCITORE}).encode()
+                self._intestazioni(200, 'application/json', len(corpo)); self.wfile.write(corpo); return
+            if q.path != '/file': return self._intestazioni(404)
+            u = (urllib.parse.parse_qs(q.query).get('u') or [''])[0]
+            try: dest = _file_dalla_cartella(u)
+            except Exception as e:
+                print('cartella: non scaricato', u[-60:], e, file=sys.stderr, flush=True); return self._intestazioni(502)
+            if not dest: return self._intestazioni(403)
+            est = os.path.splitext(urllib.parse.urlsplit(u).path)[1].lower()
+            tipo = {'.mp4': 'video/mp4', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.json': 'application/json'}.get(est, 'application/octet-stream')
+            try:
+                self._intestazioni(200, tipo, os.path.getsize(dest))
+                with open(dest, 'rb') as f:
+                    while True:
+                        b = f.read(1 << 20)
+                        if not b: break
+                        self.wfile.write(b)
+            except (BrokenPipeError, ConnectionResetError): pass
+
+    for prova in range(30):                                             # al riavvio dopo un aggiornamento la porta si libera dopo poco
+        try:
+            srv = http.server.ThreadingHTTPServer(('127.0.0.1', PORTA_CARTELLA), Servi); break
+        except OSError: time.sleep(2)
+    else:
+        print('cartella dei file: porta', PORTA_CARTELLA, 'occupata', file=sys.stderr, flush=True); return
+    srv.daemon_threads = True
+    print('cartella dei file:', CARTELLA_FILE, 'su http://127.0.0.1:%d' % PORTA_CARTELLA, flush=True)
+    srv.serve_forever()
+
+
 def ascolta_spinte(casa):
     """Il filo che resta in ascolto sul canale del cucitore: all'evento «cuci» sveglia il giro. Se il canale cade si
     riapre da solo (dopo 5 secondi, poi sempre più di rado, al massimo ogni 2 minuti)."""
@@ -1560,6 +1665,8 @@ def main():
         DEPOSITO = 'atmosfera'                                   # la casa privata: il suo deposito
         print('stanza privata:', ACCESSO['casa'], flush=True)
         o.casa = o.casa or 'privata'
+    if o.casa and not o.una:                                   # 20/11: la cartella dei file degli schermi (vedi servi_cartella)
+        threading.Thread(target=servi_cartella, daemon=True).start()
     if o.casa and not o.una and not ACCESSO:                   # la spinta: solo sul canale del link (la stanza privata resta al giro leggero al minuto)
         threading.Thread(target=ascolta_spinte, args=(o.casa,), daemon=True).start()
     if o.casa and o.pieno:

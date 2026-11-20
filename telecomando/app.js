@@ -9,7 +9,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
 const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 const euro = n => (n < .1 ? n.toFixed(3) : n.toFixed(2)).replace('.', ',') + ' $';
-const VERSIONE = '6.87';
+const VERSIONE = '6.88';
 /* 8/11 · l'app si aggiorna da sola (Maurizio: «vedo ancora il quadrato con la doppia finestra»: sul telefono restava la
    versione vecchia anche dopo averla chiusa). Quando torna in primo piano, e ogni 10 minuti, chiede al server quale
    app.js c'è adesso; se è un'altra, ricarica (mai mentre un lavoro AI è in corso) */
@@ -105,6 +105,8 @@ function normalizzaFori(a){
 }
 let assetto = normalizzaFori(leggi('finestre-fori', null));
 let schermi = leggi('finestre-schermi', {});
+/* 20/11 · dove ogni schermo tiene video e dipinti (js/vista.js, «I FILE SALVATI SUL DISPOSITIVO»): lo dice lui nell'«eccomi» */
+let memorie = leggi('atm-memorie', {});
 const schermoDi = lato => schermi[lato] || schermi.sinistra || {w:1080, h:1920};
 let schermo = schermoDi('sinistra');
 let collegate = 0, mostraBordi = false, rimanda = false;
@@ -151,6 +153,7 @@ const gestoreCanale = {
       aggiornaComando(); aggiornaSpia(); impaginaAnteprima(); if (scheda === 'finestre') aggiornaFinestre(); return;
     }
     if (d.assetto && (d.assetto.finestre || d.assetto.fori)){ const a = normalizzaFori(d.assetto); if (d.assetto.finestre || !leggi('finestre-fori', null)){ assetto = a; scrivi('finestre-fori', assetto); } }
+    if (d.memoria){ memorie[d.lato || 'sinistra'] = d.memoria; scrivi('atm-memorie', memorie); }
     if (d.schermo){ schermi[d.lato || 'sinistra'] = Object.assign({}, d.schermo, d.prestazioni ? {fps: d.prestazioni.fps, scala: d.prestazioni.scala} : {}); scrivi('finestre-schermi', schermi); schermo = schermoDi('sinistra'); }
     if (!leggi('finestre-scena', null) && d.scena){ scena = Object.assign({}, SCENA_PRED, d.scena); scrivi('finestre-scena', scena); postaAnteprima({tipo:'scena', scena}); lettore.suScena(scena); }   /* 8/11: anche all'anteprima (su un telefono nuovo restava nera) */
     else if (rimanda){ rimanda = false; canale.manda('scena', scena); canale.manda('fori', Object.assign({mostra: mostraBordi}, assettoOPredefinito())); }   /* dopo «Ricarica», la scena di questo telefono */
@@ -2807,6 +2810,7 @@ function disegnaImpostazioni(){
         ${bardCasse.map(c => `<option value="${esc(c.id)}"${(bardStato.uscitaTv && bardStato.uscitaTv.id === c.id) ? ' selected' : ''}>${esc(c.nome)}</option>`).join('')}</select></label>
         ${bardCasse.length ? '' : '<p class="nota" style="margin-top:-4px">Il TV non ha ancora detto quali casse vede: succede dopo l\'installatore aggiornato sul G10, con la JBL già abbinata in Bluetooth.</p>'}`}
       <p class="nota">${suonoQui() ? 'Suona da qui: dall\'altoparlante o da una cassa collegata al telefono. Tieni l\'app aperta e lo schermo acceso, se no il telefono smette di suonare.' : 'Suona il G10 del TV: dalle casse del TV o da una cassa Bluetooth abbinata al G10. Puoi bloccare il telefono.'} Durante una serata i suoni li fa DMaster dal portatile.</p>`)}
+    ${gruppoMemoria()}
     ${gruppo('schermo', 'sole', 'Luce degli schermi', 'giorno ' + scena.luceGiorno + '% · notte ' + scena.luceNotte + '%', `
       ${cursore('luceGiorno', 'sole', 'Di giorno', 5, 100, scena.luceGiorno, scena.luceGiorno + '%')}${cursore('luceNotte', 'luna', 'Di notte', 2, 100, scena.luceNotte, scena.luceNotte + '%')}
       <p class="nota">Quanto sono luminosi gli schermi. Se qualcosa si è bloccato: <button class="btn piccolo" data-fai="ricaricaFinestre">${icona('ricarica', 16)}Ricarica gli schermi</button></p>`)}
@@ -2842,7 +2846,30 @@ function disegnaImpostazioni(){
 
 /* ═══════════ AZIONI (un solo ascoltatore per tutto) ══════════════════════ */
 const BLOCCATE_DA_DM = new Set(['ora', 'meteo', 'fps', 'accendi', 'lampo', 'vento', 'movimento', 'prospettiva', 'prospettivaViva', 'mostra', 'nFinestre', 'bordi', 'ricaricaFinestre']);
+/* ⚠ 20/11 (Maurizio: «diamo anche la possibilità di scegliere se salvare su una cartella o salvare nella cache del browser,
+   mettiamolo nell'app»). Per ogni schermo: nella cartella del computer (la tiene il programma del cucitore, resta anche se si
+   cancellano i dati del browser), nella memoria del browser (di serie: va su ogni apparecchio), oppure niente (si scarica
+   ogni volta). Il telefono lo manda allo schermo («prova» {salvaLocale}); lo schermo lo ricorda e lo ridice nell'«eccomi» */
+const NOME_SCHERMO = l => l === 'tv' ? 'TV' : l === 'sinistra' ? 'Finestra sinistra' : l === 'destra' ? 'Finestra destra' : l;
+const MODI_MEMORIA = [['cartella', 'Cartella'], ['browser', 'Browser'], ['', 'Non salvare']];
+function gruppoMemoria(){
+  const lati = Object.keys(schermi).sort((a, b) => (a === 'tv' ? -1 : b === 'tv' ? 1 : a.localeCompare(b)));
+  if (!lati.length) return '';
+  const riga = l => { const m = memorie[l] || {}, modo = m.modo === undefined ? 'browser' : (m.modo || '');
+    const stato = modo === 'cartella' ? (m.cartella === 'ok' && m.inCartella ? `nella cartella ${m.inCartella.mb} MB, ${m.inCartella.file} file` : m.cartella && m.cartella !== 'ok' ? 'il programma del computer non risponde: per ora usa la memoria del browser' : 'cartella del computer')
+      : modo === 'browser' ? (m.usatiMB != null ? `nel browser ${m.usatiMB} MB${m.file != null ? ', ' + m.file + ' file' : ''}` : 'memoria del browser') : 'scarica ogni volta';
+    return `<div class="blocco"><span>${esc(NOME_SCHERMO(l))}</span><div class="segmenti">${MODI_MEMORIA.map(([v, t]) => `<button data-fai="memoriaSchermo" data-v="${esc(l + '|' + v)}" aria-pressed="${modo === v}">${t}</button>`).join('')}</div><p class="nota" style="margin:6px 0 0">${esc(stato)}</p></div>`; };
+  const riass = lati.map(l => { const m = memorie[l] || {}, modo = m.modo === undefined ? 'browser' : m.modo; return NOME_SCHERMO(l) + ' ' + (modo === 'cartella' ? 'cartella' : modo ? 'browser' : 'no'); }).join(' · ');
+  return gruppo('memoria', 'schermo', 'Video sugli schermi', riass, `
+    <p class="nota" style="margin-top:0">Dove ogni schermo tiene video e dipinti, così non li riscarica a ogni accensione e a ogni cambio di scena: meno traffico, cambi di scena subito fluidi, e funziona anche se cade internet.</p>
+    ${lati.map(riga).join('')}
+    <p class="nota"><b>Cartella</b>: una cartella vera del computer (Illusionist\\file), tenuta dal programma del cucitore: resta anche se si cancellano i dati del browser. La prima volta il browser dello schermo chiede il permesso di parlare con il computer: va accettato. <b>Browser</b>: la memoria del browser, va su qualsiasi apparecchio. <b>Non salvare</b>: per apparecchi senza spazio, scarica ogni volta.</p>`);
+}
 const AZIONI = {
+  memoriaSchermo: v => { const [l, modo] = v.split('|'); if (!canale.manda('prova', {chi: l, salvaLocale: modo || false})){ avviso('Lo schermo non è collegato', true); return; }
+    memorie[l] = Object.assign({}, memorie[l] || {}, {modo: modo || false, cartella: null, inCartella: null}); scrivi('atm-memorie', memorie);
+    avviso(NOME_SCHERMO(l) + ': ' + (modo === 'cartella' ? 'video nella cartella del computer' : modo === 'browser' ? 'video nella memoria del browser' : 'scarica ogni volta'));
+    disegnaImpostazioni(); setTimeout(() => { if (canale.pronto) canale.manda('chi'); }, 4000); },
   chiudiProblema: () => risolto(),
   bardTempo: () => { const t = Object.assign({acceso: true, volume: .6}, bardStato.tempo); if (mandaBard({tempo: Object.assign(t, {acceso: !t.acceso})})){ aggiornaBard(); avviso(t.acceso ? 'Suoni del tempo accesi' : 'Suoni del tempo spenti'); } },
   bardSott: v => { const x = bardDi('sottofondo').find(y => y.id === v); if (mandaBard({sottofondo: bardStato.sottofondo && bardStato.sottofondo.id === v ? null : voceBard(x)})) disegnaBard(); },

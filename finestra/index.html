@@ -28,7 +28,7 @@
 <script src="../js/accesso.js?v=8"></script>
 <script src="../js/qrcode.js?v=1"></script>
 <script src="../js/vita.js?v=5"></script>
-<script src="../js/vista.js?v=6.03"></script>
+<script src="../js/vista.js?v=6.04"></script>
 <script src="../js/inseguitore.js?v=5"></script>
 <script src="../js/uccelli.js?v=10"></script>
 <script src="../js/bard.js?v=9"></script>
@@ -170,7 +170,7 @@ const c = document.getElementById('c');
 let vista = null;
 try { vista = new Vista(c); vista.videoIntero = !anteprima;
   /* 20/11 · video e dipinti salvati sul dispositivo (js/vista.js, «I FILE SALVATI SUL DISPOSITIVO»): di default sì, mai nell'anteprima */
-  memoriaLocale(!anteprima && leggi('fin-salva-locale', true) !== false); } catch(e) {
+  memoriaLocale(anteprima ? false : leggi('fin-salva-locale', 'browser')); } catch(e) {
   document.body.innerHTML = '<p style="color:#d4af37;font:20px system-ui;padding:40px">Questa finestra non riesce a usare la grafica (WebGL): ' + e.message + '<br><small>Riprovo da sola fra un minuto.</small></p>';
   /* ⚠ 9/11: il Raspberry è rimasto così ore senza che da lontano si sapesse (non rispondeva e basta). Ora lo dice nello
      stato (finestre/banco/stato-<chi>.json, con il motivo) e riprova da solo ogni minuto */
@@ -712,7 +712,12 @@ if (anteprima){
   window.comandaDMora = comandaDM;   /* 11/11: serve al riallineamento con la scena in rete, qui sotto */
   /* con le prestazioni: immagini al secondo davvero disegnate, risoluzione del disegno, qualità (per capire da lontano se fatica) */
   const schedaVideo = () => { try { const g = vista.gl, e = g.getExtension('WEBGL_debug_renderer_info'); return e ? g.getParameter(e.UNMASKED_RENDERER_WEBGL) : g.getParameter(g.RENDERER); } catch(e) { return ''; } };
-  const chi = () => ({lato: mio, tv: tv ? {id: proiezione.id} : undefined, assetto: tv ? null : casaFori, scena, schermo:{w:innerWidth, h:innerHeight, dpr:devicePixelRatio}, comando: comandaDM() ? 'dmaster' : null, bard: bard ? {rev: bard.stato.rev || 0, stato: bard.stato, ora: bardOra, suona: bard.attivo, serata: Date.now() < serataFino, casse, uscita: bard.idUscita || ''} : undefined,
+  /* 20/11 · i file salvati sul dispositivo (modo, quanto, se la cartella risponde) per l'app: riletti ogni tanto */
+  let memoriaInBreve = null;
+  const memoriaAnnota = () => statoMemoria().then(o => { memoriaInBreve = {modo: o.modo, usatiMB: o.usatiMB, file: o.file, cartella: o.cartella,
+    inCartella: o.inCartella ? {mb: o.inCartella.mb, file: o.inCartella.file, dove: o.inCartella.dove} : null}; }).catch(() => {});
+  if (!anteprima){ memoriaAnnota(); setInterval(memoriaAnnota, 60000); }
+  const chi = () => ({lato: mio, memoria: memoriaInBreve, tv: tv ? {id: proiezione.id} : undefined, assetto: tv ? null : casaFori, scena, schermo:{w:innerWidth, h:innerHeight, dpr:devicePixelRatio}, comando: comandaDM() ? 'dmaster' : null, bard: bard ? {rev: bard.stato.rev || 0, stato: bard.stato, ora: bardOra, suona: bard.attivo, serata: Date.now() < serataFino, casse, uscita: bard.idUscita || ''} : undefined,
     prestazioni:{fps: Math.round(fpsMisurati), hzSchermo: Math.round(1000 / intervalloSchermo), msDisegno: Math.round(msDisegno * 10) / 10, scala, qualita, disegno:{w:c.width, h:c.height}, schermoVero:{w:Math.round(screen.width * devicePixelRatio), h:Math.round(screen.height * devicePixelRatio)}, gl: schedaVideo(), browser: navigator.userAgent}});
   /* lo stesso ascolto per il canale del vecchio link e per quello privato della casa (js/accesso.js) */
   const senzaScena = () => !scena.immagini && !scena.yt;
@@ -743,8 +748,8 @@ if (anteprima){
       else if (evento === 'prova'){ if (!dati.chi || dati.chi === mio){
         if (Array.isArray(dati.spegni)) vista.spegni = new Set(dati.spegni);
         /* 20/11 · {salvaLocale: false|true}: questo apparecchio tiene o no i file sul dispositivo (ricordato); {svuotaMemoria: true} */
-        if (dati.salvaLocale != null && !anteprima){ scrivi('fin-salva-locale', !!dati.salvaLocale); memoriaLocale(!!dati.salvaLocale); if (!dati.salvaLocale) svuotaMemoria(); }
-        if (dati.svuotaMemoria) svuotaMemoria();
+        if (dati.salvaLocale !== undefined && !anteprima){ const m = memoriaLocale(dati.salvaLocale); scrivi('fin-salva-locale', m); if (m !== 'browser') svuotaMemoria(); memoriaAnnota(); }
+        if (dati.svuotaMemoria){ svuotaMemoria(!!dati.cartella); memoriaAnnota(); }
         if (dati.scala != null){ scalaFissa = Math.max(0, Math.min(1, +dati.scala || 0)); if (scalaFissa) scala = scalaFissa; impagina(); }
         if (dati.fps != null){ fpsMio = Math.max(0, Math.min(60, +dati.fps || 0)); if (dati.ricorda) scrivi('fin-fps-mio', fpsMio); prossimo = 0; }   /* il tetto di quella fluidità si carica da sé */
         /* {tetto: 0.8}: il tetto di adesso (questa fluidità, questo tempo), ricordato; {tetti: 'via'}: si reimpara tutto */

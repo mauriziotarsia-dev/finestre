@@ -2725,14 +2725,35 @@ function orizzonte(dimg){
    la data del file o il numero nel file dei punti), perché un file cambiato abbia un indirizzo nuovo; salvata la versione
    nuova, quelle vecchie dello stesso file si cancellano. Se lo spazio libero non basta (o il browser non ha la memoria) si
    fa come prima: si scarica ogni volta e si tiene solo finché la scena è aperta. Acceso di default sul TV e sulle
-   finestrelle, mai nell'anteprima del telefono; per apparecchio: prova {salvaLocale: false|true}, {svuotaMemoria: true}.
-   Nello stato: `memoria` */
-const MEM = {attiva: false, nome: 'finestre-file-1', stato: {daMemoria: 0, daRete: 0, salvati: 0, saltati: 0, tolti: 0, errore: null, persistente: null}};
-function memoriaLocale(si){
-  MEM.attiva = !!si && typeof caches !== 'undefined';
+   finestrelle, mai nell'anteprima del telefono.
+   ⚠ 20/11, 09:05 (Maurizio: «diamo anche la possibilità di scegliere se salvare su una cartella o salvare nella cache del
+   browser, mettiamolo nell'app»). Tre modi, per apparecchio (dall'app, Impostazioni → Video sugli schermi):
+     · «browser»: la memoria del browser (sopra);
+     · «cartella»: una cartella vera del computer (Illusionist/file nella cartella dell'utente), tenuta dal programma del
+       cucitore (pi/cuci-animazione.py, che gira già su Ally, G10 e Raspberry) su http://127.0.0.1:8790: resta anche se si
+       cancellano i dati del browser e si vede. Se il programma non risponde si usa la memoria del browser;
+     · false: niente, si scarica ogni volta.
+   prova {salvaLocale: 'browser'|'cartella'|false}, {svuotaMemoria: true}. Nello stato e nell'«eccomi»: `memoria` */
+const CARTELLA = 'http://127.0.0.1:8790';
+const MEM = {attiva: false, modo: false, nome: 'finestre-file-1', stato: {daMemoria: 0, daCartella: 0, daRete: 0, salvati: 0, saltati: 0, tolti: 0, errore: null, persistente: null, cartella: null}};
+function memoriaLocale(modo){
+  if (modo === true) modo = 'browser';
+  MEM.modo = modo === 'cartella' || modo === 'browser' ? modo : false;
+  MEM.attiva = !!MEM.modo && typeof caches !== 'undefined';
   if (MEM.attiva && navigator.storage && navigator.storage.persist)
     navigator.storage.persist().then(p => { MEM.stato.persistente = p; }).catch(() => {});   /* che il browser non li cancelli da solo */
-  return MEM.attiva;
+  return MEM.modo;
+}
+async function daCartella(url, maxS){
+  const ac = typeof AbortController !== 'undefined' ? new AbortController() : null;
+  const tm = setTimeout(() => { try { if (ac) ac.abort(); } catch(e) {} }, maxS * 1000);
+  try {
+    const r = await fetch(CARTELLA + '/file?u=' + encodeURIComponent(url), Object.assign({cache: 'no-store'}, ac ? {signal: ac.signal} : {}));
+    if (!r.ok){ MEM.stato.cartella = 'http ' + r.status; return null; }
+    const b = await r.blob(); if (b.size < 64){ MEM.stato.cartella = 'vuoto'; return null; }
+    MEM.stato.cartella = 'ok'; MEM.stato.daCartella++; return b;
+  } catch(e){ MEM.stato.cartella = 'non risponde'; return null; }
+  finally { clearTimeout(tm); }
 }
 const versionato = url => /^https?:/.test(url) && /[?&]v=[^&]/.test(url);
 async function apriMemoria(){
@@ -2753,6 +2774,7 @@ async function salvaInMemoria(c, url, b){
 }
 /* il file intero (Blob): dalla memoria se c'è, se no dalla rete (e poi in memoria). maxS: quanto aspettare la rete */
 async function prendiFile(url, maxS = 300){
+  if (MEM.modo === 'cartella' && versionato(url)){ const b = await daCartella(url, maxS); if (b) return b; }   /* 20/11: se no, la memoria del browser */
   const c = versionato(url) ? await apriMemoria() : null;
   if (c) try { const r = await c.match(url); if (r){ const b = await r.blob(); if (b.size >= 64){ MEM.stato.daMemoria++; return b; } } } catch(e) {}
   const ac = typeof AbortController !== 'undefined' ? new AbortController() : null;
@@ -2766,12 +2788,15 @@ async function prendiFile(url, maxS = 300){
   } finally { clearTimeout(tm); }
 }
 async function statoMemoria(){
-  const o = Object.assign({attiva: MEM.attiva}, MEM.stato);
+  const o = Object.assign({attiva: MEM.attiva, modo: MEM.modo}, MEM.stato);
+  if (MEM.modo === 'cartella') try { const ac = new AbortController(), t = setTimeout(() => ac.abort(), 2500);
+    o.inCartella = await (await fetch(CARTELLA + '/stato', {cache: 'no-store', signal: ac.signal})).json(); clearTimeout(t); } catch(e) { o.inCartella = null; }
   try { if (navigator.storage && navigator.storage.estimate){ const e = await navigator.storage.estimate(); o.usatiMB = Math.round((e.usage || 0) / 1048576); o.liberiMB = Math.round(((e.quota || 0) - (e.usage || 0)) / 1048576); } } catch(e) {}
   try { if (MEM.attiva){ const c = await caches.open(MEM.nome); o.file = (await c.keys()).length; } } catch(e) {}
   return o;
 }
-async function svuotaMemoria(){ try { await caches.delete(MEM.nome); } catch(e) {} }
+async function svuotaMemoria(cartella = false){ try { await caches.delete(MEM.nome); } catch(e) {}
+  if (cartella) try { await fetch(CARTELLA + '/svuota', {method: 'POST', cache: 'no-store'}); } catch(e) {} }
 function caricaImg(url){
   /* 20/11: con la memoria sul dispositivo i dipinti con la versione passano da lì */
   if (MEM.attiva && versionato(url))
