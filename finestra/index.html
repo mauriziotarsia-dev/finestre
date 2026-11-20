@@ -28,7 +28,7 @@
 <script src="../js/accesso.js?v=8"></script>
 <script src="../js/qrcode.js?v=1"></script>
 <script src="../js/vita.js?v=5"></script>
-<script src="../js/vista.js?v=6.01"></script>
+<script src="../js/vista.js?v=6.02"></script>
 <script src="../js/inseguitore.js?v=5"></script>
 <script src="../js/uccelli.js?v=10"></script>
 <script src="../js/bard.js?v=9"></script>
@@ -168,7 +168,9 @@ let mostraBordi = false;
 
 const c = document.getElementById('c');
 let vista = null;
-try { vista = new Vista(c); vista.videoIntero = !anteprima; } catch(e) {
+try { vista = new Vista(c); vista.videoIntero = !anteprima;
+  /* 20/11 · video e dipinti salvati sul dispositivo (js/vista.js, «I FILE SALVATI SUL DISPOSITIVO»): di default sì, mai nell'anteprima */
+  memoriaLocale(!anteprima && leggi('fin-salva-locale', true) !== false); } catch(e) {
   document.body.innerHTML = '<p style="color:#d4af37;font:20px system-ui;padding:40px">Questa finestra non riesce a usare la grafica (WebGL): ' + e.message + '<br><small>Riprovo da sola fra un minuto.</small></p>';
   /* ⚠ 9/11: il Raspberry è rimasto così ore senza che da lontano si sapesse (non rispondeva e basta). Ora lo dice nello
      stato (finestre/banco/stato-<chi>.json, con il motivo) e riprova da solo ogni minuto */
@@ -740,6 +742,9 @@ if (anteprima){
          più morbide» e «30 immagini a piena risoluzione» */
       else if (evento === 'prova'){ if (!dati.chi || dati.chi === mio){
         if (Array.isArray(dati.spegni)) vista.spegni = new Set(dati.spegni);
+        /* 20/11 · {salvaLocale: false|true}: questo apparecchio tiene o no i file sul dispositivo (ricordato); {svuotaMemoria: true} */
+        if (dati.salvaLocale != null && !anteprima){ scrivi('fin-salva-locale', !!dati.salvaLocale); memoriaLocale(!!dati.salvaLocale); if (!dati.salvaLocale) svuotaMemoria(); }
+        if (dati.svuotaMemoria) svuotaMemoria();
         if (dati.scala != null){ scalaFissa = Math.max(0, Math.min(1, +dati.scala || 0)); if (scalaFissa) scala = scalaFissa; impagina(); }
         if (dati.fps != null){ fpsMio = Math.max(0, Math.min(60, +dati.fps || 0)); if (dati.ricorda) scrivi('fin-fps-mio', fpsMio); prossimo = 0; }   /* il tetto di quella fluidità si carica da sé */
         /* {tetto: 0.8}: il tetto di adesso (questa fluidità, questo tempo), ricordato; {tetti: 'via'}: si reimpara tutto */
@@ -942,7 +947,8 @@ async function statoRemoto(d, schedaVideo){
     radar.pagina = {aperto: !!sensore, letture: misura.n, ogniMs: Math.round(misura.intervallo), etaMs: Math.round(misura.eta), specchio: specchio < 0, viva: !!scena.prospettivaViva, centro: radarCentro, registro: d.registro ? registroRadar.slice() : undefined};
   }
   const mq = d => { try { return matchMedia(d).matches; } catch(e) { return null; } };
-  const st = {chi: mio, quando: new Date().toISOString(), gl: schedaVideo(), schermo: {w: innerWidth, h: innerHeight, dpr: devicePixelRatio, visibile: document.visibilityState,
+  let memoria = null; try { memoria = await statoMemoria(); } catch(e) {}   /* 20/11: i file salvati sul dispositivo */
+  const st = {chi: mio, memoria, quando: new Date().toISOString(), gl: schedaVideo(), schermo: {w: innerWidth, h: innerHeight, dpr: devicePixelRatio, visibile: document.visibilityState,
       vero: {w: screen.width, h: screen.height, bit: screen.colorDepth}, hdr: mq('(dynamic-range: high)'), gamma: mq('(color-gamut: rec2020)') ? 'rec2020' : mq('(color-gamut: p3)') ? 'p3' : 'srgb'},   /* 14/11: per confrontare da lontano come escono TV e finestrelle */
     tela: {w: c.width, h: c.height, css: c.style.cssText}, geomGL, scala, qualita, coperto, inCambio, scuro, scuroVerso, paesaggioInVista,
     fonteOk: vista.fonti[0].ok, fonteUrl: vista.fonti[0].url, inArrivo: vista.inArrivo, fonteAttesa: f,

@@ -2716,7 +2716,71 @@ function orizzonte(dimg){
   fondo.sort((a, b) => a - b);
   return fondo[Math.floor(W * .85)] || 0;
 }
+/* ⚠ 20/11 · I FILE SALVATI SUL DISPOSITIVO (Maurizio: «la possibilità al device di scaricare in locale i video senza doverli
+   ogni volta ricaricare dalla rete … mettiamo questa come opzione di default … altrimenti se uno ha un device senza memoria
+   fisica, ogni volta li deve scaricare»). Prima ogni schermo riscaricava tutto a ogni accensione e a ogni cambio di scena
+   (la notte 46 MB, il giorno 28 MB più 30 MB di fuochi), e nei primi minuti, col file che arrivava dalla rete, il video
+   andava a scatti. Ora video, inserti e dipinti si tengono nella memoria del browser (Cache Storage: resta anche dopo
+   riavvii e ricariche) e dalla rete arriva solo quello che è cambiato. Si salva solo un indirizzo con la versione («v=»:
+   la data del file o il numero nel file dei punti), perché un file cambiato abbia un indirizzo nuovo; salvata la versione
+   nuova, quelle vecchie dello stesso file si cancellano. Se lo spazio libero non basta (o il browser non ha la memoria) si
+   fa come prima: si scarica ogni volta e si tiene solo finché la scena è aperta. Acceso di default sul TV e sulle
+   finestrelle, mai nell'anteprima del telefono; per apparecchio: prova {salvaLocale: false|true}, {svuotaMemoria: true}.
+   Nello stato: `memoria` */
+const MEM = {attiva: false, nome: 'finestre-file-1', stato: {daMemoria: 0, daRete: 0, salvati: 0, saltati: 0, tolti: 0, errore: null, persistente: null}};
+function memoriaLocale(si){
+  MEM.attiva = !!si && typeof caches !== 'undefined';
+  if (MEM.attiva && navigator.storage && navigator.storage.persist)
+    navigator.storage.persist().then(p => { MEM.stato.persistente = p; }).catch(() => {});   /* che il browser non li cancelli da solo */
+  return MEM.attiva;
+}
+const versionato = url => /^https?:/.test(url) && /[?&]v=[^&]/.test(url);
+async function apriMemoria(){
+  if (!MEM.attiva) return null;
+  try { return await caches.open(MEM.nome); } catch(e){ MEM.stato.errore = String(e && e.message || e).slice(0, 80); return null; }
+}
+async function salvaInMemoria(c, url, b){
+  try {
+    if (navigator.storage && navigator.storage.estimate){
+      const e = await navigator.storage.estimate(), libero = (e.quota || 0) - (e.usage || 0);
+      if (libero < b.size * 1.5 + 200e6){ MEM.stato.saltati++; return; }   /* poco spazio: questo si riscarica ogni volta */
+    }
+    await c.put(url, new Response(b, {headers: {'Content-Type': b.type || 'application/octet-stream', 'Content-Length': String(b.size)}}));
+    MEM.stato.salvati++;
+    const base = url.split('?')[0];
+    for (const k of await c.keys()) if (k.url.split('?')[0] === base && k.url !== url){ await c.delete(k); MEM.stato.tolti++; }
+  } catch(e){ MEM.stato.errore = String(e && e.message || e).slice(0, 80); }
+}
+/* il file intero (Blob): dalla memoria se c'è, se no dalla rete (e poi in memoria). maxS: quanto aspettare la rete */
+async function prendiFile(url, maxS = 300){
+  const c = versionato(url) ? await apriMemoria() : null;
+  if (c) try { const r = await c.match(url); if (r){ const b = await r.blob(); if (b.size >= 64){ MEM.stato.daMemoria++; return b; } } } catch(e) {}
+  const ac = typeof AbortController !== 'undefined' ? new AbortController() : null;
+  const tm = setTimeout(() => { try { if (ac) ac.abort(); } catch(e) {} }, maxS * 1000);
+  try {
+    const r = await fetch(url, ac ? {signal: ac.signal} : {});
+    if (!r.ok) throw new Error('http ' + r.status);
+    const b = await r.blob(); MEM.stato.daRete++;
+    if (c && b.size >= 64) salvaInMemoria(c, url, b);
+    return b;
+  } finally { clearTimeout(tm); }
+}
+async function statoMemoria(){
+  const o = Object.assign({attiva: MEM.attiva}, MEM.stato);
+  try { if (navigator.storage && navigator.storage.estimate){ const e = await navigator.storage.estimate(); o.usatiMB = Math.round((e.usage || 0) / 1048576); o.liberiMB = Math.round(((e.quota || 0) - (e.usage || 0)) / 1048576); } } catch(e) {}
+  try { if (MEM.attiva){ const c = await caches.open(MEM.nome); o.file = (await c.keys()).length; } } catch(e) {}
+  return o;
+}
+async function svuotaMemoria(){ try { await caches.delete(MEM.nome); } catch(e) {} }
 function caricaImg(url){
+  /* 20/11: con la memoria sul dispositivo i dipinti con la versione passano da lì */
+  if (MEM.attiva && versionato(url))
+    return prendiFile(url, 120).then(b => new Promise((ok, no) => { const u = URL.createObjectURL(b), im = new Image();
+      im.onload = () => { ok(im); setTimeout(() => URL.revokeObjectURL(u), 1000); }; im.onerror = () => { URL.revokeObjectURL(u); no(new Error('immagine non caricata: ' + url)); }; im.src = u; }),
+      () => caricaImgRete(url));
+  return caricaImgRete(url);
+}
+function caricaImgRete(url){
   return new Promise((ok, no) => { const im = new Image(); im.crossOrigin = 'anonymous';
     im.onload = () => ok(im); im.onerror = () => no(new Error('immagine non caricata: ' + url)); im.src = url; });
 }
@@ -2784,18 +2848,13 @@ function scegliTratto(f){
 const scaricati = [];
 async function scaricaIntero(url, maxS){
   const t0 = performance.now(), nome = decodeURIComponent(url.split('?')[0].split('/').pop()).slice(-40);
-  const ac = typeof AbortController !== 'undefined' ? new AbortController() : null;
-  const tm = setTimeout(() => { try { if (ac) ac.abort(); } catch(e) {} }, maxS * 1000);
   const nota = o => { scaricati.push(Object.assign({file: nome, s: Math.round((performance.now() - t0) / 100) / 10}, o)); if (scaricati.length > 12) scaricati.shift(); };
   try {
-    const r = await fetch(url, ac ? {signal: ac.signal} : {});
-    if (!r.ok) throw new Error('http ' + r.status);
-    const b = await r.blob();
+    const prima = MEM.stato.daMemoria, b = await prendiFile(url, maxS);   /* 20/11: dalla memoria del dispositivo, se c'è */
     if (b.size < 2048) throw new Error('vuoto');
-    nota({mb: Math.round(b.size / 104857.6) / 10});
-    return URL.createObjectURL(b.type ? b : new Blob([b], {type: 'video/mp4'}));
+    nota({mb: Math.round(b.size / 104857.6) / 10, da: MEM.stato.daMemoria > prima ? 'memoria' : 'rete'});
+    return URL.createObjectURL(b.type && b.type.startsWith('video') ? b : new Blob([b], {type: 'video/mp4'}));
   } catch(e){ nota({errore: String(e && e.message || e).slice(0, 60)}); return null; }
-  finally { clearTimeout(tm); }
 }
 function lasciaVideo(v){
   try { const s = v.currentSrc || v.src; v.pause(); v.removeAttribute('src'); v.load(); if (s && s.startsWith('blob:')) URL.revokeObjectURL(s); } catch(e) {}

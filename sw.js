@@ -19,7 +19,10 @@ self.addEventListener('install', e => {
 });
 self.addEventListener('activate', e => {
   e.waitUntil((async () => {
-    for (const k of await caches.keys()) if (!k.startsWith(VERSIONE)) await caches.delete(k);
+    /* 20/11: «finestre-file-…» sono i file salvati sul dispositivo da js/vista.js (memoriaLocale): non sono di questa memoria */
+    for (const k of await caches.keys()) if (!k.startsWith(VERSIONE) && !k.startsWith('finestre-file')) await caches.delete(k);
+    /* 20/11: i video tenuti qui prima (anche 30–50 MB l'uno) ora li tiene la pagina: via */
+    try { const d = await caches.open(DEPOSITO); for (const k of await d.keys()) if (/\.mp4$/i.test(new URL(k.url).pathname)) await d.delete(k); } catch(e) {}
     await self.clients.claim();
   })());
 });
@@ -39,6 +42,9 @@ self.addEventListener('fetch', e => {
   const u = new URL(r.url);
   const deposito = delDeposito(u);
   if (!deposito && !daTenere(u)) return;            /* Supabase (canale, account), YouTube, AI: sempre in rete */
+  /* 20/11: i file del deposito con la versione («v=») li tiene la pagina (js/vista.js, «I FILE SALVATI SUL DISPOSITIVO»),
+     e i video da 30–50 MB qui sarebbero stati una seconda copia */
+  if (deposito && /[?&]v=[^&]/.test(u.search)) return;
   e.respondWith((async () => {
     const cache = await caches.open(deposito ? DEPOSITO : PAGINE);
     const chiave = deposito ? chiaveDeposito(u) : r;
