@@ -1416,13 +1416,35 @@ def _ingrandisci_uno(cart, base, ora, R, chi):
                '-force_key_frames', ','.join('%.3f' % max(0, t - .01) for t in R.get('chiavi', [0])), '-an', '-c:v', 'libx264',
                '-preset', R.get('preset', 'slow'), '-crf', str(R.get('crf', 14)), '-profile:v', 'high', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', fin]
         ff = subprocess.Popen(cmd, stdin=subprocess.PIPE)
-        st.update(fase='ingrandisco', fatti=0, totale=tot); t0 = time.time(); n = 0
+        # 20/11, 13:40 · «insieme»: una sola passata della rete per fotogramma (sulla Ally, zona per zona, 1,7 s a fotogramma per
+        # 21 zone piccole: quasi tutto tempo perso fra una chiamata e l'altra). Ogni zona, col suo contesto, va in una tela con
+        # attorno G punti di bordo ripetuto (così le zone vicine non si toccano), e la rete passa una volta sulla tela intera
+        G = 16
+        if R.get('insieme'):
+            tpos, x, y, hr, TW = [], 0, 0, 0, 2048
+            for z in R['pezzi']:
+                w, h = z['ctx'][2] + 2 * G, z['ctx'][3] + 2 * G
+                if x + w > TW: x, y, hr = 0, y + hr, 0
+                tpos.append((x, y)); x += w; hr = max(hr, h)
+            TH = (y + hr + 7) // 8 * 8
+        st.update(fase='ingrandisco', fatti=0, totale=tot, insieme=bool(R.get('insieme'))); t0 = time.time(); n = 0
         try:
             while True:
                 ok, f = c.read()
                 if not ok: break
                 A = np.zeros((AH, AW, 3), np.uint8)
-                for z in R['pezzi']:
+                if R.get('insieme'):
+                    T = np.zeros((TH, TW, 3), np.uint8)
+                    for z, (tx, ty) in zip(R['pezzi'], tpos):
+                        sx, sy, sw, sh = z['ctx']
+                        T[ty:ty + sh + 2 * G, tx:tx + sw + 2 * G] = cv2.copyMakeBorder(f[sy:sy + sh, sx:sx + sw], G, G, G, G, cv2.BORDER_REPLICATE)
+                    x = T[..., ::-1].astype(np.float32).transpose(2, 0, 1)[None] / 255.
+                    y = sess.run(None, {sess.get_inputs()[0].name: x})[0][0].transpose(1, 2, 0)[..., ::-1]
+                    y = cv2.resize(np.clip(y * 255. + .5, 0, 255).astype(np.uint8), (TW * 2, TH * 2), interpolation=cv2.INTER_AREA)
+                    for z, (tx, ty) in zip(R['pezzi'], tpos):
+                        cx, cy, cw, ch = z['nucleo']; ax, ay = z['a']; ox, oy = (tx + G + cx) * 2, (ty + G + cy) * 2
+                        A[ay:ay + ch * 2 + 2 * PAD, ax:ax + cw * 2 + 2 * PAD] = cv2.copyMakeBorder(y[oy:oy + ch * 2, ox:ox + cw * 2], PAD, PAD, PAD, PAD, cv2.BORDER_REPLICATE)
+                for z in ([] if R.get('insieme') else R['pezzi']):
                     sx, sy, sw, sh = z['ctx']; cx, cy, cw, ch = z['nucleo']; ax, ay = z['a']
                     x = f[sy:sy + sh, sx:sx + sw][..., ::-1].astype(np.float32).transpose(2, 0, 1)[None] / 255.
                     y = sess.run(None, {sess.get_inputs()[0].name: x})[0][0].transpose(1, 2, 0)[..., ::-1]
@@ -1465,7 +1487,9 @@ def giro_ingrandisci(casa, chi):
         try:
             via = 'authenticated' if ACCESSO else 'public'
             R = json.loads(_chiedi('GET', f'/storage/v1/object/{via}/{DEPOSITO}/{cart}/' + urllib.parse.quote(nome) + '?t=' + str(int(time.time()))))
-            if str(R.get('chi', '')).lower() not in chi.lower(): continue
+            vuole = str(R.get('chi', '')).lower()
+            if vuole.endswith('-v2'): vuole = vuole[:-3]             # 20/11: richieste per questa versione (i cucitori di prima le lasciano)
+            if not vuole or vuole not in chi.lower(): continue
             ns = f'{base}_est-anim-{ora}-ingrandisci-stato.png'
             if ns in file:
                 S = json.loads(_chiedi('GET', f'/storage/v1/object/{via}/{DEPOSITO}/{cart}/' + urllib.parse.quote(ns) + '?t=' + str(int(time.time()))))
