@@ -1392,11 +1392,90 @@ def _scrivi_stato_ingr(cart, nome, d):
     except Exception as e: print('ingrandimento: stato non scritto', e, file=sys.stderr, flush=True)
 
 
+# 20/11 sera (Maurizio: «sistema le due cose che dicevi»). Due difetti misurati sui quattro 4K della Ally:
+# - la rete rende le zone più scure della sorgente (1–2 livelli) e la conversione BGR → yuv420p di ffmpeg tronca (circa mezzo
+#   livello in meno; un'altra decodifica di OpenCV ne toglie quasi uno ancora): sul TV le zone vive erano 2–3 livelli più
+#   scure del fermo attorno e i bordi si vedevano di più;
+# - corretto finora da Claude con una seconda codifica. Ora qui, prima dell'unica codifica: in ogni zona i toni lenti della
+#   sorgente ingrandita lanczos e i dettagli della rete (e' = e + blur(lanczos) − blur(e), sigma 8 sull'uscita, sul contesto
+#   intero così il bordo non conta), e la conversione in yuv420p fatta qui con l'arrotondamento giusto (BT.601 limitato, la
+#   stessa matrice che ffmpeg usa senza dirgli niente, croma mediata 2×2). «tono»: false nella richiesta per non farlo.
+SIGMA_TONO = 8.0
+def _tono(e, sorgente):
+    """e: la zona ingrandita dalla rete (uint8, contesto intero); sorgente: la stessa zona al 1× (uint8)."""
+    l = cv2.resize(sorgente, (e.shape[1], e.shape[0]), interpolation=cv2.INTER_LANCZOS4).astype(np.float32)
+    z = e.astype(np.float32)
+    z += cv2.GaussianBlur(l, (0, 0), SIGMA_TONO, borderType=cv2.BORDER_REFLECT) - cv2.GaussianBlur(z, (0, 0), SIGMA_TONO, borderType=cv2.BORDER_REFLECT)
+    return np.clip(z + .5, 0, 255).astype(np.uint8)
+
+
+def _i420(f):
+    """BGR uint8 (lati pari) → byte yuv420p BT.601 limitato, arrotondati (ffmpeg da bgr24 tronca e scurisce)."""
+    x = f.astype(np.float32); B, G, R_ = x[..., 0], x[..., 1], x[..., 2]
+    Y = 16 + (219 / 255) * (0.299 * R_ + 0.587 * G + 0.114 * B)
+    U = 128 + (224 / 255) * (-0.168736 * R_ - 0.331264 * G + 0.5 * B)
+    V = 128 + (224 / 255) * (0.5 * R_ - 0.418688 * G - 0.081312 * B)
+    h, w = Y.shape; m = lambda c: c.reshape(h // 2, 2, w // 2, 2).mean(axis=(1, 3))
+    q = lambda c: np.clip(np.rint(c), 0, 255).astype(np.uint8)
+    return q(Y).tobytes() + q(m(U)).tobytes() + q(m(V)).tobytes()
+
+
+def _tela(R, G=16, TW=2048):
+    """modo «insieme»: dove va ogni zona (col suo contesto e G punti di bordo ripetuto) nella tela che passa una volta nella rete."""
+    tpos, x, y, hr = [], 0, 0, 0
+    for z in R['pezzi']:
+        w, h = z['ctx'][2] + 2 * G, z['ctx'][3] + 2 * G
+        if w > TW: raise RuntimeError(f'zona larga {w} oltre la tela di {TW}: va divisa nella richiesta')
+        if x + w > TW: x, y, hr = 0, y + hr, 0
+        tpos.append((x, y)); x += w; hr = max(hr, h)
+    return tpos, (y + hr + 7) // 8 * 8
+
+
+def _controlla_richiesta(R, G=16, TW=2048):
+    """Prima di scaricare modello e sorgente: ogni zona entra nell'atlante e nella tela (il tramonto del 20/11 si era fermato
+    dopo un'ora di lavoro su una zona larga 8 punti più dell'atlante)."""
+    AW, AH, PAD = R['uscita']['w'], R['uscita']['h'], R.get('pad', 4)
+    for z in R['pezzi']:
+        cx, cy, cw, ch = z['nucleo']; ax, ay = z['a']
+        if ax + cw * 2 + 2 * PAD > AW or ay + ch * 2 + 2 * PAD > AH: raise RuntimeError(f'zona fuori dall\'atlante {AW}×{AH}: {z}')
+    if R.get('insieme'): _tela(R, G, TW)
+
+
+def _atlante_fotogramma(f, R, rete, tela=None, G=16, TW=2048):
+    """Un fotogramma della sorgente → il fotogramma dell'atlante. rete(x) = uscita del modello (x: 1×3×H×W in 0..1, RGB)."""
+    AW, AH, PAD = R['uscita']['w'], R['uscita']['h'], R.get('pad', 4); tono = R.get('tono', True)
+    A = np.zeros((AH, AW, 3), np.uint8)
+    def metti(z, e):                                   # e: il contesto intero ingrandito ×2
+        sx, sy, sw, sh = z['ctx']; cx, cy, cw, ch = z['nucleo']; ax, ay = z['a']
+        if ax + cw * 2 + 2 * PAD > AW or ay + ch * 2 + 2 * PAD > AH: raise RuntimeError(f'zona fuori dall\'atlante: {z}')
+        if tono: e = _tono(e, f[sy:sy + sh, sx:sx + sw])
+        A[ay:ay + ch * 2 + 2 * PAD, ax:ax + cw * 2 + 2 * PAD] = cv2.copyMakeBorder(e[cy * 2:(cy + ch) * 2, cx * 2:(cx + cw) * 2], PAD, PAD, PAD, PAD, cv2.BORDER_REPLICATE)
+    if R.get('insieme'):
+        tpos, TH = tela or _tela(R, G, TW)
+        T = np.zeros((TH, TW, 3), np.uint8)
+        for z, (tx, ty) in zip(R['pezzi'], tpos):
+            sx, sy, sw, sh = z['ctx']
+            T[ty:ty + sh + 2 * G, tx:tx + sw + 2 * G] = cv2.copyMakeBorder(f[sy:sy + sh, sx:sx + sw], G, G, G, G, cv2.BORDER_REPLICATE)
+        y = rete(T[..., ::-1].astype(np.float32).transpose(2, 0, 1)[None] / 255.)[0].transpose(1, 2, 0)[..., ::-1]
+        y = cv2.resize(np.clip(y * 255. + .5, 0, 255).astype(np.uint8), (TW * 2, TH * 2), interpolation=cv2.INTER_AREA)
+        for z, (tx, ty) in zip(R['pezzi'], tpos):
+            sw, sh = z['ctx'][2], z['ctx'][3]
+            metti(z, y[(ty + G) * 2:(ty + G + sh) * 2, (tx + G) * 2:(tx + G + sw) * 2])
+    else:
+        for z in R['pezzi']:
+            sx, sy, sw, sh = z['ctx']
+            y = rete(f[sy:sy + sh, sx:sx + sw][..., ::-1].astype(np.float32).transpose(2, 0, 1)[None] / 255.)[0].transpose(1, 2, 0)[..., ::-1]
+            y = np.clip(y * 255. + .5, 0, 255).astype(np.uint8)
+            metti(z, cv2.resize(y, (sw * 2, sh * 2), interpolation=cv2.INTER_AREA))
+    return A
+
+
 def _ingrandisci_uno(cart, base, ora, R, chi):
     """R: la richiesta. Ritorna True se fatta."""
     nome_stato = f'{base}_est-anim-{ora}-ingrandisci-stato.png'
     st = {'versione': R['versione'], 'chi': chi, 'fase': 'inizio', 'quando': time.time()}
     _scrivi_stato_ingr(cart, nome_stato, st)
+    _controlla_richiesta(R)
     ort, prov = _ort()
     st.update(fase='modello', provider=prov[0] if prov else None); _scrivi_stato_ingr(cart, nome_stato, st)
     # 20/11, 13:54: su Windows la cartella temporanea non si cancellava (il video aperto) e il lavoro, già caricato, finiva in «errore»
@@ -1413,46 +1492,23 @@ def _ingrandisci_uno(cart, base, ora, R, chi):
         AW, AH, PAD = R['uscita']['w'], R['uscita']['h'], R.get('pad', 4)
         c = cv2.VideoCapture(src); tot = int(c.get(cv2.CAP_PROP_FRAME_COUNT)); fps = R.get('fps', 24)
         fin = os.path.join(d, 'atlante.mp4')
-        cmd = ['ffmpeg', '-v', 'error', '-y', '-f', 'rawvideo', '-pix_fmt', 'bgr24', '-s', f'{AW}x{AH}', '-r', str(fps), '-i', '-',
+        pari = AW % 2 == 0 and AH % 2 == 0
+        cmd = ['ffmpeg', '-v', 'error', '-y', '-f', 'rawvideo', '-pix_fmt', 'yuv420p' if pari else 'bgr24', '-s', f'{AW}x{AH}', '-r', str(fps), '-i', '-',
                '-force_key_frames', ','.join('%.3f' % max(0, t - .01) for t in R.get('chiavi', [0])), '-an', '-c:v', 'libx264',
                '-preset', R.get('preset', 'slow'), '-crf', str(R.get('crf', 14)), '-profile:v', 'high', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', fin]
         ff = subprocess.Popen(cmd, stdin=subprocess.PIPE)
         # 20/11, 13:40 · «insieme»: una sola passata della rete per fotogramma (sulla Ally, zona per zona, 1,7 s a fotogramma per
         # 21 zone piccole: quasi tutto tempo perso fra una chiamata e l'altra). Ogni zona, col suo contesto, va in una tela con
         # attorno G punti di bordo ripetuto (così le zone vicine non si toccano), e la rete passa una volta sulla tela intera
-        G = 16
-        if R.get('insieme'):
-            tpos, x, y, hr, TW = [], 0, 0, 0, 2048
-            for z in R['pezzi']:
-                w, h = z['ctx'][2] + 2 * G, z['ctx'][3] + 2 * G
-                if x + w > TW: x, y, hr = 0, y + hr, 0
-                tpos.append((x, y)); x += w; hr = max(hr, h)
-            TH = (y + hr + 7) // 8 * 8
-        st.update(fase='ingrandisco', fatti=0, totale=tot, insieme=bool(R.get('insieme'))); t0 = time.time(); n = 0
+        tela = _tela(R) if R.get('insieme') else None
+        rete = lambda x: sess.run(None, {sess.get_inputs()[0].name: x})[0]
+        st.update(fase='ingrandisco', fatti=0, totale=tot, insieme=bool(R.get('insieme')), tono=R.get('tono', True)); t0 = time.time(); n = 0
         try:
             while True:
                 ok, f = c.read()
                 if not ok: break
-                A = np.zeros((AH, AW, 3), np.uint8)
-                if R.get('insieme'):
-                    T = np.zeros((TH, TW, 3), np.uint8)
-                    for z, (tx, ty) in zip(R['pezzi'], tpos):
-                        sx, sy, sw, sh = z['ctx']
-                        T[ty:ty + sh + 2 * G, tx:tx + sw + 2 * G] = cv2.copyMakeBorder(f[sy:sy + sh, sx:sx + sw], G, G, G, G, cv2.BORDER_REPLICATE)
-                    x = T[..., ::-1].astype(np.float32).transpose(2, 0, 1)[None] / 255.
-                    y = sess.run(None, {sess.get_inputs()[0].name: x})[0][0].transpose(1, 2, 0)[..., ::-1]
-                    y = cv2.resize(np.clip(y * 255. + .5, 0, 255).astype(np.uint8), (TW * 2, TH * 2), interpolation=cv2.INTER_AREA)
-                    for z, (tx, ty) in zip(R['pezzi'], tpos):
-                        cx, cy, cw, ch = z['nucleo']; ax, ay = z['a']; ox, oy = (tx + G + cx) * 2, (ty + G + cy) * 2
-                        A[ay:ay + ch * 2 + 2 * PAD, ax:ax + cw * 2 + 2 * PAD] = cv2.copyMakeBorder(y[oy:oy + ch * 2, ox:ox + cw * 2], PAD, PAD, PAD, PAD, cv2.BORDER_REPLICATE)
-                for z in ([] if R.get('insieme') else R['pezzi']):
-                    sx, sy, sw, sh = z['ctx']; cx, cy, cw, ch = z['nucleo']; ax, ay = z['a']
-                    x = f[sy:sy + sh, sx:sx + sw][..., ::-1].astype(np.float32).transpose(2, 0, 1)[None] / 255.
-                    y = sess.run(None, {sess.get_inputs()[0].name: x})[0][0].transpose(1, 2, 0)[..., ::-1]
-                    y = np.clip(y * 255. + .5, 0, 255).astype(np.uint8)
-                    y = cv2.resize(y, (y.shape[1] // 2, y.shape[0] // 2), interpolation=cv2.INTER_AREA)[cy * 2:(cy + ch) * 2, cx * 2:(cx + cw) * 2]
-                    A[ay:ay + ch * 2 + 2 * PAD, ax:ax + cw * 2 + 2 * PAD] = cv2.copyMakeBorder(y, PAD, PAD, PAD, PAD, cv2.BORDER_REPLICATE)
-                ff.stdin.write(A.tobytes()); n += 1
+                A = _atlante_fotogramma(f, R, rete, tela)
+                ff.stdin.write(_i420(A) if pari else A.tobytes()); n += 1
                 if n % 50 == 0:
                     st.update(fatti=n, secondi_a_fotogramma=round((time.time() - t0) / n, 3), quando=time.time()); _scrivi_stato_ingr(cart, nome_stato, st)
         finally:
