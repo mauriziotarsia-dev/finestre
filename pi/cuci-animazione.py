@@ -1399,7 +1399,8 @@ def _ingrandisci_uno(cart, base, ora, R, chi):
     _scrivi_stato_ingr(cart, nome_stato, st)
     ort, prov = _ort()
     st.update(fase='modello', provider=prov[0] if prov else None); _scrivi_stato_ingr(cart, nome_stato, st)
-    with tempfile.TemporaryDirectory() as d:
+    # 20/11, 13:54: su Windows la cartella temporanea non si cancellava (il video aperto) e il lavoro, già caricato, finiva in «errore»
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
         mod = os.path.join(d, 'modello.onnx')
         via = 'authenticated' if ACCESSO else 'public'
         with open(mod, 'wb') as f: f.write(_chiedi('GET', f'/storage/v1/object/{via}/{DEPOSITO}/' + urllib.parse.quote(R['modello'])))
@@ -1456,6 +1457,7 @@ def _ingrandisci_uno(cart, base, ora, R, chi):
                     st.update(fatti=n, secondi_a_fotogramma=round((time.time() - t0) / n, 3), quando=time.time()); _scrivi_stato_ingr(cart, nome_stato, st)
         finally:
             ff.stdin.close(); ff.wait()
+        c.release()
         if n != tot or ff.returncode: raise RuntimeError(f'fotogrammi {n}/{tot}, ffmpeg {ff.returncode}')
         st.update(fase='carico', fatti=n, secondi=round(time.time() - t0)); _scrivi_stato_ingr(cart, nome_stato, st)
         dati = open(fin, 'rb').read(); np_ = -(-len(dati) // (45 * 1024 * 1024)); passo = -(-len(dati) // np_)
