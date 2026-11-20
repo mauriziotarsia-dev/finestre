@@ -62,6 +62,7 @@ float gVentoA;                /* 14/11 sera · il quarto canale del vento in que
                                  128/255 = niente; sotto, l'ombra delle nuvole sul terreno (c'è solo sotto l'orizzonte); sopra, quanta nuvola del cielo che scorre
                                  sta qui (c'è solo sopra l'orizzonte; vedi VENTO_FRAG e mascheraNuvole): lì dietro le stelle non si vedono */
 vec3 gVentoRG;                /* 16/11 · dentro: rosso, verde e blu del vento in questo punto (la polvere nei fasci di luce, quanto fascio c'è, quanto pavimento), dalla stessa lettura */
+uniform float uFuoriK;        /* 20/11 · dentro: quanto più forte la luce che entra dalle finestre («fuoriOre» nel file dei punti) */
 uniform vec2 uScuro;          /* 16/11 sera · dentro: quanto più buia la stanza (ombre e mezzi toni; le luci restano) e quanto più scuro il pavimento */
 uniform vec4 uFascioD;        /* 16/11 · i fasci di luce delle finestre (mascheraFasci): direzione x, y; z = ci sono; w = larghezza su altezza del foro */
 uniform vec3 uFascioC;        /* il colore della luce dei vetri */
@@ -881,6 +882,10 @@ void main(){
       float fuoriD = smoothstep(.42, .6, lumD) * (1. - smoothstep(.12, .24, col.r - col.b)) * (1. - smoothstep(.3, .9, uNotte));
       /* 16/11 · il fascio di luce di una finestra in questo punto (VENTO_FRAG e mascheraFasci): di notte no */
       float fasF = uFascioD.z > .5 ? gVentoRG.y * (1. - smoothstep(.3, .9, uNotte)) : 0.;
+      /* ⚠ 20/11 (Maurizio: «aumenta un po' la luminosità di giorno, aumentando la luce che entra dalle finestre»): quello che
+         è illuminato da fuori (la chiazza sul pavimento, i raggi, le panche e le tovaglie al sole; i vetri meno, sono già
+         chiari) diventa più luminoso, nel dipinto e nel video insieme; le fiamme e i loro riflessi caldi no */
+      if (uFuoriK > .001) col *= 1. + uFuoriK * max(fuoriD * (1. - .7 * smoothstep(.6, .72, lumD)), fasF);
       if (fuoriD > .02 || fasF > .01){
         float vetroD = smoothstep(.6, .72, lumD);
         /* ⚠ 16/11 (Maurizio: «rendiamo il pulviscolo e la luce che entra dalle finestre più viva»): il respiro è più ampio
@@ -1516,7 +1521,7 @@ class Vista {
     /* il programma principale: paesaggio, cielo, nebbia, lampo, luce */
     this.p = programma(VERT, FRAG, ['aPos']);
     this.fumoDati = new Float32Array(32); this.fumoForza = new Float32Array(8);
-    this.u = posizioni(this.p, ['uOcchio','uImg0b','uVmix','uImg0','uImg1','uDep0','uDep1','uMap','uCrop0','uCrop1','uCropD0','uCropD1','uUccelli','uCielo0','uCielo1','uCieloM0','uCieloM1','uCieloX','uFermo0','uFermo1','uHaFermo0','uHaFermo1','uRap0','uHaRap0','uVentoT','uAlberiM','uHaVento','uU','uNU','uUBox','uFumo','uFumoI','uNFumo','uFumoA','uFiamma','uFiammaS','uFiammaL','uNFiamma','uFiamT','uHaFiamT','uCamino','uNCamino','uParte','uNParte','uIns0','uIns1','uRiqBox','uRiqTile','uRiqSam','uNebV','uNebG','uDentro','uFascioD','uFascioC','uScuro','uChiar','uNotte','uOmbre','uMeteora','uMeteoraK','uMix','uHaImg','uHaDep0','uHaDep1','uMovimento0','uMovimento1',
+    this.u = posizioni(this.p, ['uOcchio','uImg0b','uVmix','uImg0','uImg1','uDep0','uDep1','uMap','uCrop0','uCrop1','uCropD0','uCropD1','uUccelli','uCielo0','uCielo1','uCieloM0','uCieloM1','uCieloX','uFermo0','uFermo1','uHaFermo0','uHaFermo1','uRap0','uHaRap0','uVentoT','uAlberiM','uHaVento','uU','uNU','uUBox','uFumo','uFumoI','uNFumo','uFumoA','uFiamma','uFiammaS','uFiammaL','uNFiamma','uFiamT','uHaFiamT','uCamino','uNCamino','uParte','uNParte','uIns0','uIns1','uRiqBox','uRiqTile','uRiqSam','uNebV','uNebG','uDentro','uFascioD','uFascioC','uFuoriK','uScuro','uChiar','uNotte','uOmbre','uMeteora','uMeteoraK','uMix','uHaImg','uHaDep0','uHaDep1','uMovimento0','uMovimento1',
       'uLato','uT','uTV','uRaf','uAspetto','uPix','uCoperto','uNebbia','uPioggia','uNeve','uTempesta','uVento','uLampo','uLampoX','uLampoS','uLampoB',
       'uNotteFinta','uLuce','uBuio','uQualita','uColNebbia','uMeteo','uSale','uFuori']);
     gl.useProgram(this.p);
@@ -1655,6 +1660,9 @@ class Vista {
          pavimento più scuro («pavimentoOre» {ora: {k: quanto, poli: [[x, y], …] il suo contorno nell'immagine}}) */
       const bo = ora && j.buioOre ? j.buioOre[ora] : null, bv = bo != null ? bo : j.buio;
       f.scuro = typeof bv === 'number' && isFinite(bv) ? Math.max(0, Math.min(.8, bv)) : 0;
+      /* 20/11 · la luce che entra dalle finestre più forte: «fuoriOre» {ora: quanto, 0 … 1,5} */
+      const fuo = ora && j.fuoriOre ? j.fuoriOre[ora] : null;
+      f.fuoriK = typeof fuo === 'number' && isFinite(fuo) ? Math.max(0, Math.min(1.5, fuo)) : 0;
       const po = ora && j.pavimentoOre ? j.pavimentoOre[ora] : null;
       f.pavimento = po && Array.isArray(po.poli) && po.poli.length >= 3 ? {poli: po.poli.map(q => [+q[0], +q[1]]), k: Math.max(0, Math.min(1, +po.k || .3))} : null;
       /* 19:30 · i legni (e il parquet) da fare noce: «legnoOre» {ora: {k: quanto, maschera: file accanto a questo}} */
@@ -1667,7 +1675,7 @@ class Vista {
         riquadri: q.riquadri.filter(r => r && Array.isArray(r.box) && r.box.length === 4).map(r => ({box: r.box.map(Number), tile: Array.isArray(r.tile) && r.tile.length === 4 ? r.tile.map(Number) : [0, 0, 1, 1], alfa: !!r.alfa}))}));
       const lo = ora && j.legnoOre && j.legnoOre[ora];
       f.legno = lo && typeof lo.maschera === 'string' ? {k: Math.max(0, Math.min(1, +lo.k || .8)), url: new URL(lo.maschera, String(url).split('#')[0]).href} : null;
-    } catch(e) { f.fumi = []; f.fuochi = []; f.fiamme = []; f.camini = []; f.parti = []; f.inserti = []; f.fasciAng = null; f.scuro = 0; f.pavimento = null; f.legno = null; }
+    } catch(e) { f.fumi = []; f.fuochi = []; f.fiamme = []; f.camini = []; f.parti = []; f.inserti = []; f.fasciAng = null; f.scuro = 0; f.fuoriK = 0; f.pavimento = null; f.legno = null; }
   }
   /* 9/11 · luci delle case (dall'immagine della notte) e prati delle lucciole (dalla profondità): js/vita.js.
      Le finestre accese si cercano una volta sola per immagine */
@@ -2115,6 +2123,7 @@ class Vista {
     /* 16/11 · i fasci di luce delle finestre (mascheraFasci); la larghezza del foro si mette foro per foro */
     const fasci = dentro === 1 && f0.fascio && !sp.has('fasci') ? f0.fascio : null;
     gl.uniform3fv(u.uFascioC, fasci ? fasci.col : [1, .96, .86]);
+    gl.uniform1f(u.uFuoriK, dentro === 1 && !sp.has('fuori') ? (f0.fuoriK || 0) : 0);   /* 20/11 */
     gl.uniform2f(u.uScuro, dentro === 1 ? (f0.scuro || 0) : 0, dentro === 1 && f0.pavimentoOk ? (f0.legnoOk && f0.legno ? f0.legno.k : f0.pavimento ? f0.pavimento.k : 0) : 0);   /* 16/11 sera */
     const me = s.meteora || null;
     gl.uniform4fv(u.uMeteora, me ? me.da : [0,0,0,0]); gl.uniform1f(u.uMeteoraK, me ? me.k : 0);
