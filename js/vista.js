@@ -63,6 +63,7 @@ float gVentoA;                /* 14/11 sera · il quarto canale del vento in que
                                  sta qui (c'è solo sopra l'orizzonte; vedi VENTO_FRAG e mascheraNuvole): lì dietro le stelle non si vedono */
 vec3 gVentoRG;                /* 16/11 · dentro: rosso, verde e blu del vento in questo punto (la polvere nei fasci di luce, quanto fascio c'è, quanto pavimento), dalla stessa lettura */
 uniform float uFuoriK;        /* 20/11 · dentro: quanto più forte la luce che entra dalle finestre («fuoriOre» nel file dei punti) */
+uniform float uPolvK;         /* 20/11 sera · dentro: quanto più forte il pulviscolo nella luce («polvereOre»; 1 = come prima) */
 uniform vec2 uScuro;          /* 16/11 sera · dentro: quanto più buia la stanza (ombre e mezzi toni; le luci restano) e quanto più scuro il pavimento */
 uniform vec4 uFascioD;        /* 16/11 · i fasci di luce delle finestre (mascheraFasci): direzione x, y; z = ci sono; w = larghezza su altezza del foro */
 uniform vec3 uFascioC;        /* il colore della luce dei vetri */
@@ -901,10 +902,10 @@ void main(){
           /* 16/11: i banchi scorrono quasi il doppio più svelti */
           float pulv = rumore(qd + vec2(uT * .14, -uT * .28)) * .5 + rumore(qd * 2.1 + vec2(-uT * .12, -uT * .46) + 7.3) * .3 + rumore(qd * 4.3 + vec2(uT * .21, -uT * .66) + 3.1) * .2;
           /* il pulviscolo sta nell'aria (raggi, chiazza sul pavimento), non sui vetri: i vetri, più chiari, seguono solo il respiro */
-          col *= 1. + fuoriD * (1.1 * (pulv - .5) * (1. - vetroD) + .55 * luceF * (1. - .5 * vetroD));   /* sul TV vero, con .55 e .25, in dieci secondi i vetri cambiavano dell'1,5%: non si vedeva */
+          col *= 1. + fuoriD * (1.1 * uPolvK * (pulv - .5) * (1. - vetroD) + .55 * luceF * (1. - .5 * vetroD));   /* sul TV vero, con .55 e .25, in dieci secondi i vetri cambiavano dell'1,5%: non si vedeva */
         }
         /* 16/11 · nel fascio la luce nell'aria cresce e cala col respiro, e la polvere ci fa banchi che girano e scivolano */
-        if (fasF > .01) col += fasF * lc * (.15 * (gVentoRG.x - .5) * 2. + .09 * luceF) * bello;
+        if (fasF > .01) col += fasF * lc * (.15 * uPolvK * (gVentoRG.x - .5) * 2. + .09 * luceF) * bello;
         /* ⚠ 15/11 (Maurizio: «aumenta un po' gli effetti particellari della luce che viene da fuori»): oltre ai banchi di
            polvere, i granelli: puntini che si accendono quando girano nella luce, ognuno col suo ritmo.
            ⚠ 16/11 («più viva»): anche nei fasci (prima solo nelle chiazze chiare), più fitti, tre strati (lontani fini,
@@ -924,7 +925,7 @@ void main(){
             float pt = smoothstep(mix(.15, .28, gr), mix(.02, 0., gr), length(fr - sp));
             gran += pt * acceso * mix(step(.62, h) * (1. - fg * .25), step(.88, h) * .4, gr);
           }
-          col += raggio * gran * .6 * lc * max(0., 1. + .8 * luceF) * bello;
+          col += raggio * gran * .6 * uPolvK * lc * max(0., 1. + .8 * luceF) * bello;
         }
         /* ⚠ 15/11 sera · IL TEMPO DI FUORI, DALLE FINESTRE (Maurizio: «pioggia sulle finestre»: quando il meteo è pioggia,
            luce più grigia e gocce sui vetri). Coperto e pioggia spengono i raggi e la chiazza sul pavimento e ingrigiscono
@@ -1538,7 +1539,7 @@ class Vista {
     /* il programma principale: paesaggio, cielo, nebbia, lampo, luce */
     this.p = programma(VERT, FRAG, ['aPos']);
     this.fumoDati = new Float32Array(32); this.fumoForza = new Float32Array(8);
-    this.u = posizioni(this.p, ['uOcchio','uImg0b','uVmix','uImg0','uImg1','uDep0','uDep1','uMap','uCrop0','uCrop1','uCropD0','uCropD1','uUccelli','uCielo0','uCielo1','uCieloM0','uCieloM1','uCieloX','uFermo0','uFermo1','uHaFermo0','uHaFermo1','uRap0','uHaRap0','uVentoT','uAlberiM','uHaVento','uU','uNU','uUBox','uFumo','uFumoI','uNFumo','uFumoA','uFiamma','uFiammaS','uFiammaL','uNFiamma','uFiamT','uHaFiamT','uCamino','uNCamino','uParte','uNParte','uIns0','uIns1','uRiqBox','uRiqTile','uRiqSam','uNebV','uNebG','uDentro','uFascioD','uFascioC','uFuoriK','uScuro','uChiar','uNotte','uOmbre','uMeteora','uMeteoraK','uMix','uHaImg','uHaDep0','uHaDep1','uMovimento0','uMovimento1',
+    this.u = posizioni(this.p, ['uOcchio','uImg0b','uVmix','uImg0','uImg1','uDep0','uDep1','uMap','uCrop0','uCrop1','uCropD0','uCropD1','uUccelli','uCielo0','uCielo1','uCieloM0','uCieloM1','uCieloX','uFermo0','uFermo1','uHaFermo0','uHaFermo1','uRap0','uHaRap0','uVentoT','uAlberiM','uHaVento','uU','uNU','uUBox','uFumo','uFumoI','uNFumo','uFumoA','uFiamma','uFiammaS','uFiammaL','uNFiamma','uFiamT','uHaFiamT','uCamino','uNCamino','uParte','uNParte','uIns0','uIns1','uRiqBox','uRiqTile','uRiqSam','uNebV','uNebG','uDentro','uFascioD','uFascioC','uFuoriK','uPolvK','uScuro','uChiar','uNotte','uOmbre','uMeteora','uMeteoraK','uMix','uHaImg','uHaDep0','uHaDep1','uMovimento0','uMovimento1',
       'uLato','uT','uTV','uRaf','uAspetto','uPix','uCoperto','uNebbia','uPioggia','uNeve','uTempesta','uVento','uLampo','uLampoX','uLampoS','uLampoB',
       'uNotteFinta','uLuce','uBuio','uQualita','uColNebbia','uMeteo','uSale','uFuori']);
     gl.useProgram(this.p);
@@ -1712,6 +1713,10 @@ class Vista {
       /* 20/11 · la luce che entra dalle finestre più forte: «fuoriOre» {ora: quanto, 0 … 1,5} */
       const fuo = ora && j.fuoriOre ? j.fuoriOre[ora] : null;
       f.fuoriK = typeof fuo === 'number' && isFinite(fuo) ? Math.max(0, Math.min(1.5, fuo)) : 0;
+      /* 20/11 sera (Maurizio: «aumenterei luce che entra dalle finestre ed effetto del pulviscolo»): «polvereOre» {ora: 0 … 3},
+         quanto più forti banchi e granelli di polvere nella luce (1 = come prima) */
+      const pvo = ora && j.polvereOre ? j.polvereOre[ora] : null;
+      f.polvK = typeof pvo === 'number' && isFinite(pvo) ? Math.max(0, Math.min(3, pvo)) : 1;
       const po = ora && j.pavimentoOre ? j.pavimentoOre[ora] : null;
       f.pavimento = po && Array.isArray(po.poli) && po.poli.length >= 3 ? {poli: po.poli.map(q => [+q[0], +q[1]]), k: Math.max(0, Math.min(1, +po.k || .3))} : null;
       /* 19:30 · i legni (e il parquet) da fare noce: «legnoOre» {ora: {k: quanto, maschera: file accanto a questo}} */
@@ -1724,7 +1729,7 @@ class Vista {
         riquadri: q.riquadri.filter(r => r && Array.isArray(r.box) && r.box.length === 4).map(r => ({box: r.box.map(Number), tile: Array.isArray(r.tile) && r.tile.length === 4 ? r.tile.map(Number) : [0, 0, 1, 1], alfa: !!r.alfa}))}));
       const lo = ora && j.legnoOre && j.legnoOre[ora];
       f.legno = lo && typeof lo.maschera === 'string' ? {k: Math.max(0, Math.min(1, +lo.k || .8)), url: new URL(lo.maschera, String(url).split('#')[0]).href} : null;
-    } catch(e) { f.fumi = []; f.fuochi = []; f.fiamme = []; f.camini = []; f.parti = []; f.inserti = []; f.fasciAng = null; f.scuro = 0; f.fuoriK = 0; f.pavimento = null; f.legno = null; }
+    } catch(e) { f.fumi = []; f.fuochi = []; f.fiamme = []; f.camini = []; f.parti = []; f.inserti = []; f.fasciAng = null; f.scuro = 0; f.fuoriK = 0; f.polvK = 1; f.pavimento = null; f.legno = null; }
   }
   /* 9/11 · luci delle case (dall'immagine della notte) e prati delle lucciole (dalla profondità): js/vita.js.
      Le finestre accese si cercano una volta sola per immagine */
@@ -2174,6 +2179,7 @@ class Vista {
     const fasci = dentro === 1 && f0.fascio && !sp.has('fasci') ? f0.fascio : null;
     gl.uniform3fv(u.uFascioC, fasci ? fasci.col : [1, .96, .86]);
     gl.uniform1f(u.uFuoriK, dentro === 1 && !sp.has('fuori') ? (f0.fuoriK || 0) : 0);   /* 20/11 */
+    gl.uniform1f(u.uPolvK, dentro === 1 && !sp.has('polvere') ? (f0.polvK != null ? f0.polvK : 1) : 1);   /* 20/11 sera */
     gl.uniform2f(u.uScuro, dentro === 1 ? (f0.scuro || 0) : 0, dentro === 1 && f0.pavimentoOk ? (f0.legnoOk && f0.legno ? f0.legno.k : f0.pavimento ? f0.pavimento.k : 0) : 0);   /* 16/11 sera */
     const me = s.meteora || null;
     gl.uniform4fv(u.uMeteora, me ? me.da : [0,0,0,0]); gl.uniform1f(u.uMeteoraK, me ? me.k : 0);
@@ -2959,7 +2965,7 @@ async function scaricaPezzi(url, maxS){
     const b = new Blob(pz, {type: 'video/mp4'});
     if (b.size !== +m.byte) throw new Error('pezzi ' + b.size + ' invece di ' + m.byte);
     nota({mb: Math.round(b.size / 104857.6) / 10, da: MEM.stato.daMemoria - prima >= m.parti.length ? 'memoria' : 'rete', atlante: !!m.atlante});
-    return {url: URL.createObjectURL(b), atlante: m.atlante || null};
+    return {url: URL.createObjectURL(b), atlante: m.atlante || null, versione: String(m.versione || '')};
   } catch(e){ nota({errore: String(e && e.message || e).slice(0, 60)}); return null; }
 }
 async function apriVideo(url, intero = false){
@@ -2970,6 +2976,7 @@ async function apriVideo(url, intero = false){
     v.setAttribute('muted', ''); v.setAttribute('playsinline', ''); v.preload = 'auto'; v.src = src; return v; };
   const a = fai(), b = fai();
   a._atlante = pz && pz.atlante;   /* 20/11: il video a riquadri (vedi ATLANTE_FRAG) */
+  a._versione = pz ? pz.versione : '';   /* 20/11 sera: per la scritta sullo schermo (quale video si sta guardando) */
   /* ⚠ 15/11 (Maurizio: «sullo smartphone in full screen la mugnaia la vedo ferma, come il resto del paesaggio»).
      Prima si aspettava «canplay» e solo dopo si faceva partire il video. Safari sull'iPhone però non scarica un video
      finché nessuno gli chiede di partire: «canplay» non arrivava, dopo 20 secondi il video veniva lasciato perdere e

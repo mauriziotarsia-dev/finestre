@@ -28,7 +28,7 @@
 <script src="../js/accesso.js?v=8"></script>
 <script src="../js/qrcode.js?v=1"></script>
 <script src="../js/vita.js?v=5"></script>
-<script src="../js/vista.js?v=6.05"></script>
+<script src="../js/vista.js?v=6.06"></script>
 <script src="../js/inseguitore.js?v=5"></script>
 <script src="../js/uccelli.js?v=10"></script>
 <script src="../js/bard.js?v=9"></script>
@@ -1258,7 +1258,10 @@ function giro(ora){
   }
   if (misuraVisibile && ora - misura.t0 > 500){ misura.t0 = ora; mostraMisura(); }
   if (orologio){ const f0 = vista.fonti[0], v = f0 && f0.video && f0.video[0];
-    const testo = v ? v.currentTime.toFixed(1).replace('.', ',') + ' s  /  ' + (v.duration || 0).toFixed(1).replace('.', ',') + (f0.tratti && f0.tratto != null ? '  · ' + (f0.tratto + 1) + (f0.vk > .01 ? ' ⇄ ' + (f0.prossimo + 1) : '') : '') : 'nessun video';
+    /* 20/11 sera (Maurizio: «scrivilo sopra al video cosa sto guardando. giorno 4k, giorno hd, etc.», «anche i numeri di frame»):
+       ora, 4K (video a riquadri) o HD con la sua larghezza, versione del video, secondi e fotogramma (a 24 al secondo) */
+    const tipo = v ? (f0.atlante ? '4K' : 'HD ' + (v.videoWidth || '?')) : '', ver = v && v._versione ? ' · ' + v._versione : '';
+    const testo = v ? oraDi(scena) + ' ' + tipo + ver + '  ·  ' + v.currentTime.toFixed(1).replace('.', ',') + ' s  /  ' + (v.duration || 0).toFixed(1).replace('.', ',') + '  ·  fotogramma ' + Math.round(v.currentTime * 24) + (f0.tratti && f0.tratto != null ? '  · tratto ' + (f0.tratto + 1) + (f0.vk > .01 ? ' ⇄ ' + (f0.prossimo + 1) : '') : '') : oraDi(scena) + ' · nessun video';
     if (orologio.textContent !== testo) orologio.textContent = testo; }
   /* 15/11 sera · con la prospettiva viva la riserva sale da 1,2 a 1,33: lo spostamento ai lati (fino al 7% della vista, che
      avvicinandosi diventa l'8,3%) più l'allargamento di chi si avvicina (15%: l'8,25% per lato) fanno il 16,6% per lato.
