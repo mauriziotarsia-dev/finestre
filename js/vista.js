@@ -1155,6 +1155,23 @@ void main(){
 /* ── 19/11 sera · le fiamme dei punti (candele, torce, lampadario) a metà risoluzione: lo stesso conto che il disegno
    faceva su ogni punto (vedi paesaggio), scritto in un'immagine piccola che il disegno legge. rg: spostamento × 64 (+ 128/255),
    b: tremolio della luce × 0,5 (+ 128/255), a: quanto il punto è corpo di fiamma ── */
+/* ⚠ 20/11 · IL VIDEO A RIQUADRI (Maurizio: «trova una soluzione per il 4k»). Un video in 4K pieno costava al TV due gradini
+   di risoluzione su tutto il quadro (prova del 20/11: disegno al 70% invece del 90%), per un dettaglio che serve solo dove ci
+   sono persone e fuochi (4–20% del quadro). Il video «a riquadri» porta solo quelle zone, ingrandite al dettaglio del 4K e
+   messe una accanto all'altra in un fotogramma piccolo (come un 1080p): si decodifica e si carica poco. A ogni fotogramma
+   nuovo, qui sotto, ogni riquadro si ridisegna al suo posto in un'immagine grande quanto il quadro (il fermo dove non c'è
+   niente): il resto del disegno la legge come un video intero. Il manifesto dei pezzi lo dice: atlante {w, h, riquadri:
+   [{box: [x0, y0, x1, y1] nel quadro, tile: [u0, v0, u1, v1] nel video], frazioni}]} */
+const ATLANTE_FRAG = `
+precision highp float;
+uniform sampler2D uSrc;
+uniform vec4 uTile, uBox, uLim;   /* uLim: il riquadro nel video, mezzo punto dentro (niente colori dal vicino) */
+uniform vec2 uDim;
+void main(){
+  vec2 q = gl_FragCoord.xy / uDim;   /* riga 0 = la prima riga del quadro, come i fotogrammi caricati dal video */
+  vec2 t = clamp(uTile.xy + (q - uBox.xy) / uBox.zw * uTile.zw, uLim.xy, uLim.zw);
+  gl_FragColor = vec4(texture2D(uSrc, t).rgb, 1.);
+}`;
 const FIAMME_FRAG = `
 precision highp float;
 varying vec2 vUv;
@@ -1532,6 +1549,7 @@ class Vista {
     this.pm = programma(VERT, METEO_FRAG, ['aPos']);
     this.um = posizioni(this.pm, ['uMap','uT','uTV','uRaf','uVento']);
     /* 19/11 sera · le fiamme a metà risoluzione: solo con WebGL2 e 16 unità (l'immagine piccola va nella 13) */
+    try { this.pAtl = programma(VERT, ATLANTE_FRAG, ['aPos']); this.uAtl = posizioni(this.pAtl, ['uSrc','uTile','uBox','uLim','uDim']); } catch(e) { this.pAtl = null; }   /* 20/11: il video a riquadri */
     try { if (this.gl2 && this.unita >= 16){ this.pfi = programma(VERT, FIAMME_FRAG, ['aPos']); this.ufi = posizioni(this.pfi, ['uMap','uAspetto','uNFiamma','uFiamma','uFiammaS','uFiammaL']); } } catch(e) { this.pfi = null; }
     this.fiamBuf = [];
     this.pv = programma(VERT, VENTO_FRAG, ['aPos']);
@@ -1562,6 +1580,37 @@ class Vista {
   }
   quad(){ const gl = this.gl; gl.bindBuffer(gl.ARRAY_BUFFER, this.bQuad); gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
     if (this.ist){ this.ist.div(1, 0); gl.disableVertexAttribArray(1); } }
+  /* 20/11 · un fotogramma nuovo del video sulla scheda: intero, o «a riquadri» rimessi al loro posto (vedi ATLANTE_FRAG) */
+  caricaVideo(f, quale, v){
+    const gl = this.gl, B = quale === 'B';
+    if (B && !f.vtexB) f.vtexB = this.texture();
+    const A = f.atlante;
+    if (!A || !this.pAtl){ this.carica(B ? f.vtexB : f.vtex, v); return; }
+    gl.activeTexture(gl.TEXTURE0);
+    if (!f.atlTmp) f.atlTmp = this.texture();
+    this.carica(f.atlTmp, v);
+    const vw = v.videoWidth || 1920, vh = v.videoHeight || 1080;
+    f.atlFb = f.atlFb || {};
+    let o = f.atlFb[B ? 'B' : 'A'];
+    if (!o){ const tex = B ? f.vtexB : f.vtex; this.carica(tex, null, A.w, A.h);
+      const fb = gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER, fb); gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+      o = f.atlFb[B ? 'B' : 'A'] = {fb, pieno: false}; }
+    const u = this.uAtl;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, o.fb); gl.viewport(0, 0, A.w, A.h); gl.disable(gl.BLEND); gl.useProgram(this.pAtl);
+    gl.uniform1i(u.uSrc, 0); gl.uniform2f(u.uDim, A.w, A.h);
+    if (!o.pieno && f.fTex){   /* la prima volta, sotto, il fermo intero (fuori dai riquadri il disegno prende comunque il fermo) */
+      gl.disable(gl.SCISSOR_TEST); gl.bindTexture(gl.TEXTURE_2D, f.fTex);
+      gl.uniform4f(u.uTile, 0, 0, 1, 1); gl.uniform4f(u.uBox, 0, 0, 1, 1); gl.uniform4f(u.uLim, 0, 0, 1, 1); this.quad(); gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4); o.pieno = true; }
+    gl.bindTexture(gl.TEXTURE_2D, f.atlTmp); gl.enable(gl.SCISSOR_TEST);
+    for (const r of A.riquadri){
+      const [x0, y0, x1, y1] = r.box, [u0, v0, u1, v1] = r.tile;
+      gl.scissor(Math.floor(x0 * A.w), Math.floor(y0 * A.h), Math.ceil((x1 - x0) * A.w) + 1, Math.ceil((y1 - y0) * A.h) + 1);
+      gl.uniform4f(u.uBox, x0, y0, x1 - x0, y1 - y0); gl.uniform4f(u.uTile, u0, v0, u1 - u0, v1 - v0);
+      gl.uniform4f(u.uLim, u0 + .5 / vw, v0 + .5 / vh, u1 - .5 / vw, v1 - .5 / vh);
+      this.quad(); gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    }
+    gl.disable(gl.SCISSOR_TEST); gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.viewport(0, 0, this.c.width, this.c.height);
+  }
   /* la piccola immagine della nebbia per il foro i, grande un quarto per lato */
   bufferMeteo(i, w, h, lista = this.meteo, div = 4){
     const gl = this.gl, W = Math.max(8, Math.ceil(w / div)), H = Math.max(8, Math.ceil(h / div));
@@ -1809,7 +1858,7 @@ class Vista {
           if (stelle && this.unita >= 14){ try { const nu = await mascheraNuvole(ci); f.nTex = this.texture(); this.carica(f.nTex, nu); f.nuvole = nu.tempi; } catch(e2) { f.nTex = null; } } }
       } catch(e) { /* nessun cielo panoramico per questo paesaggio */ }
     }
-    if (pVideo){ f.video = await pVideo; if (f.video) f.vtex = this.texture(); }
+    if (pVideo){ f.video = await pVideo; if (f.video){ f.vtex = this.texture(); f.atlante = this.pAtl ? atlanteValido(f.video[0]._atlante) : null; } }
     /* cucito? cuci-animazione.py lascia accanto il file dell'AI, «…-originale.mp4» */
     if (f.video) f.cucito = await pCucito;
     if (f.video && f.cucito) f.trattiGrezzi = await pTratti;   /* si controllano quando il video sa quanto dura (aggiornaVideo) */
@@ -1917,7 +1966,8 @@ class Vista {
     f.ins = [];
     for (const t of [f.tex, f.depTex, f.vtex, f.vtexB, f.cTex, f.fTex, f.aTex, f.rTex, f.nTex]) if (t) gl.deleteTexture(t);
     if (f.video) f.video.forEach(lasciaVideo);
-    f.tex = f.depTex = f.vtex = f.vtexB = f.cTex = f.fTex = f.aTex = f.rTex = f.nTex = null; f.ok = false; }
+    f.tex = f.depTex = f.vtex = f.vtexB = f.cTex = f.fTex = f.aTex = f.rTex = f.nTex = null; f.ok = false;
+    if (f.atlFb){ for (const k in f.atlFb) try { this.gl.deleteFramebuffer(f.atlFb[k].fb); } catch(e) {} f.atlFb = null; } if (f.atlTmp){ try { this.gl.deleteTexture(f.atlTmp); } catch(e) {} f.atlTmp = null; } f.atlante = null; }
   get urlInVista(){ return this.fonti[0].ok ? this.fonti[0].url : null; }
 
   /* (il video è già tagliato sull'inquadratura scelta quando è stato creato: lì il fuoco non serve)
@@ -1951,12 +2001,12 @@ class Vista {
     if (!b.paused){
       const k = Math.min(1, Math.max(0, (a.currentTime - (D - coda)) / coda));
       if (a.ended || k >= 1){ a.pause(); f.video = [b, a]; f.vNuovo = true; return this.aggiornaVideo(f); }
-      if (b.readyState >= 2 && nuovoFotogramma(b)){ if (!f.vtexB) f.vtexB = this.texture(); this.carica(f.vtexB, b); }
+      if (b.readyState >= 2 && nuovoFotogramma(b)) this.caricaVideo(f, 'B', b);
       f.vk = f.vtexB ? k : 0;
     }
     /* il fotogramma si carica sulla scheda solo quando è nuovo: il video ne ha 30 al secondo, lo schermo
        60 giri (prima lo si ricaricava a ogni giro: il doppio del lavoro, e sul Raspberry si perdevano immagini) */
-    if (a.readyState >= 2){ if (nuovoFotogramma(a) || f.vNuovo){ this.carica(f.vtex, a); f.vNuovo = false; } return true; }
+    if (a.readyState >= 2){ if (nuovoFotogramma(a) || f.vNuovo){ this.caricaVideo(f, 'A', a); f.vNuovo = false; } return true; }
     return false;
   }
 
@@ -1989,7 +2039,7 @@ class Vista {
       if (!f.bPartito && t > fine - Math.max(P, f.pre) && b.readyState >= 2 && !b.seeking){ b.play().catch(() => {}); f.bPartito = true; f.bCaricato = false; f.bT = b.currentTime; f.kDa = null; }
       if (f.bPartito){
         const corre = !b.paused && b.currentTime > f.bT + .03;
-        if (corre && b.readyState >= 2 && nuovoFotogramma(b)){ if (!f.vtexB) f.vtexB = this.texture(); this.carica(f.vtexB, b); f.bCaricato = true; }
+        if (corre && b.readyState >= 2 && nuovoFotogramma(b)){ this.caricaVideo(f, 'B', b); f.bCaricato = true; }
         if (f.bCaricato && f.kDa == null) f.kDa = Math.max(fine - P, t);
         const k = f.kDa == null ? 0 : Math.min(1, Math.max(0, (t - f.kDa) / P));
         f.vk = k;
@@ -1997,7 +2047,7 @@ class Vista {
         if (!f.bCaricato && (t > fine + .6 || a.ended)){ b.pause(); f.vk = 0; this.mancato(f, a, S); }
       } else if (t > fine + .6 || a.ended) this.mancato(f, a, S);                     /* il salto non riesce: si va avanti nel file */
     }
-    if (a.readyState >= 2){ if (nuovoFotogramma(a) || f.vNuovo){ this.carica(f.vtex, a); f.vNuovo = false; } return true; }
+    if (a.readyState >= 2){ if (nuovoFotogramma(a) || f.vNuovo){ this.caricaVideo(f, 'A', a); f.vNuovo = false; } return true; }
     return false;
   }
 
@@ -2010,7 +2060,7 @@ class Vista {
      è stato creato: copertura, orizzontale dall'inquadratura scelta, verticale al centro). Prima si leggeva
      la mappa col taglio del video: profondità sfasate, e le case si spostavano come fossero cielo. */
   cropProfondita(f, c){
-    const vw = f.video[0].videoWidth || 9, vh = f.video[0].videoHeight || 16;
+    const vw = (f.atlante ? f.atlante.w : f.video[0].videoWidth) || 9, vh = (f.atlante ? f.atlante.h : f.video[0].videoHeight) || 16;
     const s = Math.max(vw / f.iw, vh / f.ih), rw = vw / s / f.iw, rh = vh / s / f.ih;
     const fx = f.fuoco && f.fuoco.x != null ? f.fuoco.x : .5, rx = (1 - rw) * fx, ry = (1 - rh) / 2;
     return [rx + c[0] * rw, ry + c[1] * rh, c[2] * rw, c[3] * rh];
@@ -2154,7 +2204,7 @@ class Vista {
         gl.bindFramebuffer(gl.FRAMEBUFFER, null);
       }
       /* 1b. il vento sugli alberi (e le ombre delle nuvole), a un quarto di risoluzione */
-      const c0v = f0.ok ? this.crop(v0 ? {iw:f0.video[0].videoWidth || f0.iw, ih:f0.video[0].videoHeight || f0.ih} : f0, foro.aspetto, marg, v0 ? null : f0.fuoco, foro.striscia, f0.fuoco) : [0,0,1,1];
+      const c0v = f0.ok ? this.crop(v0 ? {iw:(f0.atlante ? f0.atlante.w : f0.video[0].videoWidth) || f0.iw, ih:(f0.atlante ? f0.atlante.h : f0.video[0].videoHeight) || f0.ih} : f0, foro.aspetto, marg, v0 ? null : f0.fuoco, foro.striscia, f0.fuoco) : [0,0,1,1];
       let tv = null;
       if (haImg && mov && this.unita >= 12){
         const m = this.bufferMeteo(i, foro.w, foro.h, this.vento); tv = m.tex;
@@ -2215,8 +2265,8 @@ class Vista {
         du.set(uc.dati); for (let j = 0; j < uc.n; j++) du[j * 8] = (uc.dati[j * 8] - i0) * k;
         gl.uniform4fv(u.uU, du); gl.uniform4f(u.uUBox, (b[0] - i0) * k, b[1], (b[2] - i0) * k, b[3]);
       }
-      const c0 = f0.ok ? this.crop(v0 ? {iw:f0.video[0].videoWidth || f0.iw, ih:f0.video[0].videoHeight || f0.ih} : f0, foro.aspetto, marg, v0 ? null : f0.fuoco, foro.striscia, f0.fuoco) : [0,0,1,1];
-      const c1 = f1.ok ? this.crop(v1 ? {iw:f1.video[0].videoWidth || f1.iw, ih:f1.video[0].videoHeight || f1.ih} : f1, foro.aspetto, marg, v1 ? null : f1.fuoco, foro.striscia, f1.fuoco) : [0,0,1,1];
+      const c0 = f0.ok ? this.crop(v0 ? {iw:(f0.atlante ? f0.atlante.w : f0.video[0].videoWidth) || f0.iw, ih:(f0.atlante ? f0.atlante.h : f0.video[0].videoHeight) || f0.ih} : f0, foro.aspetto, marg, v0 ? null : f0.fuoco, foro.striscia, f0.fuoco) : [0,0,1,1];
+      const c1 = f1.ok ? this.crop(v1 ? {iw:(f1.atlante ? f1.atlante.w : f1.video[0].videoWidth) || f1.iw, ih:(f1.atlante ? f1.atlante.h : f1.video[0].videoHeight) || f1.ih} : f1, foro.aspetto, marg, v1 ? null : f1.fuoco, foro.striscia, f1.fuoco) : [0,0,1,1];
       gl.uniform4fv(u.uCrop0, c0); gl.uniform4fv(u.uCrop1, c1);
       gl.uniform4fv(u.uCropD0, v0 ? this.cropProfondita(f0, c0) : c0); gl.uniform4fv(u.uCropD1, v1 ? this.cropProfondita(f1, c1) : c1);
       /* il fumo dei comignoli di quello che si vede (quello nuovo, mentre sfuma dal vecchio) */
@@ -2881,6 +2931,12 @@ async function scaricaIntero(url, maxS){
     return URL.createObjectURL(b.type && b.type.startsWith('video') ? b : new Blob([b], {type: 'video/mp4'}));
   } catch(e){ nota({errore: String(e && e.message || e).slice(0, 60)}); return null; }
 }
+function atlanteValido(A){
+  if (!A || !(A.w > 0) || !(A.h > 0) || !Array.isArray(A.riquadri) || !A.riquadri.length) return null;
+  const ok = x => Array.isArray(x) && x.length === 4 && x.every(n => isFinite(n) && n >= -.01 && n <= 1.01) && x[2] > x[0] && x[3] > x[1];
+  const R = A.riquadri.filter(r => r && ok(r.box) && ok(r.tile)).slice(0, 32);
+  return R.length ? {w: Math.min(8192, A.w | 0), h: Math.min(8192, A.h | 0), riquadri: R} : null;
+}
 function lasciaVideo(v){
   try { const s = v.currentSrc || v.src; v.pause(); v.removeAttribute('src'); v.load(); if (s && s.startsWith('blob:')) URL.revokeObjectURL(s); } catch(e) {}
 }
@@ -2902,16 +2958,18 @@ async function scaricaPezzi(url, maxS){
     for (const n of m.parti) pz.push(await prendiFile(dir + encodeURIComponent(n) + '?v=' + encodeURIComponent(String(m.versione || '1')), maxS));
     const b = new Blob(pz, {type: 'video/mp4'});
     if (b.size !== +m.byte) throw new Error('pezzi ' + b.size + ' invece di ' + m.byte);
-    nota({mb: Math.round(b.size / 104857.6) / 10, da: MEM.stato.daMemoria - prima === m.parti.length ? 'memoria' : 'rete'});
-    return URL.createObjectURL(b);
+    nota({mb: Math.round(b.size / 104857.6) / 10, da: MEM.stato.daMemoria - prima >= m.parti.length ? 'memoria' : 'rete', atlante: !!m.atlante});
+    return {url: URL.createObjectURL(b), atlante: m.atlante || null};
   } catch(e){ nota({errore: String(e && e.message || e).slice(0, 60)}); return null; }
 }
 async function apriVideo(url, intero = false){
   url += (url.includes('?') ? '&' : '?') + VERSIONE_VIDEO;
-  const tutto = intero ? (await scaricaPezzi(url, 300)) || await scaricaIntero(url, 300) : null, src = tutto || url;
+  const pz = intero ? await scaricaPezzi(url, 300) : null;
+  const tutto = pz ? pz.url : intero ? await scaricaIntero(url, 300) : null, src = tutto || url;
   const fai = () => { const v = document.createElement('video'); v.crossOrigin = 'anonymous'; v.muted = v.defaultMuted = true; v.playsInline = true;
     v.setAttribute('muted', ''); v.setAttribute('playsinline', ''); v.preload = 'auto'; v.src = src; return v; };
   const a = fai(), b = fai();
+  a._atlante = pz && pz.atlante;   /* 20/11: il video a riquadri (vedi ATLANTE_FRAG) */
   /* ⚠ 15/11 (Maurizio: «sullo smartphone in full screen la mugnaia la vedo ferma, come il resto del paesaggio»).
      Prima si aspettava «canplay» e solo dopo si faceva partire il video. Safari sull'iPhone però non scarica un video
      finché nessuno gli chiede di partire: «canplay» non arrivava, dopo 20 secondi il video veniva lasciato perdere e
