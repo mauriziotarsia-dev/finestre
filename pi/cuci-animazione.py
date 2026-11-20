@@ -1365,6 +1365,125 @@ def _aspetta(fatti, casa, forza, chi):
     time.sleep(2 + 4 * max(0, 3 - forza))
 
 
+
+# ⚠ 20/11 · L'INGRANDIMENTO DELLE ZONE VIVE (Maurizio: «trova una soluzione per il 4k», poi «facciamo da subito su Rog Ally che è
+# il device più potente»). Il TV riceve il video «a riquadri» (js/vista.js, ATLANTE_FRAG): solo le zone dove si muovono persone e
+# fuochi, al dettaglio del 4K. Claude prepara la sorgente (le zone al 1080p, ognuna col suo bordo di contesto, in un fotogramma
+# piccolo, quasi senza perdite, in pezzi) e una richiesta `…_est-anim-<ora>-ingrandisci.png`; qui l'apparecchio indicato
+# («chi») ingrandisce ogni zona con Real-ESRGAN (realesr-general-x4v3, ONNX: sulla scheda video con DirectML), toglie il bordo,
+# le rimette nell'atlante finale, codifica, carica i pezzi `…-4k-parteN.mp4` e il manifesto `…-parti.png` con l'atlante (la
+# copia di quello di prima va in finestre/banco/riserva-4k/). Lo stato in `…-ingrandisci-stato.png`. Una richiesta già fatta
+# (stessa «versione» nello stato, fase «fatto») non si rifà.
+def _ort():
+    try:
+        import onnxruntime as ort
+    except ImportError:
+        pacchetto = 'onnxruntime-directml' if os.name == 'nt' else 'onnxruntime'
+        print('ingrandimento: installo', pacchetto, flush=True)
+        subprocess.run([sys.executable, '-m', 'pip', 'install', '--disable-pip-version-check', '-q', pacchetto], timeout=1800)
+        import importlib; importlib.invalidate_caches()
+        import onnxruntime as ort
+    prov = [p for p in ('DmlExecutionProvider', 'CUDAExecutionProvider', 'CPUExecutionProvider') if p in ort.get_available_providers()]
+    return ort, prov
+
+
+def _scrivi_stato_ingr(cart, nome, d):
+    try: _chiedi('POST', f'/storage/v1/object/{DEPOSITO}/{cart}/' + urllib.parse.quote(nome), json.dumps(d).encode(), 'image/png', {'x-upsert': 'true', 'cache-control': 'no-cache'})
+    except Exception as e: print('ingrandimento: stato non scritto', e, file=sys.stderr, flush=True)
+
+
+def _ingrandisci_uno(cart, base, ora, R, chi):
+    """R: la richiesta. Ritorna True se fatta."""
+    nome_stato = f'{base}_est-anim-{ora}-ingrandisci-stato.png'
+    st = {'versione': R['versione'], 'chi': chi, 'fase': 'inizio', 'quando': time.time()}
+    _scrivi_stato_ingr(cart, nome_stato, st)
+    ort, prov = _ort()
+    st.update(fase='modello', provider=prov[0] if prov else None); _scrivi_stato_ingr(cart, nome_stato, st)
+    with tempfile.TemporaryDirectory() as d:
+        mod = os.path.join(d, 'modello.onnx')
+        via = 'authenticated' if ACCESSO else 'public'
+        with open(mod, 'wb') as f: f.write(_chiedi('GET', f'/storage/v1/object/{via}/{DEPOSITO}/' + urllib.parse.quote(R['modello'])))
+        sess = ort.InferenceSession(mod, providers=prov)
+        src = os.path.join(d, 'sorgente.mp4')
+        with open(src, 'wb') as f:
+            for pn in R['sorgente']['parti']:
+                x = os.path.join(d, 'p.bin'); _scarica(cart, pn, x); f.write(open(x, 'rb').read())
+        if os.path.getsize(src) != R['sorgente']['byte']: raise RuntimeError('sorgente incompleta')
+        AW, AH, PAD = R['uscita']['w'], R['uscita']['h'], R.get('pad', 4)
+        c = cv2.VideoCapture(src); tot = int(c.get(cv2.CAP_PROP_FRAME_COUNT)); fps = R.get('fps', 24)
+        fin = os.path.join(d, 'atlante.mp4')
+        cmd = ['ffmpeg', '-v', 'error', '-y', '-f', 'rawvideo', '-pix_fmt', 'bgr24', '-s', f'{AW}x{AH}', '-r', str(fps), '-i', '-',
+               '-force_key_frames', ','.join('%.3f' % max(0, t - .01) for t in R.get('chiavi', [0])), '-an', '-c:v', 'libx264',
+               '-preset', R.get('preset', 'slow'), '-crf', str(R.get('crf', 14)), '-profile:v', 'high', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', fin]
+        ff = subprocess.Popen(cmd, stdin=subprocess.PIPE)
+        st.update(fase='ingrandisco', fatti=0, totale=tot); t0 = time.time(); n = 0
+        try:
+            while True:
+                ok, f = c.read()
+                if not ok: break
+                A = np.zeros((AH, AW, 3), np.uint8)
+                for z in R['pezzi']:
+                    sx, sy, sw, sh = z['ctx']; cx, cy, cw, ch = z['nucleo']; ax, ay = z['a']
+                    x = f[sy:sy + sh, sx:sx + sw][..., ::-1].astype(np.float32).transpose(2, 0, 1)[None] / 255.
+                    y = sess.run(None, {sess.get_inputs()[0].name: x})[0][0].transpose(1, 2, 0)[..., ::-1]
+                    y = np.clip(y * 255. + .5, 0, 255).astype(np.uint8)
+                    y = cv2.resize(y, (y.shape[1] // 2, y.shape[0] // 2), interpolation=cv2.INTER_AREA)[cy * 2:(cy + ch) * 2, cx * 2:(cx + cw) * 2]
+                    A[ay:ay + ch * 2 + 2 * PAD, ax:ax + cw * 2 + 2 * PAD] = cv2.copyMakeBorder(y, PAD, PAD, PAD, PAD, cv2.BORDER_REPLICATE)
+                ff.stdin.write(A.tobytes()); n += 1
+                if n % 50 == 0:
+                    st.update(fatti=n, secondi_a_fotogramma=round((time.time() - t0) / n, 3), quando=time.time()); _scrivi_stato_ingr(cart, nome_stato, st)
+        finally:
+            ff.stdin.close(); ff.wait()
+        if n != tot or ff.returncode: raise RuntimeError(f'fotogrammi {n}/{tot}, ffmpeg {ff.returncode}')
+        st.update(fase='carico', fatti=n, secondi=round(time.time() - t0)); _scrivi_stato_ingr(cart, nome_stato, st)
+        dati = open(fin, 'rb').read(); np_ = -(-len(dati) // (45 * 1024 * 1024)); passo = -(-len(dati) // np_)
+        parti = [f'{base}_est-anim-{ora}-4k-parte{i + 1}.mp4' for i in range(np_)]
+        for i, pn in enumerate(parti):
+            _chiedi('POST', f'/storage/v1/object/{DEPOSITO}/{cart}/' + urllib.parse.quote(pn), dati[i * passo:(i + 1) * passo], 'video/mp4', {'x-upsert': 'true', 'cache-control': 'max-age=60'})
+        man = f'{base}_est-anim-{ora}-parti.png'
+        try: _chiedi('POST', '/storage/v1/object/copy', json.dumps({'bucketId': DEPOSITO, 'sourceKey': f'{cart}/{man}', 'destinationKey': f'finestre/banco/riserva-4k/prima-{R["versione"]}-{ora}-parti.png'}).encode())
+        except Exception as e: print('ingrandimento: copia del manifesto non fatta', e, file=sys.stderr, flush=True)
+        _chiedi('POST', f'/storage/v1/object/{DEPOSITO}/{cart}/' + urllib.parse.quote(man),
+                json.dumps({'versione': R['versione'], 'byte': len(dati), 'parti': parti, 'atlante': R['atlante']}).encode(), 'image/png', {'x-upsert': 'true', 'cache-control': 'max-age=60'})
+        st.update(fase='fatto', mb=round(len(dati) / 1e6, 1), pezzi=np_, quando=time.time()); _scrivi_stato_ingr(cart, nome_stato, st)
+        print('ingrandimento fatto:', ora, n, 'fotogrammi', round(len(dati) / 1e6, 1), 'MB', flush=True)
+        return True
+
+
+def giro_ingrandisci(casa, chi):
+    """Cerca le richieste d'ingrandimento per questo apparecchio («chi» nel nome) e le fa, una alla volta."""
+    try:
+        cart = _libreria() if ACCESSO and ACCESSO.get('casa') else 'finestre/' + cartella_di(casa)
+        file = {f['name']: f for f in _elenco(cart)}
+    except Exception as e:
+        print('ingrandimento: elenco non letto', e, file=sys.stderr, flush=True); return 0
+    fatti = 0
+    for nome in list(file):
+        m = re.match(r'(.*)_est-anim-(giorno|alba|tramonto|notte)-ingrandisci\.png$', nome)
+        if not m: continue
+        base, ora = m.group(1), m.group(2)
+        try:
+            via = 'authenticated' if ACCESSO else 'public'
+            R = json.loads(_chiedi('GET', f'/storage/v1/object/{via}/{DEPOSITO}/{cart}/' + urllib.parse.quote(nome) + '?t=' + str(int(time.time()))))
+            if str(R.get('chi', '')).lower() not in chi.lower(): continue
+            ns = f'{base}_est-anim-{ora}-ingrandisci-stato.png'
+            if ns in file:
+                S = json.loads(_chiedi('GET', f'/storage/v1/object/{via}/{DEPOSITO}/{cart}/' + urllib.parse.quote(ns) + '?t=' + str(int(time.time()))))
+                if S.get('versione') == R.get('versione') and (S.get('fase') == 'fatto' or (S.get('fase') == 'errore' and S.get('tentativi', 0) >= 2)): continue
+                tent = S.get('tentativi', 0) + 1 if S.get('versione') == R.get('versione') and S.get('fase') == 'errore' else 0
+            else: tent = 0
+            ora_l = time.strftime('%H:%M')
+            if R.get('dalle') and R.get('alle') and not (R['dalle'] <= ora_l < R['alle'] if R['dalle'] < R['alle'] else (ora_l >= R['dalle'] or ora_l < R['alle'])): continue
+            print(chi, 'ingrandisce', ora, R.get('versione'), flush=True)
+            try: fatti += bool(_ingrandisci_uno(cart, base, ora, R, chi))
+            except Exception as e:
+                print('ingrandimento non riuscito:', e, file=sys.stderr, flush=True)
+                _scrivi_stato_ingr(cart, ns, {'versione': R.get('versione'), 'chi': chi, 'fase': 'errore', 'errore': str(e)[:300], 'tentativi': tent, 'quando': time.time()})
+        except Exception as e:
+            print('ingrandimento: richiesta non letta', nome, e, file=sys.stderr, flush=True)
+    return fatti
+
+
 URL_CUCITORE = 'https://mauriziotarsia-dev.github.io/finestre/pi/cuci-animazione.py'
 _controllato = [0.0]
 
@@ -1675,6 +1794,8 @@ def main():
             fatti = 0
             try: fatti = giro_casa(o.casa, o.larghezza, veloce=o.veloce, forza=o.forza, chi=o.chi)
             except Exception as e: print('giro non riuscito:', e, file=sys.stderr, flush=True)
+            try: fatti += giro_ingrandisci(o.casa, o.chi)     # 20/11: le zone vive in 4K (vedi _ingrandisci_uno)
+            except Exception as e: print('ingrandimento non riuscito:', e, file=sys.stderr, flush=True)
             if o.una: break
             _aspetta(fatti, o.casa, o.forza, o.chi)
         return
@@ -1691,6 +1812,8 @@ def main():
             fatti = 0
             try: fatti = giro_casa(o.casa, o.larghezza, veloce=o.veloce, forza=o.forza, chi=o.chi)
             except Exception as e: print('giro non riuscito:', e, file=sys.stderr, flush=True)
+            try: fatti += giro_ingrandisci(o.casa, o.chi)     # 20/11: le zone vive in 4K (vedi _ingrandisci_uno)
+            except Exception as e: print('ingrandimento non riuscito:', e, file=sys.stderr, flush=True)
             if o.una: break
             _aspetta(fatti, o.casa, o.forza, o.chi)
         return
