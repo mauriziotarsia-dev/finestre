@@ -93,6 +93,9 @@ uniform vec4 uRiqBox[4];      /* fino a quattro riquadri: dove stanno nell'immag
 uniform vec4 uRiqTile[4];     /* da quale parte del loro video (u0, v0, u1, v1) */
 uniform vec4 uRiqSam;         /* per ognuno: 0 = primo video, 1 = secondo, -1 = spento; +2 = col suo «alfa» nella metà di sotto del video */
 float gIns;                   /* 1 mentre si disegna il paesaggio che si vede (non quello da cui si sfuma) */
+vec2 gTiR;                    /* 21/11 · il punto nell'immagine intera (x0..1, y0..1 dall'alto), scritto da paesaggio() per quello che si vede */
+uniform vec4 uVetri[4];       /* 21/11 · dentro: i vetri delle finestre (fasci.ORA.vetri del file dei punti), nell'immagine intera */
+uniform float uNVetri;
 uniform vec4 uParte[9];       /* 16/11 sera · parti di animali che si muovono da sole (la testa e la coda del gatto): per ognuna tre: (perno x, y, centro x, y nella vista), (raggi x, y in altezze, rotazione in radianti, spostamento in altezze), (tipo 0 testa 1 coda, seme, periodo in secondi, lunghezza della coda) */
 uniform float uNParte;
 uniform vec4 uCamino[2];      /* 16/11 · i fuochi dei camini di un interno: (x al centro e y della base nella vista, mezza larghezza in larghezze della vista, altezza in altezze della vista) */
@@ -469,6 +472,7 @@ vec3 paesaggio(sampler2D img, sampler2D imgB, float vk, sampler2D dep, vec4 crop
     c = mix(fb.rgb, c, vivo);
     vivoV = vivo;
   }
+  if (gIns > .5) gTiR = crop.xy + p * crop.zw;
   if (gIns > .5){   /* 16/11 sera · i riquadri (il gatto, i fuochi): sopra il video e il fermo */
     vec2 tiR = crop.xy + p * crop.zw;
     c = riquadro(c, tiR, uRiqBox[0], uRiqTile[0], uRiqSam.x); c = riquadro(c, tiR, uRiqBox[1], uRiqTile[1], uRiqSam.y);
@@ -945,6 +949,19 @@ void main(){
           /* 21/11: il cuore chiaro delle fiamme (camino, torce: chiaro e appena caldo) non è luce di fuori: col brutto tempo diventava azzurrino */
           float fuoriB = fuoriD * (1. - smoothstep(.05, .12, col.r - col.b) * smoothstep(.62, .75, lumD)) * (1. - smoothstep(.02, .2, gFiamma));
           float vetro = smoothstep(.6, .72, lumD);
+          /* ⚠ 21/11 (sul TV, neve all'alba: le punte delle fiamme di torce e camino diventavano azzurre): se il file dei punti dice dove
+             sono i vetri, il tempo di fuori tocca solo i vetri, i fasci di luce e, sotto il 60% dell'altezza, le chiazze di luce di fuori */
+          if (uNVetri > .5){
+            float vR = 0.;
+            for (int iv = 0; iv < 4; iv++){
+              if (float(iv) < uNVetri){
+                vec4 bv = uVetri[iv]; vec2 qv2 = (gTiR - bv.xy) / max(bv.zw - bv.xy, vec2(1e-4));
+                vR = max(vR, smoothstep(0., .04, min(min(qv2.x, 1. - qv2.x), min(qv2.y, 1. - qv2.y))));
+              }
+            }
+            vetro = vR * smoothstep(.35, .55, lumD);
+            fuoriB = max(vetro, max(fasF * .8, step(.6, gTiR.y) * fuoriD * (1. - smoothstep(.02, .2, gFiamma))));
+          }
           col = mix(col, vec3(lumD) * vec3(.9, .94, 1.), fuoriB * brutto * .8);   /* 21/11: grigio appena freddo (era .86/.93/1.06: il cuore bianco dei fuochi diventava azzurro) */
           col *= 1. - fuoriB * brutto * (.55 * (1. - vetro) + .38 * vetro);
           if (uFuori.y > .01 && vetro > .02){
@@ -1577,7 +1594,7 @@ class Vista {
     this.fumoDati = new Float32Array(32); this.fumoForza = new Float32Array(8);
     this.u = posizioni(this.p, ['uOcchio','uImg0b','uVmix','uImg0','uImg1','uDep0','uDep1','uMap','uCrop0','uCrop1','uCropD0','uCropD1','uUccelli','uCielo0','uCielo1','uCieloM0','uCieloM1','uCieloX','uFermo0','uFermo1','uHaFermo0','uHaFermo1','uRap0','uHaRap0','uVentoT','uAlberiM','uHaVento','uU','uNU','uUBox','uFumo','uFumoI','uNFumo','uFumoA','uFiamma','uFiammaS','uFiammaL','uNFiamma','uFiamT','uHaFiamT','uCamino','uNCamino','uParte','uNParte','uIns0','uIns1','uRiqBox','uRiqTile','uRiqSam','uNebV','uNebG','uDentro','uFascioD','uFascioC','uFuoriK','uPolvK','uScuro','uChiar','uNotte','uOmbre','uMeteora','uMeteoraK','uMix','uHaImg','uHaDep0','uHaDep1','uMovimento0','uMovimento1',
       'uLato','uT','uTV','uRaf','uAspetto','uPix','uCoperto','uNebbia','uPioggia','uNeve','uTempesta','uVento','uLampo','uLampoX','uLampoS','uLampoB',
-      'uNotteFinta','uLuce','uBuio','uQualita','uColNebbia','uMeteo','uSale','uFuori','uFuoriN']);
+      'uNotteFinta','uLuce','uBuio','uQualita','uColNebbia','uMeteo','uSale','uFuori','uFuoriN','uVetri','uNVetri']);
     gl.useProgram(this.p);
     gl.uniform1i(this.u.uImg0, 0); gl.uniform1i(this.u.uImg1, 1); gl.uniform1i(this.u.uDep0, 2); gl.uniform1i(this.u.uDep1, 3); gl.uniform1i(this.u.uImg0b, 4); gl.uniform1i(this.u.uMeteo, 5); gl.uniform1i(this.u.uCielo0, 6); gl.uniform1i(this.u.uCielo1, 7); gl.uniform1i(this.u.uFermo0, 8); gl.uniform1i(this.u.uFermo1, 9); gl.uniform1i(this.u.uVentoT, 10); if (this.u.uAlberiM) gl.uniform1i(this.u.uAlberiM, 11); if (this.u.uRap0) gl.uniform1i(this.u.uRap0, 12); if (this.u.uFiamT) gl.uniform1i(this.u.uFiamT, 13); if (this.u.uIns0) gl.uniform1i(this.u.uIns0, 14); if (this.u.uIns1) gl.uniform1i(this.u.uIns1, 15);
     this.unita = gl.getParameter(gl.MAX_TEXTURE_IMAGE_UNITS) || 8;   /* il fermo vuole 10 unità (il Raspberry 4 ne ha 16) */
@@ -2210,7 +2227,8 @@ class Vista {
        spenti per prova: la maschera del video si legge comunque da interno (due piani) */
     const dentro = haImg && !!(s.vita && s.vita.interno) ? (sp.has('fuochi') ? 2 : 1) : 0;
     gl.uniform1f(u.uDentro, dentro);
-    { const fu = dentro && s.fuori ? s.fuori : [0, 0, 0, 0, 0]; gl.uniform4f(u.uFuori, fu[0] || 0, fu[1] || 0, fu[2] || 0, fu[3] || 0); gl.uniform1f(u.uFuoriN, fu[4] || 0); }   /* 21/11: + nebbia e neve */
+    { const fu = dentro && s.fuori ? s.fuori : [0, 0, 0, 0, 0]; gl.uniform4f(u.uFuori, fu[0] || 0, fu[1] || 0, fu[2] || 0, fu[3] || 0); gl.uniform1f(u.uFuoriN, fu[4] || 0);
+      const vt = dentro && f0.fasciVetri ? f0.fasciVetri.slice(0, 4) : []; const vb = new Float32Array(16); vt.forEach((r, i) => vb.set(r, i * 4)); gl.uniform4fv(u.uVetri, vb); gl.uniform1f(u.uNVetri, vt.length); }   /* 21/11: + nebbia e neve */
     /* 16/11 · i fasci di luce delle finestre (mascheraFasci); la larghezza del foro si mette foro per foro */
     const fasci = dentro === 1 && f0.fascio && !sp.has('fasci') ? f0.fascio : null;
     gl.uniform3fv(u.uFascioC, fasci ? fasci.col : [1, .96, .86]);
