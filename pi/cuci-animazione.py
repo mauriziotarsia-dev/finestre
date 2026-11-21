@@ -1580,12 +1580,15 @@ def lavoratore_chrome(casa, chi):
     pagina dell'app»). Tiene acceso un Chrome senza finestra con l'app in modo «lavoratore» (telecomando/?lavoratore=1,
     vedi Ally in telecomando/app.js): legge le richieste di Claude, parte quando il telefono tocca Avvia, tiene le chiavi
     dell'AI nel suo profilo (Illusionist/lavoratore). Se Chrome si chiude lo riapre; un solo Chrome per profilo."""
-    if os.name != 'nt': return
+    def di(**k):                                                 # come va, in finestre/banco/ally-avvio.json (Claude lo legge da lontano)
+        try: _chiedi('POST', f'/storage/v1/object/{DEPOSITO}/finestre/banco/ally-avvio.json', json.dumps(dict(k, chi=chi, quando=time.strftime('%Y-%m-%dT%H:%M:%S'))).encode(), 'image/png', {'x-upsert': 'true', 'cache-control': 'no-cache'})
+        except Exception as e: print('ally-avvio non scritto:', e, file=sys.stderr, flush=True)
+    if os.name != 'nt': return di(stato='non Windows')
     cartella = os.path.join(os.path.expanduser('~'), 'Illusionist', 'lavoratore'); os.makedirs(cartella, exist_ok=True)
     file_pid = os.path.join(cartella, 'chrome.pid')
     cand = [os.path.join(os.environ.get(v, ''), 'Google', 'Chrome', 'Application', 'chrome.exe') for v in ('PROGRAMFILES', 'PROGRAMFILES(X86)', 'LOCALAPPDATA')]
     chrome = next((c for c in cand if os.path.isfile(c)), None)
-    if not chrome: print('lavoratore: Chrome non trovato', file=sys.stderr, flush=True); return
+    if not chrome: print('lavoratore: Chrome non trovato', file=sys.stderr, flush=True); return di(stato='Chrome non trovato', cercati=cand)
     url = 'https://mauriziotarsia-dev.github.io/finestre/telecomando/?casa=' + urllib.parse.quote(casa) + '&lavoratore=1'
 
     def vivo():
@@ -1606,8 +1609,10 @@ def lavoratore_chrome(casa, chi):
                                      creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0) | getattr(subprocess, 'DETACHED_PROCESS', 0))
                 open(file_pid, 'w').write(str(p.pid))
                 print('lavoratore: Chrome avviato', p.pid, flush=True)
+                time.sleep(20); di(stato='Chrome avviato', pid=p.pid, uscito=p.poll(), chrome=chrome)
         except Exception as e:
             print('lavoratore non avviato:', e, file=sys.stderr, flush=True)
+            di(stato='errore', errore=str(e))
         time.sleep(60)
 
 
@@ -1909,7 +1914,7 @@ def main():
         o.casa = o.casa or 'privata'
     if o.casa and not o.una:                                   # 20/11: la cartella dei file degli schermi (vedi servi_cartella)
         threading.Thread(target=servi_cartella, daemon=True).start()
-    if o.casa and not o.una and 'ally' in o.chi.lower() and not ACCESSO:   # 21/11: la Ally fa i lavori AI al posto del telefono
+    if o.casa and not o.una and 'ally' in o.chi.lower() and not ACCESSO and not o.abbina:   # 21/11: la Ally fa i lavori AI al posto del telefono
         threading.Thread(target=lavoratore_chrome, args=(o.casa, o.chi), daemon=True).start()
     if o.casa and not o.una and not ACCESSO:                   # la spinta: solo sul canale del link (la stanza privata resta al giro leggero al minuto)
         threading.Thread(target=ascolta_spinte, args=(o.casa,), daemon=True).start()
