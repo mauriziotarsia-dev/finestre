@@ -95,6 +95,7 @@ uniform float uHaFiamT;
 uniform sampler2D uIns0, uIns1;   /* 16/11 sera · i video «inserto» (il gatto, i fuochi): video corti messi in un riquadro dell'immagine */
 uniform vec4 uRiqBox[4];      /* fino a quattro riquadri: dove stanno nell'immagine intera (x0, y0, x1, y1) */
 uniform vec4 uRiqTile[4];     /* da quale parte del loro video (u0, v0, u1, v1) */
+uniform vec4 uRiqW;           /* 21/11 · quanto è acceso ogni riquadro (taverna deserta: il gruppo di luce del suo fuoco; 1 altrimenti) */
 uniform vec4 uRiqSam;         /* per ognuno: 0 = primo video, 1 = secondo, -1 = spento; +2 = col suo «alfa» nella metà di sotto del video */
 float gIns;                   /* 1 mentre si disegna il paesaggio che si vede (non quello da cui si sfuma) */
 vec2 gTiR;                    /* 21/11 · il punto nell'immagine intera (x0..1, y0..1 dall'alto), scritto da paesaggio() per quello che si vede */
@@ -223,8 +224,8 @@ float fogliame(vec3 c){
    vive per conto suo (js: Vista.aggiornaInserti): il gatto sta fermo e ogni tanto fa una delle sue cose, a caso; i fuochi
    girano senza fermarsi. Fuori da dove si muove, il video è il dipinto stesso (lo prepara Claude): il bordo non si vede.
    Video senza mipmap: leggerli dentro un «if» va bene */
-vec3 riquadro(vec3 c, vec2 ti, vec4 box, vec4 tile, float sam){
-  if (sam < -.5) return c;
+vec3 riquadro(vec3 c, vec2 ti, vec4 box, vec4 tile, float sam, float w){
+  if (sam < -.5 || w < .002) return c;
   vec2 q = (ti - box.xy) / (box.zw - box.xy);
   if (q.x <= 0. || q.y <= 0. || q.x >= 1. || q.y >= 1.) return c;
   vec2 ut = mix(tile.xy, tile.zw, q);
@@ -232,7 +233,7 @@ vec3 riquadro(vec3 c, vec2 ti, vec4 box, vec4 tile, float sam){
   vec3 v = s1 < .5 ? texture2D(uIns0, ut).rgb : texture2D(uIns1, ut).rgb;
   /* con l'alfa (la metà di sotto del video, grigia: quanto la clip si muove lì) due riquadri vicini non si coprono */
   if (sam > 1.5) a *= s1 < .5 ? texture2D(uIns0, ut + vec2(0., .5)).g : texture2D(uIns1, ut + vec2(0., .5)).g;
-  return mix(c, v, a);
+  return mix(c, v, a * w);
 }
 /* ⚠ 17/11 · PROSPETTIVA VIVA A TUTTA ALTEZZA (Maurizio: «proviamo a tenere l'immagine a tutta altezza e a fare solo
    spostamenti a destra e sinistra; se mi avvicino o mi allontano non deve cambiare niente»). L'immagine del TV è 16:9 come
@@ -510,8 +511,8 @@ vec3 paesaggio(sampler2D img, sampler2D imgB, float vk, sampler2D dep, vec4 crop
   if (gIns > .5) gTiR = crop.xy + p * crop.zw;
   if (gIns > .5){   /* 16/11 sera · i riquadri (il gatto, i fuochi): sopra il video e il fermo */
     vec2 tiR = crop.xy + p * crop.zw;
-    c = riquadro(c, tiR, uRiqBox[0], uRiqTile[0], uRiqSam.x); c = riquadro(c, tiR, uRiqBox[1], uRiqTile[1], uRiqSam.y);
-    c = riquadro(c, tiR, uRiqBox[2], uRiqTile[2], uRiqSam.z); c = riquadro(c, tiR, uRiqBox[3], uRiqTile[3], uRiqSam.w);
+    c = riquadro(c, tiR, uRiqBox[0], uRiqTile[0], uRiqSam.x, uRiqW.x); c = riquadro(c, tiR, uRiqBox[1], uRiqTile[1], uRiqSam.y, uRiqW.y);
+    c = riquadro(c, tiR, uRiqBox[2], uRiqTile[2], uRiqSam.z, uRiqW.z); c = riquadro(c, tiR, uRiqBox[3], uRiqTile[3], uRiqSam.w, uRiqW.w);
   }
   /* cielo che scorre: al posto del cielo dipinto, il panorama alla stessa scala dell'immagine, che si ripete
      ai lati e scorre all'infinito; verso l'orizzonte torna piano il cielo vero (la foschia sopra le colline) */
@@ -1627,7 +1628,7 @@ class Vista {
     /* il programma principale: paesaggio, cielo, nebbia, lampo, luce */
     this.p = programma(VERT, FRAG, ['aPos']);
     this.fumoDati = new Float32Array(32); this.fumoForza = new Float32Array(8);
-    this.u = posizioni(this.p, ['uOcchio','uImg0b','uVmix','uImg0','uImg1','uDep0','uDep1','uMap','uCrop0','uCrop1','uCropD0','uCropD1','uUccelli','uCielo0','uCielo1','uCieloM0','uCieloM1','uCieloX','uFermo0','uFermo1','uHaFermo0','uHaFermo1','uRap0','uHaRap0','uVentoT','uAlberiM','uHaVento','uU','uNU','uUBox','uFumo','uFumoI','uNFumo','uFumoA','uFiamma','uFiammaS','uFiammaL','uNFiamma','uFiamT','uHaFiamT','uCamino','uNCamino','uParte','uNParte','uIns0','uIns1','uRiqBox','uRiqTile','uRiqSam','uNebV','uNebG','uDentro','uFascioD','uFascioC','uFuoriK','uPolvK','uScuro','uChiar','uNotte','uOmbre','uMeteora','uMeteoraK','uMix','uHaImg','uHaDep0','uHaDep1','uMovimento0','uMovimento1',
+    this.u = posizioni(this.p, ['uOcchio','uImg0b','uVmix','uImg0','uImg1','uDep0','uDep1','uMap','uCrop0','uCrop1','uCropD0','uCropD1','uUccelli','uCielo0','uCielo1','uCieloM0','uCieloM1','uCieloX','uFermo0','uFermo1','uHaFermo0','uHaFermo1','uRap0','uHaRap0','uVentoT','uAlberiM','uHaVento','uU','uNU','uUBox','uFumo','uFumoI','uNFumo','uFumoA','uFiamma','uFiammaS','uFiammaL','uNFiamma','uFiamT','uHaFiamT','uCamino','uNCamino','uParte','uNParte','uIns0','uIns1','uRiqBox','uRiqTile','uRiqSam','uRiqW','uNebV','uNebG','uDentro','uFascioD','uFascioC','uFuoriK','uPolvK','uScuro','uChiar','uNotte','uOmbre','uMeteora','uMeteoraK','uMix','uHaImg','uHaDep0','uHaDep1','uMovimento0','uMovimento1',
       'uLato','uT','uTV','uRaf','uAspetto','uPix','uCoperto','uNebbia','uPioggia','uNeve','uTempesta','uVento','uLampo','uLampoX','uLampoS','uLampoB',
       'uNotteFinta','uLuce','uBuio','uQualita','uColNebbia','uMeteo','uSale','uFuori','uFuoriN','uVetri','uNVetri','uLuciM0','uLuciM1','uLuciW']);
     gl.useProgram(this.p);
@@ -1817,7 +1818,7 @@ class Vista {
       const io = ora && j.insertiOre && j.insertiOre[ora];
       f.inserti = (io || []).slice(0, 2).filter(q => q && typeof q.video === 'string' && Array.isArray(q.riquadri)).map(q => ({url: new URL(q.video, String(url).split('#')[0]).href,
         modo: q.modo === 'continuo' ? 'continuo' : 'riposo', tratti: (q.tratti || []).filter(t => Array.isArray(t) && t[1] > t[0]), attesa: Array.isArray(q.attesa) ? q.attesa.map(Number) : [6, 20],
-        riquadri: q.riquadri.filter(r => r && Array.isArray(r.box) && r.box.length === 4).map(r => ({box: r.box.map(Number), tile: Array.isArray(r.tile) && r.tile.length === 4 ? r.tile.map(Number) : [0, 0, 1, 1], alfa: !!r.alfa}))}));
+        riquadri: q.riquadri.filter(r => r && Array.isArray(r.box) && r.box.length === 4).map(r => ({box: r.box.map(Number), tile: Array.isArray(r.tile) && r.tile.length === 4 ? r.tile.map(Number) : [0, 0, 1, 1], alfa: !!r.alfa, g: 'tlc'.includes(r.g) ? r.g : null}))}));
       /* 21/11 · gli interruttori (taverna deserta): «luciOre» {ora: {spento: file, luci: file, scuri: true|false}} accanto a
          questo; nelle fiamme e nei camini «g» dice il gruppo (t torce a muro, l lampadario, c camini e torce da terra) */
       const uo = ora && j.luciOre && j.luciOre[ora], base = String(url).split('#')[0];
@@ -2427,12 +2428,12 @@ class Vista {
       }
       gl.uniform1f(u.uNParte, parti.length);
       /* 16/11 sera · i riquadri dei video «inserto» */
-      { const sam = [-1, -1, -1, -1], box = this.riqBox || (this.riqBox = new Float32Array(16)), tile = this.riqTile || (this.riqTile = new Float32Array(16)); let n = 0;
+      { const sam = [-1, -1, -1, -1], pesi = [1, 1, 1, 1], box = this.riqBox || (this.riqBox = new Float32Array(16)), tile = this.riqTile || (this.riqTile = new Float32Array(16)); let n = 0;
         if (haImg && f0.ok && s.movimento && !sp.has('inserti') && this.unita >= 16){
           (f0.ins || []).forEach((I, j) => { if (!I || !I.ok || n >= 4) return; lega(14 + j, I.tex);
-            for (const r of I.q.riquadri){ if (n >= 4) break; box.set(r.box, n * 4); tile.set(r.tile, n * 4); sam[n++] = j + (r.alfa ? 2 : 0); } });
+            for (const r of I.q.riquadri){ if (n >= 4) break; box.set(r.box, n * 4); tile.set(r.tile, n * 4); pesi[n] = r.g && f0.lTex ? this.luciW[r.g] : 1; sam[n++] = j + (r.alfa ? 2 : 0); } });
         }
-        gl.uniform4fv(u.uRiqBox, box); gl.uniform4fv(u.uRiqTile, tile); gl.uniform4f(u.uRiqSam, sam[0], sam[1], sam[2], sam[3]); }
+        gl.uniform4fv(u.uRiqBox, box); gl.uniform4fv(u.uRiqTile, tile); gl.uniform4f(u.uRiqSam, sam[0], sam[1], sam[2], sam[3]); gl.uniform4f(u.uRiqW, pesi[0], pesi[1], pesi[2], pesi[3]); }
       gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
       /* 2b. luci delle case, falò e lucciole: piccoli bagliori sopra il paesaggio (js/vita.js) */
       if (vitaBagliori.length) this.disegnaBagliori(foro, s, vitaBagliori, f0, marg);
