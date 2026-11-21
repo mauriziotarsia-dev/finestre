@@ -272,7 +272,9 @@ vec3 luciAccese(vec3 c, sampler2D L, vec4 lm, vec2 ti){
   vec3 qt = texture2D(L, luciT(1., 0., ti, hS)).rgb, ql = texture2D(L, luciT(2., 0., ti, hS)).rgb, qc = texture2D(L, luciT(0., 1., ti, hS)).rgb;
   vec3 m = texture2D(L, luciT(1., 1., ti, hS)).rgb;
   vec3 af = texture2D(L, luciT(2., 1., ti, hS)).rgb;
-  vec3 F = (1. - d) * (uLuciW.x * qt * qt + uLuciW.y * ql * ql + uLuciW.z * qc * qc);
+  /* 21/11 sera (Maurizio: «senza luci accese avevamo detto che un minimo di brace per far vedere qualcosa della stanza lo
+     lasciavamo»): i camini spenti fanno ancora un poco della loro luce (lm.z, «brace» nel file dei punti), senza fiamme */
+  vec3 F = (1. - d) * (uLuciW.x * qt * qt + uLuciW.y * ql * ql + max(uLuciW.z, lm.z) * qc * qc);
   vec3 Lu = d + F;
   float k = clamp(m.r * (1. - uLuciW.x) + m.g * (1. - uLuciW.y) + m.b * (1. - uLuciW.z), 0., 1.);
   vec3 o = mix(pow(c, vec3(2.2)) * Lu, pow(S, vec3(2.2)) + af * af * F, k);
@@ -1829,7 +1831,7 @@ class Vista {
       /* 21/11 · gli interruttori (taverna deserta): «luciOre» {ora: {spento: file, luci: file, scuri: true|false}} accanto a
          questo; nelle fiamme e nei camini «g» dice il gruppo (t torce a muro, l lampadario, c camini e torce da terra) */
       const uo = ora && j.luciOre && j.luciOre[ora], base = String(url).split('#')[0];
-      f.luciDef = uo && typeof uo.spento === 'string' && typeof uo.luci === 'string' ? {spento: new URL(uo.spento, base).href, luci: new URL(uo.luci, base).href, scuri: !!uo.scuri} : null;
+      f.luciDef = uo && typeof uo.spento === 'string' && typeof uo.luci === 'string' ? {spento: new URL(uo.spento, base).href, luci: new URL(uo.luci, base).href, scuri: !!uo.scuri, brace: Math.max(0, Math.min(1, +uo.brace || 0))} : null;
       f.fiamme.forEach((q, i) => { const r = (fo || j.fiamme || [])[i]; q.g = r && 'tlc'.includes(r.g) ? r.g : null; });
       f.camini.forEach((q, i) => { const r = (co || j.camini || []).filter(q => +q.w > 0 && +q.h > 0)[i]; q.g = r && 'tlc'.includes(r.g) ? r.g : null; });
       const lo = ora && j.legnoOre && j.legnoOre[ora];
@@ -2277,7 +2279,7 @@ class Vista {
     /* con un video le nuvole si muovono già da sé: restano solo gli alberi (nel video cucito sono fermi come le case) */
     const mov = s.movimento && !sp.has('alberi');
     gl.uniform1f(u.uMovimento0, mov ? ((v0 && !f0.rTex) || f0.cTex ? .5 : 1) : 0);   /* ricolorato: il cielo è il dipinto, le nuvole le muove la pagina */ gl.uniform1f(u.uMovimento1, mov ? (v1 || f1.cTex ? .5 : 1) : 0);
-    gl.uniform4f(u.uLuciM0, haImg && f0.lTex && !sp.has('luci') ? 1 : 0, f0.lH || 0, 0, 0); gl.uniform4f(u.uLuciM1, haImg && f1.lTex && !sp.has('luci') ? 1 : 0, f1.lH || 0, 0, 0);
+    gl.uniform4f(u.uLuciM0, haImg && f0.lTex && !sp.has('luci') ? 1 : 0, f0.lH || 0, f0.luciDef ? f0.luciDef.brace : 0, 0); gl.uniform4f(u.uLuciM1, haImg && f1.lTex && !sp.has('luci') ? 1 : 0, f1.lH || 0, f1.luciDef ? f1.luciDef.brace : 0, 0);
     gl.uniform3f(u.uLuciW, this.luciW.t, this.luciW.l, this.luciW.c);
     gl.uniform4fv(u.uCieloM0, haImg && f0.cTex && s.movimento && !sp.has('cielo') ? f0.cm : [0,0,0,0]); gl.uniform4fv(u.uCieloM1, haImg && f1.cTex && s.movimento ? f1.cm : [0,0,0,0]);
     gl.uniform1f(u.uCieloX, s.cieloX || 0);
