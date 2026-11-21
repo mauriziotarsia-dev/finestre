@@ -74,6 +74,10 @@ uniform vec4 uUBox;           /* dove sono, tutti insieme (x0, y0, x1, y1 nella 
 uniform float uNotte;         /* 0 giorno … 1 notte (stelle, fuochi che tremolano) */
 uniform float uOmbre;         /* quanto si vedono le ombre delle nuvole (giorno sereno) */
 uniform float uDentro;        /* 14/11 sera · 1 = un interno (la taverna): niente cielo né ombre di nuvole; il quarto canale del vento porta il respiro della luce dei fuochi */
+uniform vec4 uLuciM0, uLuciM1;   /* 21/11 · LE LUCI DELLA TAVERNA DESERTA (luciOre nel file dei punti): x = 1 se il paesaggio ha gli strati
+                                    di luce (nella texture del cielo, che dentro non serve: vedi luciAccese), y = dove finiscono le
+                                    righe della stanza spenta (0…1 dall'alto) */
+uniform vec3 uLuciW;             /* quanto è acceso ogni gruppo: torce a muro, lampadario, camini + torce da terra (0…1) */
 uniform vec4 uFuori;          /* 15/11 sera · in un interno, il tempo di fuori visto dalle finestre: coperto, pioggia, tempesta; 21/11: nebbia */
 uniform float uFuoriN;        /* 21/11 · in un interno: la neve di fuori */
 uniform vec4 uMeteora;        /* stella cadente: da (x, y) a (z, w), nella vista */
@@ -100,6 +104,7 @@ uniform vec4 uParte[9];       /* 16/11 sera · parti di animali che si muovono d
 uniform float uNParte;
 uniform vec4 uCamino[2];      /* 16/11 · i fuochi dei camini di un interno: (x al centro e y della base nella vista, mezza larghezza in larghezze della vista, altezza in altezze della vista) */
 uniform float uNCamino;
+float gLuceF;                 /* 21/11 · quanta della luce di questo punto viene dai fuochi accesi (1 senza interruttori) */
 float gFiamma;                /* quanto di questo punto è fiamma (per il tremolio della luce, dopo) */
 float gFiammaW;               /* 17/11 notte · quanto il punto sta nel corpo di una fiamma dei punti (per lasciarla luminosa, dopo) */
 uniform float uNebV;          /* la nebbiolina viva (0 spenta) */
@@ -240,7 +245,36 @@ float spostaVivo(float u, float n){
   float wE = min(1., uOcchio.y / max(abs(s), 1e-4));
   return s * mix(wE, 1., c);
 }
-vec3 paesaggio(sampler2D img, sampler2D imgB, float vk, sampler2D dep, vec4 crop, vec4 cropD, float haDep, float mov, sampler2D cie, vec4 cm, sampler2D fer, float haF, sampler2D rap, float haR, vec2 uv, out float n, out float sky){
+/* ⚠ 21/11 · GLI INTERRUTTORI DELLA TAVERNA DESERTA (Maurizio: «tre interruttori: torce a muro, lampadario, camini + torce da
+   terra», «tutte le combinazioni», «con i camini spenti resta la brace bassa»). Il dipinto è la stanza con tutto acceso (A).
+   Dalle immagini dell'AI con un gruppo solo acceso e con tutto spento Claude ha ricavato (scratchpad deserta/strati/strati.py)
+   una texture sola: in alto la stanza spenta (S), sotto sei riquadri sfumati:
+     d    (radice cubica) quanta della luce di A resta a tutto spento (la luce di fuori, la brace)
+     q_t, q_l, q_c (radice) la parte della luce dei fuochi che viene da ogni gruppo (sommano a 1)
+     m    dove sta la sorgente di ogni gruppo (fiamme, teste delle torce, fuoco del camino): r torce, g lampadario, b camini
+     Af   (radice) A sfumata senza le sorgenti
+   Luce del punto (lineare): L = d + (1 − d) · Σ w q   →   A · L (tutto acceso: A esatta). Dove un gruppo spento ha la
+   sorgente, A avrebbe il fantasma della fiamma: lì la stanza spenta più la luce degli altri gruppi, S + Af · (L − d). */
+vec2 luciT(float col, float rig, vec2 ti, float hS){
+  vec2 e = vec2(.5 / 1280., .5 / 720.);
+  vec2 q = clamp(ti, e, 1. - e);
+  return vec2((q.x + col) / 3., hS + (q.y + rig) * .5 * (1. - hS));
+}
+vec3 luciAccese(vec3 c, sampler2D L, vec4 lm, vec2 ti){
+  float hS = lm.y;
+  vec3 S = texture2D(L, vec2(ti.x, min(ti.y, 1. - .5 / 2160.) * hS)).rgb;
+  vec3 d = pow(texture2D(L, luciT(0., 0., ti, hS)).rgb, vec3(3.));
+  vec3 qt = texture2D(L, luciT(1., 0., ti, hS)).rgb, ql = texture2D(L, luciT(2., 0., ti, hS)).rgb, qc = texture2D(L, luciT(0., 1., ti, hS)).rgb;
+  vec3 m = texture2D(L, luciT(1., 1., ti, hS)).rgb;
+  vec3 af = texture2D(L, luciT(2., 1., ti, hS)).rgb;
+  vec3 F = (1. - d) * (uLuciW.x * qt * qt + uLuciW.y * ql * ql + uLuciW.z * qc * qc);
+  vec3 Lu = d + F;
+  float k = clamp(m.r * (1. - uLuciW.x) + m.g * (1. - uLuciW.y) + m.b * (1. - uLuciW.z), 0., 1.);
+  vec3 o = mix(pow(c, vec3(2.2)) * Lu, pow(S, vec3(2.2)) + af * af * F, k);
+  if (gIns > .5) gLuceF = clamp(dot(F, vec3(.299, .587, .114)) / max(dot(Lu, vec3(.299, .587, .114)), 1e-4), 0., 1.);
+  return pow(max(o, vec3(0.)), vec3(1. / 2.2));
+}
+vec3 paesaggio(sampler2D img, sampler2D imgB, float vk, sampler2D dep, vec4 crop, vec4 cropD, float haDep, float mov, sampler2D cie, vec4 cm, sampler2D fer, float haF, sampler2D rap, float haR, vec2 uv, out float n, out float sky, vec4 lm){
   n = prof(dep, cropD, uv, haDep);
   /* prospettiva: le cose vicine si spostano di più fra una finestra e l'altra */
   vec2 p = uv; p.x += uLato * .012 * (n - .35);
@@ -408,6 +442,7 @@ vec3 paesaggio(sampler2D img, sampler2D imgB, float vk, sampler2D dep, vec4 crop
     p += dpP;
   }
   vec3 c = foto(img, crop, p);
+  if (lm.x > .5) c = luciAccese(c, cie, lm, clamp(crop.xy + p * crop.zw, 0., 1.));   /* 21/11: gli interruttori della taverna deserta */
   /* ⚠ 5/11 · il passaggio al giro del video sfuma SOLO il video (prima si sfumava verso un secondo paesaggio disegnato
      senza vento e senza nebbiolina: a ogni giro i cipressi tornavano dritti e i veli sparivano, «si vede il loop») */
   if (vk > .001) c = mix(c, foto(imgB, crop, p), vk);
@@ -844,9 +879,9 @@ void main(){
   gVentoA = 128. / 255.; gVentoRG = vec3(.5, 0., 0.);
 #endif
   if (uHaImg > .5){
-    float n0, s0; gIns = 1.; vec3 c0 = paesaggio(uImg0, uImg0b, uVmix, uDep0, uCrop0, uCropD0, uHaDep0, uMovimento0, uCielo0, uCieloM0, uFermo0, uHaFermo0, uRap0, uHaRap0, uv, n0, s0);
+    float n0, s0; gIns = 1.; gLuceF = 1.; vec3 c0 = paesaggio(uImg0, uImg0b, uVmix, uDep0, uCrop0, uCropD0, uHaDep0, uMovimento0, uCielo0, uCieloM0, uFermo0, uHaFermo0, uRap0, uHaRap0, uv, n0, s0, uLuciM0);
     if (uMix > .001){
-      float n1, s1; gIns = 0.; vec3 c1 = paesaggio(uImg1, uImg1, 0., uDep1, uCrop1, uCropD1, uHaDep1, uMovimento1, uCielo1, uCieloM1, uFermo1, uHaFermo1, uRap0, 0., uv, n1, s1);
+      float n1, s1; gIns = 0.; vec3 c1 = paesaggio(uImg1, uImg1, 0., uDep1, uCrop1, uCropD1, uHaDep1, uMovimento1, uCielo1, uCieloM1, uFermo1, uHaFermo1, uRap0, 0., uv, n1, s1, uLuciM1);
       col = mix(c0, c1, uMix); n = mix(n0, n1, uMix); sky = mix(s0, s1, uMix);
     } else { col = c0; n = n0; sky = s0; }
     float scP = max(1., uPix.y / 1000.);
@@ -880,7 +915,7 @@ void main(){
       float fiammaD = smoothstep(.6, .8, col.r) * smoothstep(.22, .34, col.r - col.b);
       /* 14/11 sera, più tardi (Maurizio: «Anima di più la taverna di giorno»): il respiro è più ampio (.3, era .2) e prende
          anche le fiamme */
-      col *= 1. + (dV / 127.) * (.3 * caldoD * (1. - fiammaD) + .3 * fiammaD);
+      col *= 1. + (dV / 127.) * (.3 * caldoD * (1. - fiammaD) + .3 * fiammaD) * gLuceF;   /* 21/11: a fuochi spenti la stanza non respira */
       /* ⚠ LA LUCE DI FUORI, DENTRO («Anima di più la taverna di giorno»): quello che entra dalle finestre (i vetri, i
          raggi sul muro, la chiazza sul pavimento: chiaro e quasi senza colore) non sta più fermo.
          Nei raggi il pulviscolo scende piano, a banchi (tre strati di grana che scivolano verso il basso), e tutta la luce
@@ -1594,7 +1629,7 @@ class Vista {
     this.fumoDati = new Float32Array(32); this.fumoForza = new Float32Array(8);
     this.u = posizioni(this.p, ['uOcchio','uImg0b','uVmix','uImg0','uImg1','uDep0','uDep1','uMap','uCrop0','uCrop1','uCropD0','uCropD1','uUccelli','uCielo0','uCielo1','uCieloM0','uCieloM1','uCieloX','uFermo0','uFermo1','uHaFermo0','uHaFermo1','uRap0','uHaRap0','uVentoT','uAlberiM','uHaVento','uU','uNU','uUBox','uFumo','uFumoI','uNFumo','uFumoA','uFiamma','uFiammaS','uFiammaL','uNFiamma','uFiamT','uHaFiamT','uCamino','uNCamino','uParte','uNParte','uIns0','uIns1','uRiqBox','uRiqTile','uRiqSam','uNebV','uNebG','uDentro','uFascioD','uFascioC','uFuoriK','uPolvK','uScuro','uChiar','uNotte','uOmbre','uMeteora','uMeteoraK','uMix','uHaImg','uHaDep0','uHaDep1','uMovimento0','uMovimento1',
       'uLato','uT','uTV','uRaf','uAspetto','uPix','uCoperto','uNebbia','uPioggia','uNeve','uTempesta','uVento','uLampo','uLampoX','uLampoS','uLampoB',
-      'uNotteFinta','uLuce','uBuio','uQualita','uColNebbia','uMeteo','uSale','uFuori','uFuoriN','uVetri','uNVetri']);
+      'uNotteFinta','uLuce','uBuio','uQualita','uColNebbia','uMeteo','uSale','uFuori','uFuoriN','uVetri','uNVetri','uLuciM0','uLuciM1','uLuciW']);
     gl.useProgram(this.p);
     gl.uniform1i(this.u.uImg0, 0); gl.uniform1i(this.u.uImg1, 1); gl.uniform1i(this.u.uDep0, 2); gl.uniform1i(this.u.uDep1, 3); gl.uniform1i(this.u.uImg0b, 4); gl.uniform1i(this.u.uMeteo, 5); gl.uniform1i(this.u.uCielo0, 6); gl.uniform1i(this.u.uCielo1, 7); gl.uniform1i(this.u.uFermo0, 8); gl.uniform1i(this.u.uFermo1, 9); gl.uniform1i(this.u.uVentoT, 10); if (this.u.uAlberiM) gl.uniform1i(this.u.uAlberiM, 11); if (this.u.uRap0) gl.uniform1i(this.u.uRap0, 12); if (this.u.uFiamT) gl.uniform1i(this.u.uFiamT, 13); if (this.u.uIns0) gl.uniform1i(this.u.uIns0, 14); if (this.u.uIns1) gl.uniform1i(this.u.uIns1, 15);
     this.unita = gl.getParameter(gl.MAX_TEXTURE_IMAGE_UNITS) || 8;   /* il fermo vuole 10 unità (il Raspberry 4 ne ha 16) */
@@ -1697,9 +1732,12 @@ class Vista {
     c.width = Math.floor(w * k); c.height = Math.floor(h * k); c.getContext('2d').drawImage(im, 0, 0, c.width, c.height);
     return c;
   }
-  fonteVuota(){ return {fumi:[], fuochi:[], luci:[], prati:[], fumiUrl:null, dimg:null, img:null, tex:null, dep:null, depTex:null, video:null, cTex:null, cm:[0,0,0,0], fTex:null, iw:1, ih:1, url:null, ok:false}; }
+  fonteVuota(){ return {fumi:[], fuochi:[], luci:[], prati:[], fumiUrl:null, dimg:null, img:null, tex:null, dep:null, depTex:null, video:null, cTex:null, cm:[0,0,0,0], fTex:null, lTex:null, lH:0, iw:1, ih:1, url:null, ok:false}; }
 
   /* nuova immagine (o video in loop), con la sua profondità; sfuma da quella di prima in `dur` secondi */
+  /* 21/11 · gli interruttori della taverna deserta: {t, l, c} da 0 a 1 (torce a muro, lampadario, camini + torce da terra);
+     contano solo per un paesaggio con «luciOre». Il disegno ci va in poco più di un secondo */
+  impostaLuci(o){ const v = o || {}; this.luciVolute = {t: v.t == null ? 1 : +v.t, l: v.l == null ? 1 : +v.l, c: v.c == null ? 1 : +v.c}; }
   async mostra({url, profondita = null, video = null, fuoco = null, cielo = null, fermo = null, maschera = null, comignoli = null, alberi = null, ricolora = false, notte = null, interno = false, stelle = false}, dur = 0){
     if (this.fonti[0].ok && this.fonti[0].url === url + '|' + (video || '')){
       this.fonti[0].fuoco = fuoco;
@@ -1780,9 +1818,15 @@ class Vista {
       f.inserti = (io || []).slice(0, 2).filter(q => q && typeof q.video === 'string' && Array.isArray(q.riquadri)).map(q => ({url: new URL(q.video, String(url).split('#')[0]).href,
         modo: q.modo === 'continuo' ? 'continuo' : 'riposo', tratti: (q.tratti || []).filter(t => Array.isArray(t) && t[1] > t[0]), attesa: Array.isArray(q.attesa) ? q.attesa.map(Number) : [6, 20],
         riquadri: q.riquadri.filter(r => r && Array.isArray(r.box) && r.box.length === 4).map(r => ({box: r.box.map(Number), tile: Array.isArray(r.tile) && r.tile.length === 4 ? r.tile.map(Number) : [0, 0, 1, 1], alfa: !!r.alfa}))}));
+      /* 21/11 · gli interruttori (taverna deserta): «luciOre» {ora: {spento: file, luci: file, scuri: true|false}} accanto a
+         questo; nelle fiamme e nei camini «g» dice il gruppo (t torce a muro, l lampadario, c camini e torce da terra) */
+      const uo = ora && j.luciOre && j.luciOre[ora], base = String(url).split('#')[0];
+      f.luciDef = uo && typeof uo.spento === 'string' && typeof uo.luci === 'string' ? {spento: new URL(uo.spento, base).href, luci: new URL(uo.luci, base).href, scuri: !!uo.scuri} : null;
+      f.fiamme.forEach((q, i) => { const r = (fo || j.fiamme || [])[i]; q.g = r && 'tlc'.includes(r.g) ? r.g : null; });
+      f.camini.forEach((q, i) => { const r = (co || j.camini || []).filter(q => +q.w > 0 && +q.h > 0)[i]; q.g = r && 'tlc'.includes(r.g) ? r.g : null; });
       const lo = ora && j.legnoOre && j.legnoOre[ora];
       f.legno = lo && typeof lo.maschera === 'string' ? {k: Math.max(0, Math.min(1, +lo.k || .8)), url: new URL(lo.maschera, String(url).split('#')[0]).href} : null;
-    } catch(e) { f.fumi = []; f.fuochi = []; f.fiamme = []; f.camini = []; f.parti = []; f.inserti = []; f.fasciAng = null; f.scuro = 0; f.fuoriK = 0; f.polvK = 1; f.pavimento = null; f.legno = null; }
+    } catch(e) { f.fumi = []; f.fuochi = []; f.fiamme = []; f.camini = []; f.parti = []; f.inserti = []; f.fasciAng = null; f.scuro = 0; f.fuoriK = 0; f.polvK = 1; f.pavimento = null; f.legno = null; f.luciDef = null; }
   }
   /* 9/11 · luci delle case (dall'immagine della notte) e prati delle lucciole (dalla profondità): js/vita.js.
      Le finestre accese si cercano una volta sola per immagine */
@@ -1900,6 +1944,18 @@ class Vista {
       f.pavimentoOk = !!pm || !!lg; f.legnoOk = !!lg;
       this.carica(f.aTex, M);
     }
+    /* 21/11 · gli interruttori: stanza spenta in alto, i sei riquadri della luce sotto, in una texture sola (luciAccese) */
+    f.lTex = null; f.lH = 0;
+    if (this.internoInArrivo && f.luciDef) try {
+      const [sp, lu] = await Promise.all([caricaImg(f.luciDef.spento), caricaImg(f.luciDef.luci)]);
+      const W = sp.naturalWidth, H = sp.naturalHeight + lu.naturalHeight, gl = this.gl;
+      if (lu.naturalWidth !== W) throw new Error('luci: larghezze diverse');
+      f.lTex = this.texture(); gl.bindTexture(gl.TEXTURE_2D, f.lTex);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, W, H, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+      gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, gl.RGBA, gl.UNSIGNED_BYTE, sp);
+      gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, sp.naturalHeight, gl.RGBA, gl.UNSIGNED_BYTE, lu);
+      f.lH = sp.naturalHeight / H;
+    } catch(e) { console.warn('luci', e); if (f.lTex) this.gl.deleteTexture(f.lTex); f.lTex = null; }
     this.apriInserti(f);
     /* ⚠ 16/11 sera (Maurizio: «elimina quei puntini luminosi in alto a sinistra accanto allo stemma sopra il camino»): erano le
        «luci delle case» di js/vita.js, cercate nell'immagine della notte. In un interno la notte è un altro dipinto (torce
@@ -2022,9 +2078,9 @@ class Vista {
   libera(f){ const gl = this.gl; if (!f) return;
     for (const I of f.ins || []) if (I){ lasciaVideo(I.v); if (I.tex) gl.deleteTexture(I.tex); }
     f.ins = [];
-    for (const t of [f.tex, f.depTex, f.vtex, f.vtexB, f.cTex, f.fTex, f.aTex, f.rTex, f.nTex]) if (t) gl.deleteTexture(t);
+    for (const t of [f.tex, f.depTex, f.vtex, f.vtexB, f.cTex, f.fTex, f.aTex, f.rTex, f.nTex, f.lTex]) if (t) gl.deleteTexture(t);
     if (f.video) f.video.forEach(lasciaVideo);
-    f.tex = f.depTex = f.vtex = f.vtexB = f.cTex = f.fTex = f.aTex = f.rTex = f.nTex = null; f.ok = false;
+    f.tex = f.depTex = f.vtex = f.vtexB = f.cTex = f.fTex = f.aTex = f.rTex = f.nTex = f.lTex = null; f.ok = false;
     if (f.atlFb){ for (const k in f.atlFb) try { this.gl.deleteFramebuffer(f.atlFb[k].fb); } catch(e) {} f.atlFb = null; } if (f.atlTmp){ try { this.gl.deleteTexture(f.atlTmp); } catch(e) {} f.atlTmp = null; } f.atlante = null; }
   get urlInVista(){ return this.fonti[0].ok ? this.fonti[0].url : null; }
 
@@ -2170,6 +2226,11 @@ class Vista {
        Ora la strada fatta col vento si somma secondo per secondo (tv): il vento cambia la velocità, non la posizione */
     { const dt = this._tUlt == null ? 0 : s.t - this._tUlt; if (dt > 0 && dt < .5) this._tv = (this._tv || 0) + dt * Math.max(0, Math.min(1.6, s.vento || 0)); else if (dt < -60) this._tv = 0; this._tUlt = s.t; }   /* il tempo ricomincia ogni ora (t % 3588): anche tv, nello stesso istante, così non cresce per giorni */
     const tVento = this._tv || 0;
+    /* 21/11 · gli interruttori: ogni gruppo va verso quello che chiede la scena in poco più di un secondo (una fiamma che si
+       accende o si spegne, non uno scatto) */
+    { const ora = performance.now(), dt = this._lT == null ? 0 : Math.min(.25, (ora - this._lT) / 1000); this._lT = ora;
+      const ob = this.luciVolute || {t: 1, l: 1, c: 1}, w = this.luciW || (this.luciW = {t: ob.t, l: ob.l, c: ob.c});
+      for (const g of 'tlc'){ const d = (+ob[g] || 0) - w[g]; w[g] = Math.abs(d) < .002 ? +ob[g] || 0 : w[g] + Math.sign(d) * Math.min(Math.abs(d), dt / 1.2); } }
     /* raffica: [secondi da quando è partita (-1 nessuna), seme, forza]; per pioggia e neve basta quella al centro */
     const raf = s.raffica && s.raffica[0] >= 0 && s.raffica[0] < 8 ? s.raffica : [-1, 0, 0];
     { const rt = raf[0] - .55 - .75 / .72, env = t => t <= 0 ? 0 : (t < .45 ? (t / .45) ** 2 * (3 - 2 * t / .45) : 1) * (t < 1.2 ? 1 : Math.exp(-(t - 1.2) / .7));
@@ -2192,7 +2253,7 @@ class Vista {
     const lega = (unita, t) => { gl.activeTexture(gl.TEXTURE0 + unita); gl.bindTexture(gl.TEXTURE_2D, t || this.vuota); };
     lega(0, haImg ? (v0 ? f0.vtex : f0.tex) : null);
     lega(1, haImg && this.mix > 0 ? (v1 ? f1.vtex : f1.tex) : null);
-    lega(2, f0.depTex); lega(3, f1.depTex); lega(4, haImg && f0.vk > 0 ? f0.vtexB : null); lega(5, null); lega(6, f0.cTex); lega(7, f1.cTex); if (this.unita >= 10){ lega(8, f0.fTex); lega(9, f1.fTex); } if (this.unita >= 13) lega(12, f0.rTex);
+    lega(2, f0.depTex); lega(3, f1.depTex); lega(4, haImg && f0.vk > 0 ? f0.vtexB : null); lega(5, null); lega(6, f0.cTex || f0.lTex); lega(7, f1.cTex || f1.lTex); if (this.unita >= 10){ lega(8, f0.fTex); lega(9, f1.fTex); } if (this.unita >= 13) lega(12, f0.rTex);
     if (this.unita >= 12) lega(11, f0.aTex || this.bianca);   /* 14/11: serve anche alla nebbiolina di notte, non solo al vento */
     if (this.unita >= 14) lega(13, f0.nTex);   /* 14/11 sera: le nuvole del cielo che scorre, per le stelle (le legge il passaggio del vento) */
     /* quando le stelle si vedono (anche appena, al tramonto) il passaggio del vento porta al disegno quanta nuvola c'è in ogni punto del cielo */
@@ -2208,6 +2269,8 @@ class Vista {
     /* con un video le nuvole si muovono già da sé: restano solo gli alberi (nel video cucito sono fermi come le case) */
     const mov = s.movimento && !sp.has('alberi');
     gl.uniform1f(u.uMovimento0, mov ? ((v0 && !f0.rTex) || f0.cTex ? .5 : 1) : 0);   /* ricolorato: il cielo è il dipinto, le nuvole le muove la pagina */ gl.uniform1f(u.uMovimento1, mov ? (v1 || f1.cTex ? .5 : 1) : 0);
+    gl.uniform4f(u.uLuciM0, haImg && f0.lTex && !sp.has('luci') ? 1 : 0, f0.lH || 0, 0, 0); gl.uniform4f(u.uLuciM1, haImg && f1.lTex && !sp.has('luci') ? 1 : 0, f1.lH || 0, 0, 0);
+    gl.uniform3f(u.uLuciW, this.luciW.t, this.luciW.l, this.luciW.c);
     gl.uniform4fv(u.uCieloM0, haImg && f0.cTex && s.movimento && !sp.has('cielo') ? f0.cm : [0,0,0,0]); gl.uniform4fv(u.uCieloM1, haImg && f1.cTex && s.movimento ? f1.cm : [0,0,0,0]);
     gl.uniform1f(u.uCieloX, s.cieloX || 0);
     gl.uniform2f(u.uChiar, this.chiarezza ? this.chiarezza[0] : .5, this.chiarezza ? this.chiarezza[1] : 0);
@@ -2227,7 +2290,7 @@ class Vista {
        spenti per prova: la maschera del video si legge comunque da interno (due piani) */
     const dentro = haImg && !!(s.vita && s.vita.interno) ? (sp.has('fuochi') ? 2 : 1) : 0;
     gl.uniform1f(u.uDentro, dentro);
-    { const fu = dentro && s.fuori ? s.fuori : [0, 0, 0, 0, 0]; gl.uniform4f(u.uFuori, fu[0] || 0, fu[1] || 0, fu[2] || 0, fu[3] || 0); gl.uniform1f(u.uFuoriN, fu[4] || 0);
+    { const fu = dentro && s.fuori && !(f0.luciDef && f0.luciDef.scuri) ? s.fuori : [0, 0, 0, 0, 0];   /* 21/11: scuri chiusi, fuori non si vede */ gl.uniform4f(u.uFuori, fu[0] || 0, fu[1] || 0, fu[2] || 0, fu[3] || 0); gl.uniform1f(u.uFuoriN, fu[4] || 0);
       const vt = dentro && f0.fasciVetri ? f0.fasciVetri.slice(0, 4) : []; const vb = new Float32Array(16); vt.forEach((r, i) => vb.set(r, i * 4)); gl.uniform4fv(u.uVetri, vb); gl.uniform1f(u.uNVetri, vt.length); }   /* 21/11: + nebbia e neve */
     /* 16/11 · i fasci di luce delle finestre (mascheraFasci); la larghezza del foro si mette foro per foro */
     const fasci = dentro === 1 && f0.fascio && !sp.has('fasci') ? f0.fascio : null;
@@ -2286,7 +2349,7 @@ class Vista {
         gl.bindFramebuffer(gl.FRAMEBUFFER, null);
       }
       /* 15/11: le fiamme vive degli interni, nella vista (come il fumo) */
-      const fiamme = haImg && f0.ok && s.movimento && !sp.has('fiamme') && !sp.has('candele') && s.vita && s.vita.interno ? (f0.fiamme || []) : [];   /* 19/11: «candele» solo queste, «camini» solo i camini (banco) */
+      const fiamme = haImg && f0.ok && s.movimento && !sp.has('fiamme') && !sp.has('candele') && s.vita && s.vita.interno ? (f0.fiamme || []).filter(q => !q.g || !f0.lTex || this.luciW[q.g] > .02) : [];   /* 21/11: solo i gruppi accesi */   /* 19/11: «candele» solo queste, «camini» solo i camini (banco) */
       if (fiamme.length){
         const ci = this.crop(f0, foro.aspetto, marg, f0.fuoco, foro.striscia, f0.fuoco);
         if (!this.fiammaDati) this.fiammaDati = new Float32Array(48);
@@ -2297,6 +2360,8 @@ class Vista {
           for (let k = 0; k < 4; k++){ const su = k * .43333; this.fiammaS[j * 4 + k] = (rumoreJ(t * 1.9, su * 1.1 + w * 5) - .5) * .6 + (rumoreJ(t * 5.3, su * 2.3 + w * 9) - .5) * .4; }
           this.fiammaL[j * 4] = (rumoreJ(t * 3.1 + 3.7, w * 7) - .5) * .6 + (rumoreJ(t * 7.9, w * 3) - .5) * .4;
           this.fiammaL[j * 4 + 1] = rumoreJ(t * 6.1, w) * .65 + rumoreJ(t * 11.3, w + 2) * .35 - .5; });
+        /* 21/11 · una fiamma che si accende o si spegne si muove e trema quanto è accesa */
+        fiamme.forEach((q, j) => { const k = q.g && f0.lTex ? this.luciW[q.g] : 1; if (k < 1){ for (let n = 0; n < 4; n++) this.fiammaS[j * 4 + n] *= k; this.fiammaL[j * 4] *= k; this.fiammaL[j * 4 + 1] *= k; } });
       }
       /* 1c. 19/11 sera · le fiamme dei punti a metà risoluzione (FIAMME_FRAG), se il disegno ha il passaggio */
       let ftx = null;
@@ -2314,6 +2379,7 @@ class Vista {
       /* 2. il paesaggio col suo tempo */
       gl.useProgram(this.p);
       lega(5, tm); if (this.unita >= 12) lega(10, tv); gl.uniform1f(u.uHaVento, tv ? 1 : 0);
+      lega(6, f0.cTex || f0.lTex);   /* 21/11: il passaggio del vento lascia la 6 col cielo (dentro: niente); le luci della taverna deserta stanno lì */
       gl.enable(gl.SCISSOR_TEST);
       gl.viewport(foro.x, y, foro.w, foro.h); gl.scissor(foro.x, y, foro.w, foro.h);
       gl.uniform4fv(u.uMap, foro.map);
@@ -2341,7 +2407,7 @@ class Vista {
       if (fiamme.length){ gl.uniform4fv(u.uFiamma, this.fiammaDati); gl.uniform4fv(u.uFiammaS, this.fiammaS); gl.uniform4fv(u.uFiammaL, this.fiammaL); }
       gl.uniform1f(u.uNFiamma, fiamme.length);
       lega(13, ftx); gl.uniform1f(u.uHaFiamT, ftx ? 1 : 0);   /* 19/11 sera: le fiamme già fatte a metà risoluzione */
-      const camini = haImg && f0.ok && s.movimento && !sp.has('fiamme') && !sp.has('camini') && s.vita && s.vita.interno ? (f0.camini || []) : [];
+      const camini = haImg && f0.ok && s.movimento && !sp.has('fiamme') && !sp.has('camini') && s.vita && s.vita.interno ? (f0.camini || []).filter(q => !q.g || !f0.lTex || this.luciW[q.g] > .5) : [];   /* 21/11: camino spento, la brace sta ferma */
       if (camini.length){
         const ci = this.crop(f0, foro.aspetto, marg, f0.fuoco, foro.striscia, f0.fuoco);
         if (!this.caminoDati) this.caminoDati = new Float32Array(8);

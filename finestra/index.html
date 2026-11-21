@@ -28,7 +28,7 @@
 <script src="../js/accesso.js?v=8"></script>
 <script src="../js/qrcode.js?v=1"></script>
 <script src="../js/vita.js?v=5"></script>
-<script src="../js/vista.js?v=6.08"></script>
+<script src="../js/vista.js?v=6.09"></script>
 <script src="../js/inseguitore.js?v=5"></script>
 <script src="../js/uccelli.js?v=10"></script>
 <script src="../js/bard.js?v=9"></script>
@@ -318,7 +318,9 @@ function fonteDi(s){
   if (!s.immagini || s.yt) return null;
   const {im, an} = vistaDi(s);
   s = Object.assign({}, s, {immagini: im, animati: an});
-  const o = oraDi(s), url = s.immagini[o] || s.immagini.giorno;
+  /* 21/11 · la taverna deserta con gli scuri chiusi: un dipinto solo, uguale a ogni ora (Maurizio: «con scuri chiusi non ci
+     interessa se fuori sia giorno, notte, alba o tramonto») */
+  const o = oraDi(s), scuriQui = !!(s.scuri && s.immagini.scuri), url = scuriQui ? s.immagini.scuri : s.immagini[o] || s.immagini.giorno;
   if (!url) return null;
   let video = an[o] || (!s.immagini[o] || o === 'giorno' ? an.giorno : null) || null, ricolora = false;
   /* 8/11 · «risparmio»: una luce con la sua immagine ma senza video suo prende il video del giorno, ricolorato (js/vista.js) */
@@ -349,9 +351,9 @@ function fonteDi(s){
     }
   }
   /* dove sale il fumo (4/11): lo stesso per tutte le luci; se la scena non lo porta (DMaster) si prova il file col nome */
-  const comignoli = s.immagini.comignoli || (/_(?:est-)?(giorno|alba|tramonto|notte)\.jpg$/.test(url.split('?')[0]) ? url.split('?')[0].replace(/_((?:est-)?)(giorno|alba|tramonto|notte)\.jpg$/, '_$1comignoli.json') : null);
+  const comignoli = s.immagini.comignoli || (/_(?:est-)?(giorno|alba|tramonto|notte|scuri)\.jpg$/.test(url.split('?')[0]) ? url.split('?')[0].replace(/_((?:est-)?)(giorno|alba|tramonto|notte|scuri)\.jpg$/, '_$1comignoli.json') : null);
   /* 15/11 sera · in un interno le fiamme cambiano con l'ora (candele che si consumano): l'ora in fondo all'indirizzo */
-  const oraFiamme = (url.split('?')[0].match(/_(?:est-)?(giorno|alba|tramonto|notte)\.jpg$/) || [])[1];
+  const oraFiamme = (url.split('?')[0].match(/_(?:est-)?(giorno|alba|tramonto|notte|scuri)\.jpg$/) || [])[1];
   /* 13/11: in un interno niente cielo che scorre, niente alberi al vento, niente fumo dai comignoli */
   const dentro = internoDi(s);
   return {url, profondita: s.immagini.profondita || null, video, fuoco: s.fuoco || null, cielo: s.immagini.profondita && !dentro ? cielo : null, fermo, maschera, comignoli: comignoli && internoDi(s) && oraFiamme ? comignoli + '#ora=' + oraFiamme : comignoli,   /* 15/11: in un interno lo stesso file porta le fiamme di candele e torce (niente fumo) */ alberi: dentro ? null : s.immagini.giorno || null, ricolora, notte: s.immagini.notte || null, interno: dentro,
@@ -370,6 +372,7 @@ function applica(nuova, salva = true){
      immagini e lasciava gli schermi neri finché il telefono non ne mandava una vera. Non si applica */
   if (nuova && nuova !== scena && 'haImmagini' in nuova && !nuova.immagini && !nuova.yt) return;   /* (all'avvio la pagina applica la sua: quella passa sempre) */
   scena = Object.assign({}, PREDEFINITA, nuova);
+  try { vista.impostaLuci(scena.luci); } catch(e) {}   /* 21/11: gli interruttori della taverna deserta */
   if (paesaggioInVista === null) saleK = scena.nebbiaSale ? 1 : 0;   /* appena aperta (anteprima nell'app, pagina dal vivo): la nebbia è già dov'è sugli schermi */
   if (salva){ scrivi('finestre-scena', scena); salvaInRete(); }
   if (bard) bard.suScena(scena);
