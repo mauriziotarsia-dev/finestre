@@ -1517,15 +1517,20 @@ def _ingrandisci_uno(cart, base, ora, R, chi):
         if n != tot or ff.returncode: raise RuntimeError(f'fotogrammi {n}/{tot}, ffmpeg {ff.returncode}')
         st.update(fase='carico', fatti=n, secondi=round(time.time() - t0)); _scrivi_stato_ingr(cart, nome_stato, st)
         dati = open(fin, 'rb').read(); np_ = -(-len(dati) // (45 * 1024 * 1024)); passo = -(-len(dati) // np_)
-        parti = [f'{base}_est-anim-{ora}-4k-parte{i + 1}.mp4' for i in range(np_)]
+        # 21/11: «tag» nella richiesta dà ai pezzi un nome loro (…-4k-TAG-parteN: quelli di prima restano); «pubblica»: false
+        # scrive il manifesto a parte (…-4k-TAG-parti.png) senza toccare quello in onda (lo mette Claude dopo il suo lavoro,
+        # insieme ai segmenti: un video con un tratto nuovo non deve andare in onda coi segmenti vecchi)
+        tag = re.sub(r'[^a-z0-9-]', '', str(R.get('tag') or ''))[:24]; pubblica = R.get('pubblica', True)
+        parti = [f'{base}_est-anim-{ora}-4k-' + (tag + '-' if tag else '') + f'parte{i + 1}.mp4' for i in range(np_)]
         for i, pn in enumerate(parti):
             _chiedi('POST', f'/storage/v1/object/{DEPOSITO}/{cart}/' + urllib.parse.quote(pn), dati[i * passo:(i + 1) * passo], 'video/mp4', {'x-upsert': 'true', 'cache-control': 'max-age=60'})
-        man = f'{base}_est-anim-{ora}-parti.png'
-        try: _chiedi('POST', '/storage/v1/object/copy', json.dumps({'bucketId': DEPOSITO, 'sourceKey': f'{cart}/{man}', 'destinationKey': f'finestre/banco/riserva-4k/prima-{R["versione"]}-{ora}-parti.png'}).encode())
-        except Exception as e: print('ingrandimento: copia del manifesto non fatta', e, file=sys.stderr, flush=True)
+        man = f'{base}_est-anim-{ora}-parti.png' if pubblica else f'{base}_est-anim-{ora}-4k-{tag or "nuovo"}-parti.png'
+        if pubblica:
+          try: _chiedi('POST', '/storage/v1/object/copy', json.dumps({'bucketId': DEPOSITO, 'sourceKey': f'{cart}/{man}', 'destinationKey': f'finestre/banco/riserva-4k/prima-{R["versione"]}-{ora}-parti.png'}).encode())
+          except Exception as e: print('ingrandimento: copia del manifesto non fatta', e, file=sys.stderr, flush=True)
         _chiedi('POST', f'/storage/v1/object/{DEPOSITO}/{cart}/' + urllib.parse.quote(man),
                 json.dumps({'versione': R['versione'], 'byte': len(dati), 'parti': parti, 'atlante': R['atlante']}).encode(), 'image/png', {'x-upsert': 'true', 'cache-control': 'max-age=60'})
-        st.update(fase='fatto', mb=round(len(dati) / 1e6, 1), pezzi=np_, quando=time.time()); _scrivi_stato_ingr(cart, nome_stato, st)
+        st.update(fase='fatto', mb=round(len(dati) / 1e6, 1), pezzi=np_, manifesto=man.split('_')[-1], pubblicato=bool(pubblica), quando=time.time()); _scrivi_stato_ingr(cart, nome_stato, st)
         print('ingrandimento fatto:', ora, n, 'fotogrammi', round(len(dati) / 1e6, 1), 'MB', flush=True)
         return True
 
