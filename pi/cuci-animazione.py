@@ -1581,14 +1581,20 @@ def lavoratore_chrome(casa, chi):
     vedi Ally in telecomando/app.js): legge le richieste di Claude, parte quando il telefono tocca Avvia, tiene le chiavi
     dell'AI nel suo profilo (Illusionist/lavoratore). Se Chrome si chiude lo riapre; un solo Chrome per profilo."""
     def di(**k):                                                 # come va, in finestre/banco/ally-avvio.json (Claude lo legge da lontano)
+        try: open(os.path.join(os.path.expanduser('~'), 'Illusionist', 'lavoratore', 'stato.txt'), 'a', encoding='utf-8').write(time.strftime('%H:%M:%S ') + json.dumps(k) + '\n')
+        except Exception: pass
         try: _chiedi('POST', f'/storage/v1/object/{DEPOSITO}/finestre/banco/ally-avvio.json', json.dumps(dict(k, chi=chi, quando=time.strftime('%Y-%m-%dT%H:%M:%S'))).encode(), 'image/png', {'x-upsert': 'true', 'cache-control': 'no-cache'})
         except Exception as e: print('ally-avvio non scritto:', e, file=sys.stderr, flush=True)
     if os.name != 'nt': return di(stato='non Windows')
     cartella = os.path.join(os.path.expanduser('~'), 'Illusionist', 'lavoratore'); os.makedirs(cartella, exist_ok=True)
     file_pid = os.path.join(cartella, 'chrome.pid')
+    di(stato='inizio', versione=os.path.getmtime(os.path.abspath(__file__)))
+    # Chrome se c'è, altrimenti Edge (sulla Ally di Maurizio c'è solo Edge: 21/11 sera)
     cand = [os.path.join(os.environ.get(v, ''), 'Google', 'Chrome', 'Application', 'chrome.exe') for v in ('PROGRAMFILES', 'PROGRAMFILES(X86)', 'LOCALAPPDATA')]
-    chrome = next((c for c in cand if os.path.isfile(c)), None)
-    if not chrome: print('lavoratore: Chrome non trovato', file=sys.stderr, flush=True); return di(stato='Chrome non trovato', cercati=cand)
+    cand += [os.path.join(os.environ.get(v, ''), 'Microsoft', 'Edge', 'Application', 'msedge.exe') for v in ('PROGRAMFILES(X86)', 'PROGRAMFILES')]
+    chrome = next((c for c in cand if c and os.path.isfile(c)), None)
+    if not chrome: print('lavoratore: né Chrome né Edge', file=sys.stderr, flush=True); return di(stato='Chrome/Edge non trovato', cercati=cand)
+    nome_exe = os.path.basename(chrome).lower()
     url = 'https://mauriziotarsia-dev.github.io/finestre/telecomando/?casa=' + urllib.parse.quote(casa) + '&lavoratore=1'
 
     def vivo():
@@ -1596,7 +1602,7 @@ def lavoratore_chrome(casa, chi):
             pid = int(open(file_pid).read().strip())
             out = subprocess.run(['tasklist', '/FI', 'PID eq %d' % pid, '/NH'], capture_output=True, text=True, timeout=20,
                                  creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0)).stdout
-            return 'chrome' in out.lower()
+            return nome_exe in out.lower()
         except Exception: return False
 
     while True:
@@ -1604,7 +1610,8 @@ def lavoratore_chrome(casa, chi):
             if not vivo():
                 p = subprocess.Popen([chrome, '--headless=new', '--user-data-dir=' + os.path.join(cartella, 'profilo'), '--no-first-run',
                                       '--no-default-browser-check', '--disable-gpu', '--disable-background-timer-throttling',
-                                      '--disable-renderer-backgrounding', '--disable-backgrounding-occluded-windows', '--mute-audio', url],
+                                      '--disable-renderer-backgrounding', '--disable-backgrounding-occluded-windows', '--mute-audio',
+                                      '--no-pings', '--disable-features=msEdgeStartupBoost,msImplicitSignin', url],
                                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                                      creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0) | getattr(subprocess, 'DETACHED_PROCESS', 0))
                 open(file_pid, 'w').write(str(p.pid))
