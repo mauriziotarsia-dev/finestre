@@ -888,7 +888,13 @@ void main(){
          è illuminato da fuori (la chiazza sul pavimento, i raggi, le panche e le tovaglie al sole; i vetri meno, sono già
          chiari) diventa più luminoso, nel dipinto e nel video insieme; le fiamme e i loro riflessi caldi no */
       /* 21/11 (Maurizio: «nuvoloso, nebbia, pioggia, etc dovrebbero cambiare la luce che viene da fuori»): senza sole la luce in più cala */
-      float soleF = 1. - max(max(uFuori.x, uFuori.y), max(uFuori.w * .9, uFuoriN * .8));
+      /* ⚠ 21/11, 10:18 (Maurizio: «su nuvoloso farei che si attenuano e non che spariscono i raggi del sole. Quasi spariscono con
+         nebbia. Spariscono con pioggia, temporale o neve. Ed anche la luminosità della stanza varia leggermente»): il sole che
+         entra è circa la metà col nuvoloso, un decimo con la nebbia, niente con pioggia, temporale e neve; tutta la stanza
+         un po' più scura (dal 3-4% del nuvoloso al 12% del temporale), meno dove la illuminano i fuochi */
+      float soleF = clamp(1. - uFuori.x * .9, 0., 1.) * clamp(1. - uFuori.w, 0., 1.) * clamp(1. - uFuori.y * 1.25, 0., 1.) * clamp(1. - uFuoriN * 1.1, 0., 1.);
+      float stanzaK = min(.13, .8 * (.06 * uFuori.x + .05 * uFuori.w + .06 * uFuori.y + .04 * uFuori.z + .03 * uFuoriN));
+      col *= 1. - stanzaK * (1. - .6 * caldoD);
       if (uFuoriK > .001) col *= 1. + uFuoriK * (.2 + .8 * soleF) * max(fuoriD * (1. - .7 * smoothstep(.6, .72, lumD)), fasF);
       if (fuoriD > .02 || fasF > .01){
         float vetroD = smoothstep(.6, .72, lumD);
@@ -934,7 +940,7 @@ void main(){
            luce più grigia e gocce sui vetri). Coperto e pioggia spengono i raggi e la chiazza sul pavimento e ingrigiscono
            i vetri; sui vetri chiari le gocce scendono a righe, ognuna col suo passo, e qualche goccia ferma luccica; il
            lampo del temporale accende vetri e raggi (il tuono si sente, js/bard.js) */
-        float brutto = max(max(uFuori.x * .8, uFuori.y), max(uFuori.w * .85, uFuoriN * .7));
+        float brutto = max(max(uFuori.x * .6, uFuori.y), max(uFuori.w * .85, uFuoriN * .7));   /* 21/11: col nuvoloso meno (era .8) */
         if (brutto + uLampo > .005){
           /* 21/11: il cuore chiaro delle fiamme (camino, torce: chiaro e appena caldo) non è luce di fuori: col brutto tempo diventava azzurrino */
           float fuoriB = fuoriD * (1. - smoothstep(.05, .12, col.r - col.b) * smoothstep(.62, .75, lumD)) * (1. - smoothstep(.02, .2, gFiamma));
