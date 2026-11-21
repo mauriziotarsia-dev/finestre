@@ -9,7 +9,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
 const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 const euro = n => (n < .1 ? n.toFixed(3) : n.toFixed(2)).replace('.', ',') + ' $';
-const VERSIONE = '6.88';
+const VERSIONE = '6.89';
 /* 8/11 · l'app si aggiorna da sola (Maurizio: «vedo ancora il quadrato con la doppia finestra»: sul telefono restava la
    versione vecchia anche dopo averla chiusa). Quando torna in primo piano, e ogni 10 minuti, chiede al server quale
    app.js c'è adesso; se è un'altra, ricarica (mai mentre un lavoro AI è in corso) */
@@ -78,6 +78,14 @@ Object.assign(imp, {qualita:'alta', tv:true, cielo:true, anima: !!MODELLI_VIDEO.
 imp.video.secondi = 10;
 if (![10, 15, 20, 30, 40].includes(imp.video.giro)) imp.video.giro = 15;
 const salvaImp = () => scrivi('finestre-impostazioni', imp);
+/* 21/11 · LA ALLY FA I LAVORI AI (Maurizio: «non possiamo fare in maniera tale che non devo ogni volta tenere aperta la
+   pagina dell'app»). Sulla Ally gira questa stessa app, senza schermo, come «lavoratore» (?lavoratore=1, la apre il
+   cucitore): legge le richieste come il telefono e parte quando il telefono, al tocco di Avvia, le scrive
+   finestre/banco/avvia-ally.json. Le chiavi arrivano dal telefono chiuse col lucchetto della Ally (vedi Ally più sotto). */
+const LAVORATORE = q.get('lavoratore') === '1' || leggi('atm-lavoratore', false);
+if (q.get('lavoratore') === '1') scrivi('atm-lavoratore', true);
+if (imp.lavoriSu !== 'telefono') imp.lavoriSu = 'ally';
+let richiestaUltima = null;   /* l'ultima richiesta di Claude letta dalla rete (per la Ally: la sua chiave) */
 
 /* ── la scena e i fori ───────────────────────────────────────────────────── */
 const SCENA_PRED = {acceso:true, yt:'', t:0, immagini:null, animati:null, paesaggio:'', fuoco:null, ora:'vera', meteo:'sereno',
@@ -649,8 +657,8 @@ function disegnaFinestre(){
     s.innerHTML = testa('bifora', 'Illusionist', 'Quello che si vede adesso') + `
       <!-- 8/11 · Maurizio: «le finestrelle dentro la TV», il paesaggio in onda grande; toccandolo si cambia paesaggio -->
       <div class="eroe" data-fai="apriScheda" data-v="paesaggi" role="button" aria-label="Cambia paesaggio">
-        <figure class="anteprima tv" id="anteprimaTv"><div class="fermo" style="inset:0"></div><iframe id="anteprimaTvFrame" title="Anteprima del TV" src="../finestra/?anteprima=1&vista=est&senzavideo=1"></iframe></figure>
-        <figure class="anteprima" id="anteprima"><iframe id="anteprimaFrame" title="Anteprima delle finestrelle" src="../finestra/?anteprima=1&senzavideo=1"></iframe></figure>
+        <figure class="anteprima tv" id="anteprimaTv"><div class="fermo" style="inset:0"></div><iframe id="anteprimaTvFrame" title="Anteprima del TV" src="${LAVORATORE ? 'about:blank' : '../finestra/?anteprima=1&vista=est&senzavideo=1'}"></iframe></figure>
+        <figure class="anteprima" id="anteprima"><iframe id="anteprimaFrame" title="Anteprima delle finestrelle" src="${LAVORATORE ? 'about:blank' : '../finestra/?anteprima=1&senzavideo=1'}"></iframe></figure>
         <div class="eroe-testo"><b id="nomeInOnda">—</b><small id="sottoInOnda"></small></div>
         <button class="eroe-intero" data-fai="schermoIntero" data-v="tv" aria-label="Guarda a tutto schermo">${icona('schermo', 16)}<span>Tutto schermo</span></button>
       </div>
@@ -1526,7 +1534,7 @@ async function costoAggiorna(p, stretta){
 }
 function rapportoLavoro(extra = {}){
   const L = lavoro || {};
-  const st = Object.assign({quando: new Date().toISOString(), lavoro: L.nome || null, paesaggio: L.p ? L.p.nome : null, finito: !!L.finito, errore: L.errore || null,
+  const st = Object.assign({quando: new Date().toISOString(), chi: LAVORATORE ? 'ally' : 'telefono', chiave: richiestaUltima ? richiestaUltima.chiave : null, lavoro: L.nome || null, paesaggio: L.p ? L.p.nome : null, finito: !!L.finito, errore: L.errore || null,
     passi: (L.passi || []).map(x => x.cls + ' · ' + x.testo)}, extra);
   fetch(SUPABASE_URL + '/storage/v1/object/dmaster-media/finestre/banco/lavoro-telefono.json', {method: 'POST',
     headers: {apikey: SUPABASE_CHIAVE_PUBBLICA, Authorization: 'Bearer ' + SUPABASE_CHIAVE_PUBBLICA, 'Content-Type': 'image/png', 'x-upsert': 'true'}, body: JSON.stringify(st)}).catch(() => {});
@@ -1534,7 +1542,7 @@ function rapportoLavoro(extra = {}){
 /* la stessa richiesta si legge anche dalla rete all'apertura dell'app (se il telefono era chiuso quando Claude l'ha mandata) */
 async function richiestaInRete(){
   try { const r = await fetch(SUPABASE_URL + '/storage/v1/object/public/dmaster-media/finestre/banco/richiesta-telefono.json?t=' + Date.now(), {cache: 'no-store'});
-    if (!r.ok) return; const j = await r.json(); if (!j || foglioAperto === 'aggiorna' || foglioAperto === 'rifaiAnim' || foglioAperto === 'creaRichiesta' || foglioAperto === 'bozze' || foglioAperto === 'rifaiOre' || (lavoro && !lavoro.finito)) return;
+    if (!r.ok) return; const j = await r.json(); if (j) richiestaUltima = Object.values(j).find(x => x && x.chiave) || null; if (!j || foglioAperto === 'aggiorna' || foglioAperto === 'rifaiAnim' || foglioAperto === 'creaRichiesta' || foglioAperto === 'bozze' || foglioAperto === 'rifaiOre' || (lavoro && !lavoro.finito)) return;
     if (j.bozze2 || j.bozze) chiediBozze(j.bozze2 || j.bozze); else if (j.crea) chiediCrea(j.crea); else if (j.rifaiOre8 || j.rifaiOre7 || j.rifaiOre6 || j.rifaiOre5 || j.rifaiOre4 || j.rifaiOre3 || j.rifaiOre2 || j.rifaiOre) chiediRifaiOre(j.rifaiOre8 || j.rifaiOre7 || j.rifaiOre6 || j.rifaiOre5 || j.rifaiOre4 || j.rifaiOre3 || j.rifaiOre2 || j.rifaiOre); else if (j.rifaiAnim) chiediRifaiAnim(j.rifaiAnim); else if (j.clip) chiediClip(j.clip); else if (j.aggiornaVecchi) chiediAggiornaVecchi(j.aggiornaVecchi); } catch(e) {}
 }
 /* 13/11 · un paesaggio nuovo chiesto da Claude (la taverna): il foglio col costo, e Avvia sul telefono */
@@ -2802,7 +2810,12 @@ function disegnaImpostazioni(){
         ${campoChiave('kGoogle', 'Chiave Google (Gemini)', 'AIza…', imp.chiavi.google, 'Per Nano Banana e le animazioni. Gratis su <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com</a>.')}
         ${campoChiave('kEleven', 'Chiave ElevenLabs', 'sk_…', imp.chiavi.elevenlabs, 'Per i suoni e le musiche di Bard. La stessa di DMaster.')}
         ${campoChiave('kPexels', 'Chiave Pexels (facoltativa)', 'chiave Pexels', imp.chiavi.pexels, 'Più foto vere e verticali. Gratis su <a href="https://www.pexels.com/api/" target="_blank" rel="noopener">pexels.com/api</a>.')}
-        <p class="nota" style="margin-top:0">Le chiavi restano su questo telefono.</p></div>`)}
+        <p class="nota" style="margin-top:0">Le chiavi restano su questo telefono.</p>
+        <div class="blocco" style="margin-top:12px"><span>Chi fa i lavori dell'AI</span>
+          <div class="segmenti">${[['ally', 'tv', 'La Ally'], ['telefono', 'telefono', 'Questo telefono']].map(([v, ic, t]) => `<button data-fai="lavoriSu" data-v="${v}" aria-pressed="${imp.lavoriSu === v}">${icona(ic, 18)}${t}</button>`).join('')}</div>
+          <p class="nota" style="margin-top:6px">${imp.lavoriSu === 'ally' ? 'Tocchi Avvia qui e poi puoi chiudere l\'app: immagini e video li fa la Ally, accesa vicino al TV. Se non risponde, lo fa questo telefono.' : 'Immagini e video li fa questo telefono: tieni l\'app aperta su quella pagina fino alla fine.'}</p>
+          <button class="btn piccolo" data-fai="mandaChiaviAlly" style="margin-top:8px">${icona('scintilla', 16)}Manda le chiavi alla Ally</button>
+          <p class="nota" id="allyChiaviStato" style="margin-top:6px">Le chiavi partono chiuse con un lucchetto che solo la Ally sa aprire: in rete passa solo il pacchetto chiuso.</p></div></div>`)}
     ${gruppo('bard', 'liuto', 'Suono', suonoQui() ? 'dal telefono' : 'dal TV', `
       <div class="segmenti">${[['stanza', 'tv', 'Il TV'], [ID_TELEFONO, 'telefono', 'Questo telefono']].map(([v, ic, t]) => `<button data-fai="bardDove" data-v="${v}" aria-pressed="${bardStato.dove === v}">${icona(ic, 18)}${t}</button>`).join('')}</div>
       ${suonoQui() ? '' : `<label class="campo" style="margin-top:12px"><span>Uscita del TV</span><select data-cambia="bardUscita">
@@ -3261,11 +3274,14 @@ const AZIONI = {
     try { await Accesso.togliMembro(casaPrivata.id, v); membri = await Accesso.membri(casaPrivata.id); disegnaImpostazioni(); avviso('Tolto dalla stanza'); }
     catch(e) { avviso(e.message, true); }
   },
+  lavoriSu: v => { imp.lavoriSu = v === 'telefono' ? 'telefono' : 'ally'; salvaImp(); disegnaImpostazioni(); },
+  mandaChiaviAlly: () => Ally.mandaChiavi(),
   ricaricaFinestre: () => { if (canale.manda('ricarica')){ rimanda = true; avviso('Le finestre si ricaricano'); } else avviso('Non collegato', true); },
 };
 document.addEventListener('click', e => {
   const b = e.target.closest('[data-fai]'); if (!b || b.disabled) return;
   if (comandaDM() && BLOCCATE_DA_DM.has(b.dataset.fai)){ e.preventDefault(); avvisoInMano(); return; }
+  if (!LAVORATORE && imp.lavoriSu === 'ally' && Ally.FA.has(b.dataset.fai)){ e.preventDefault(); Ally.avvia(b.dataset.fai, b.dataset.v, b); return; }
   const f = AZIONI[b.dataset.fai]; if (f){ e.preventDefault(); f(b.dataset.v, b); }
 });
 /* la stanza di questo telefono (31/10): si cambia e si riparte da lì */
@@ -3274,6 +3290,125 @@ document.addEventListener('change', e => {
   if (e.target.matches('[data-cambia="accStanza"]') && e.target.value && (!casaPrivata || e.target.value !== casaPrivata.id)){ scrivi('atm-stanza', e.target.value); location.reload(); }
 });
 document.addEventListener('keydown', e => { if ((e.key === 'Enter' || e.key === ' ') && e.target.matches('[role="switch"]')){ e.preventDefault(); e.target.click(); } });
+
+/* ═══ 21/11 · ALLY: il lavoratore e il suo lucchetto ═══════════════════════════════════════════════════════════
+   Lavoratore (sulla Ally, ?lavoratore=1): ogni minuto scrive finestre/banco/ally-lavoratore.json (vivo, quali chiavi ha,
+   la metà pubblica del suo lucchetto); ogni 5 s guarda ally-chiavi.json (chiavi chiuse dal telefono) e avvia-ally.json
+   (il tocco di Avvia sul telefono). Telefono: al tocco di Avvia scrive avvia-ally.json se la Ally è viva, se no fa da sé.
+   Il lucchetto è una coppia RSA-OAEP fatta dalla Ally e tenuta nel suo IndexedDB (la metà privata non si può esportare):
+   il telefono chiude le chiavi con una chiave AES-GCM nuova e chiude questa con la metà pubblica. */
+const Ally = (() => {
+  const BANCO = SUPABASE_URL + '/storage/v1/object/dmaster-media/finestre/banco/';
+  const BANCO_PUB = SUPABASE_URL + '/storage/v1/object/public/dmaster-media/finestre/banco/';
+  const FA = new Set(['bozzeVia', 'clipVia', 'rifaiOreVia', 'creaRichiestaVia', 'rifaiAnimVia', 'aggiornaVia', 'bozzaCoppiaVia']);
+  const b64 = buf => btoa(String.fromCharCode(...new Uint8Array(buf)));
+  const da64 = t => Uint8Array.from(atob(t), c => c.charCodeAt(0));
+  const scriviB = (nome, obj) => fetch(BANCO + nome, {method: 'POST', headers: {apikey: SUPABASE_CHIAVE_PUBBLICA, Authorization: 'Bearer ' + SUPABASE_CHIAVE_PUBBLICA, 'Content-Type': 'image/png', 'x-upsert': 'true'}, body: JSON.stringify(obj)});
+  const leggiB = async nome => { try { const r = await fetch(BANCO_PUB + nome + '?t=' + Date.now(), {cache: 'no-store'}); return r.ok ? await r.json() : null; } catch(e) { return null; } };
+  const viva = s => s && Date.now() - Date.parse(s.quando) < 3 * 60e3;
+  /* IndexedDB: la coppia del lucchetto */
+  const db = () => new Promise((ok, ko) => { const r = indexedDB.open('atm-ally', 1); r.onupgradeneeded = () => r.result.createObjectStore('k'); r.onsuccess = () => ok(r.result); r.onerror = () => ko(r.error); });
+  async function coppia(){
+    const d = await db();
+    const leggiK = () => new Promise(ok => { const t = d.transaction('k').objectStore('k').get('coppia'); t.onsuccess = () => ok(t.result || null); t.onerror = () => ok(null); });
+    let c = await leggiK();
+    if (!c){
+      c = await crypto.subtle.generateKey({name: 'RSA-OAEP', modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: 'SHA-256'}, false, ['encrypt', 'decrypt']);
+      await new Promise(ok => { const t = d.transaction('k', 'readwrite'); t.objectStore('k').put(c, 'coppia'); t.oncomplete = ok; t.onerror = ok; });
+    }
+    return c;
+  }
+  /* ── il lavoratore ── */
+  let gestiti = new Set(leggi('atm-ally-gestiti', [])), ultimaChiave = leggi('atm-ally-chiavi-lette', ''), pubblica = null;
+  async function battito(extra = {}){
+    try {
+      if (!pubblica) pubblica = await crypto.subtle.exportKey('jwk', (await coppia()).publicKey);
+      await scriviB('ally-lavoratore.json', Object.assign({quando: new Date().toISOString(), versione: VERSIONE,
+        chiavi: {openai: !!imp.chiavi.openai, google: !!imp.chiavi.google, elevenlabs: !!imp.chiavi.elevenlabs},
+        lavoro: lavoro ? {nome: lavoro.nome, finito: !!lavoro.finito, errore: lavoro.errore || null} : null, pubblica}, extra));
+    } catch(e) { console.warn('battito', e); }
+  }
+  async function guardaChiavi(){
+    const j = await leggiB('ally-chiavi.json'); if (!j || !j.dati || j.quando === ultimaChiave) return;
+    ultimaChiave = j.quando; scrivi('atm-ally-chiavi-lette', ultimaChiave);
+    try {
+      const c = await coppia();
+      const grezza = await crypto.subtle.decrypt({name: 'RSA-OAEP'}, c.privateKey, da64(j.chiave));
+      const aes = await crypto.subtle.importKey('raw', grezza, 'AES-GCM', false, ['decrypt']);
+      const k = JSON.parse(new TextDecoder().decode(await crypto.subtle.decrypt({name: 'AES-GCM', iv: da64(j.iv)}, aes, da64(j.dati))));
+      for (const n of ['openai', 'google', 'elevenlabs', 'pexels']) if (k[n]) imp.chiavi[n] = String(k[n]).trim();
+      salvaImp();
+      await scriviB('ally-chiavi.json', {letto: j.quando, quando: new Date().toISOString()});
+      await battito({chiaviArrivate: j.quando});
+    } catch(e) { await battito({chiaviErrore: String(e && e.message || e)}); }
+  }
+  async function guardaAvvio(){
+    const a = await leggiB('avvia-ally.json'); if (!a || !a.id || gestiti.has(a.id)) return;
+    gestiti.add(a.id); scrivi('atm-ally-gestiti', [...gestiti].slice(-50));
+    if (Date.now() - Date.parse(a.quando) > 30 * 60e3) return;                 /* un tocco vecchio (Ally spenta allora): non si spende */
+    if (lavoro && !lavoro.finito){ rapportoLavoro({messaggio: 'la Ally sta già lavorando: tocco ignorato'}); return; }
+    if (foglioAperto) chiudiFoglio();
+    await richiestaInRete();
+    if (a.chiave && (!richiestaUltima || richiestaUltima.chiave !== a.chiave)){ rapportoLavoro({messaggio: 'la richiesta è cambiata: tocco ignorato', voluta: a.chiave}); return; }
+    const f = AZIONI[a.fai]; if (!f || !FA.has(a.fai)){ rapportoLavoro({messaggio: 'azione sconosciuta: ' + a.fai}); return; }
+    rapportoLavoro({messaggio: 'avviato sulla Ally'}); battito();
+    try { await f(a.v, document.querySelector(`[data-fai="${a.fai}"]`) || document.createElement('button')); } catch(e) { rapportoLavoro({messaggio: 'errore: ' + (e && e.message || e)}); }
+    battito();
+  }
+  function lavora(){
+    document.title = 'Illusionist · lavoratore';
+    battito(); setInterval(battito, 60e3);
+    setInterval(() => { guardaChiavi(); guardaAvvio(); }, 5000);
+    setInterval(() => { if (!(lavoro && !lavoro.finito)){ if (foglioAperto) chiudiFoglio(); richiestaInRete(); } }, 60e3);
+  }
+  /* ── il telefono ── */
+  async function avvia(fai, v, b){
+    const s = await leggiB('ally-lavoratore.json');
+    const fallo = () => { const f = AZIONI[fai]; if (f) f(v, b); };
+    if (!viva(s)){ avviso('La Ally non risponde: lo faccio qui sul telefono (tieni l\'app aperta)', true); return fallo(); }
+    if (!s.chiavi || !(s.chiavi.openai || s.chiavi.google)){ avviso('Alla Ally mancano le chiavi: Impostazioni → AI e chiavi → Manda le chiavi alla Ally', true); return; }
+    const r = await leggiB('richiesta-telefono.json'), d = r ? Object.values(r).find(x => x && x.chiave) : null;
+    const st = await leggiB('lavoro-telefono.json');
+    if (d && st && st.chi === 'ally' && st.chiave === d.chiave && st.lavoro && !st.finito && viva(st)){ avviso('La Ally ci sta già lavorando'); return; }
+    try {
+      const id = (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random());
+      const ok = await scriviB('avvia-ally.json', {id, fai, v: v || null, chiave: d ? d.chiave : null, quando: new Date().toISOString(), da: nomeTelefono()});
+      if (!ok.ok) throw new Error('rete ' + ok.status);
+      if (b) b.hidden = true;
+      const lf = document.querySelector('#lavoroFoglio');
+      if (lf) lf.innerHTML = `<p class="nota" style="margin-top:12px"><b>Avviato sulla Ally.</b> Puoi chiudere l'app: quando hai finito lo vedi riaprendola, o te lo dice Claude.</p>`;
+      avviso('Avviato sulla Ally: puoi chiudere l\'app');
+    } catch(e) { avviso('Non riesco a scrivere alla Ally: lo faccio qui sul telefono', true); fallo(); }
+  }
+  async function mandaChiavi(){
+    const st = document.querySelector('#allyChiaviStato'), dici = t => { if (st) st.textContent = t; };
+    const s = await leggiB('ally-lavoratore.json');
+    if (!viva(s) || !s.pubblica){ avviso('La Ally non risponde: dev\'essere accesa', true); dici('La Ally non risponde: dev\'essere accesa, col programma Illusionist aggiornato.'); return; }
+    const k = {openai: imp.chiavi.openai, google: imp.chiavi.google, elevenlabs: imp.chiavi.elevenlabs, pexels: imp.chiavi.pexels};
+    if (!k.openai && !k.google){ avviso('Su questo telefono non ci sono chiavi da mandare', true); return; }
+    try {
+      dici('Chiudo le chiavi col lucchetto della Ally…');
+      const pub = await crypto.subtle.importKey('jwk', s.pubblica, {name: 'RSA-OAEP', hash: 'SHA-256'}, false, ['encrypt']);
+      const aes = await crypto.subtle.generateKey({name: 'AES-GCM', length: 256}, true, ['encrypt']);
+      const iv = crypto.getRandomValues(new Uint8Array(12));
+      const dati = await crypto.subtle.encrypt({name: 'AES-GCM', iv}, aes, new TextEncoder().encode(JSON.stringify(k)));
+      const chiave = await crypto.subtle.encrypt({name: 'RSA-OAEP'}, pub, await crypto.subtle.exportKey('raw', aes));
+      const quando = new Date().toISOString();
+      const r = await scriviB('ally-chiavi.json', {quando, chiave: b64(chiave), iv: b64(iv), dati: b64(dati)});
+      if (!r.ok) throw new Error('rete ' + r.status);
+      dici('Mandate: aspetto che la Ally le apra…');
+      for (let i = 0; i < 24; i++){
+        await new Promise(ok => setTimeout(ok, 5000));
+        const t = await leggiB('ally-lavoratore.json');
+        if (t && t.chiaviArrivate === quando){ dici('La Ally ha le chiavi: ' + ['openai', 'google', 'elevenlabs'].filter(n => t.chiavi[n]).map(n => ({openai: 'OpenAI', google: 'Google', elevenlabs: 'ElevenLabs'})[n]).join(', ') + ' ✓'); avviso('La Ally ha le chiavi'); return; }
+        if (t && t.chiaviErrore){ dici('La Ally non è riuscita ad aprirle: ' + t.chiaviErrore); avviso('La Ally non le ha aperte', true); return; }
+      }
+      dici('La Ally non ha ancora risposto: riprova fra qualche minuto.');
+    } catch(e) { avviso('Non riesco a mandarle: ' + (e && e.message || e), true); dici('Non riuscito: ' + (e && e.message || e)); }
+  }
+  return {FA, avvia, mandaChiavi, lavora};
+})();
+if (LAVORATORE) Ally.lavora();
 
 /* via */
 avviaAccesso().finally(() => { if (libreriaStato === 'da caricare') caricaLibreria(); });

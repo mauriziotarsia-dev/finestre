@@ -1575,6 +1575,42 @@ URL_CUCITORE = 'https://mauriziotarsia-dev.github.io/finestre/pi/cuci-animazione
 _controllato = [0.0]
 
 
+def lavoratore_chrome(casa, chi):
+    """21/11 · LA ALLY FA I LAVORI AI (Maurizio: «non possiamo fare in maniera tale che non devo ogni volta tenere aperta la
+    pagina dell'app»). Tiene acceso un Chrome senza finestra con l'app in modo «lavoratore» (telecomando/?lavoratore=1,
+    vedi Ally in telecomando/app.js): legge le richieste di Claude, parte quando il telefono tocca Avvia, tiene le chiavi
+    dell'AI nel suo profilo (Illusionist/lavoratore). Se Chrome si chiude lo riapre; un solo Chrome per profilo."""
+    if os.name != 'nt': return
+    cartella = os.path.join(os.path.expanduser('~'), 'Illusionist', 'lavoratore'); os.makedirs(cartella, exist_ok=True)
+    file_pid = os.path.join(cartella, 'chrome.pid')
+    cand = [os.path.join(os.environ.get(v, ''), 'Google', 'Chrome', 'Application', 'chrome.exe') for v in ('PROGRAMFILES', 'PROGRAMFILES(X86)', 'LOCALAPPDATA')]
+    chrome = next((c for c in cand if os.path.isfile(c)), None)
+    if not chrome: print('lavoratore: Chrome non trovato', file=sys.stderr, flush=True); return
+    url = 'https://mauriziotarsia-dev.github.io/finestre/telecomando/?casa=' + urllib.parse.quote(casa) + '&lavoratore=1'
+
+    def vivo():
+        try:
+            pid = int(open(file_pid).read().strip())
+            out = subprocess.run(['tasklist', '/FI', 'PID eq %d' % pid, '/NH'], capture_output=True, text=True, timeout=20,
+                                 creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0)).stdout
+            return 'chrome' in out.lower()
+        except Exception: return False
+
+    while True:
+        try:
+            if not vivo():
+                p = subprocess.Popen([chrome, '--headless=new', '--user-data-dir=' + os.path.join(cartella, 'profilo'), '--no-first-run',
+                                      '--no-default-browser-check', '--disable-gpu', '--disable-background-timer-throttling',
+                                      '--disable-renderer-backgrounding', '--disable-backgrounding-occluded-windows', '--mute-audio', url],
+                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                     creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0) | getattr(subprocess, 'DETACHED_PROCESS', 0))
+                open(file_pid, 'w').write(str(p.pid))
+                print('lavoratore: Chrome avviato', p.pid, flush=True)
+        except Exception as e:
+            print('lavoratore non avviato:', e, file=sys.stderr, flush=True)
+        time.sleep(60)
+
+
 def aggiornati():
     """14/11 · Maurizio ha riacceso G10 e Ally dallo stop: il cucitore ripartito dallo stop era quello vecchio (lo si
     scarica solo all'avvio di Windows) e ha cucito il giorno dell'abbazia col solo primo pezzo. Ogni 10 minuti, fra un
@@ -1873,6 +1909,8 @@ def main():
         o.casa = o.casa or 'privata'
     if o.casa and not o.una:                                   # 20/11: la cartella dei file degli schermi (vedi servi_cartella)
         threading.Thread(target=servi_cartella, daemon=True).start()
+    if o.casa and not o.una and 'ally' in o.chi.lower() and not ACCESSO:   # 21/11: la Ally fa i lavori AI al posto del telefono
+        threading.Thread(target=lavoratore_chrome, args=(o.casa, o.chi), daemon=True).start()
     if o.casa and not o.una and not ACCESSO:                   # la spinta: solo sul canale del link (la stanza privata resta al giro leggero al minuto)
         threading.Thread(target=ascolta_spinte, args=(o.casa,), daemon=True).start()
     if o.casa and o.pieno:
