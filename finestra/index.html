@@ -1164,7 +1164,9 @@ function giro(ora){
   if (lento > .6 && qualita && !disegnoUrl && scala <= Math.max(scalaMin, .5)) qualita = 0; else if (lento < .1 && !qualita) qualita = 1;   /* con &disegno fisso nessun effetto si spegne (5/11) */
   const k = 1 - Math.exp(-dt * .45);
   const dentro = internoDi(scena);
-  const o = oraDi(scena), tgt = dentro ? DENTRO : METEO[scena.meteo] || METEO.sereno, base = scena.intensita == null ? .75 : scena.intensita;
+  /* 21/11 · con gli scuri chiusi (taverna deserta) fuori non si vede: per luce dello schermo, notte e colori vale sempre la notte
+     (Maurizio: «con scuri chiusi, se di giorno, notte, alba, tramonto non dovrebbe cambiare niente, in realtà cambiano i riflessi») */
+  const o = scena.scuri && scena.immagini && scena.immagini.scuri ? 'notte' : oraDi(scena), tgt = dentro ? DENTRO : METEO[scena.meteo] || METEO.sereno, base = scena.intensita == null ? .75 : scena.intensita;
   /* 9/11: con la nebbia che sale sale anche la nebbia di tutto il paesaggio (fino al 70%), come il cursore nell'app */
   const intens = scena.meteo === 'nebbia' && saleK > 0 ? base + (Math.max(base, .7) - base) * saleK * saleK * (3 - 2 * saleK) : base;
   for (const key in tgt){
