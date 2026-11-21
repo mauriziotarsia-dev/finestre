@@ -28,7 +28,7 @@
 <script src="../js/accesso.js?v=8"></script>
 <script src="../js/qrcode.js?v=1"></script>
 <script src="../js/vita.js?v=5"></script>
-<script src="../js/vista.js?v=6.06"></script>
+<script src="../js/vista.js?v=6.07"></script>
 <script src="../js/inseguitore.js?v=5"></script>
 <script src="../js/uccelli.js?v=10"></script>
 <script src="../js/bard.js?v=9"></script>
@@ -484,7 +484,7 @@ function progressoOra(o, msDa){
   if (o === 'notte' && h < a) h += 24;
   return Math.max(0, Math.min(1, (h - a) / (b - a)));
 }
-const fuoriMet = {coperto: 0, pioggia: 0, tempesta: 0};   /* 15/11 sera · in un interno: il tempo di fuori visto dalle finestre */
+const fuoriMet = {coperto: 0, pioggia: 0, tempesta: 0, nebbia: 0, neve: 0};   /* 15/11 sera · in un interno: il tempo di fuori visto dalle finestre */
 let fpsMisurati = 60, uccelli = 0, cieloX = Math.random(), notteFinta = 0, luce = .7, lampo = null, prossimoLampo = 0, lampoX = .5;
 
 /* un lampo: dal programma del temporale (js/bard.js, uguale su tutti gli schermi) o a comando (senza dati: a caso) */
@@ -1181,7 +1181,7 @@ function giro(ora){
     met[key] += (v - met[key]) * k;
   }
   { const fv = dentro ? METEO[scena.meteo] || METEO.sereno : DENTRO;
-    for (const key in fuoriMet){ let v = fv[key] || 0; if (key === 'pioggia') v *= .35 + intens * .9; else if (key === 'coperto' && scena.meteo === 'nuvoloso') v = Math.min(1, v * (.45 + intens * .73)); fuoriMet[key] += (v - fuoriMet[key]) * k; } }
+    for (const key in fuoriMet){ let v = fv[key] || 0; if (key === 'pioggia' || key === 'neve') v *= .35 + intens * .9; else if (key === 'nebbia') v = Math.min(1, v * (.25 + intens * .95)); else if (key === 'coperto' && scena.meteo === 'nuvoloso') v = Math.min(1, v * (.45 + intens * .73)); fuoriMet[key] += (v - fuoriMet[key]) * k; } }
   const nc = NEBBIA_ORA[o];
   for (let i = 0; i < 3; i++){ const grigio = o === 'notte' ? .1 : .6; nebCol[i] += (nc[i] + (grigio - nc[i]) * met.coperto * .35 - nebCol[i]) * k; }
   const finta = o === 'notte' && scena.immagini && !vistaDi(scena).im.notte && !scena.yt ? 1 : 0;
@@ -1278,7 +1278,7 @@ function giro(ora){
     t: (ora / 1000) % 3588, trasparente: !!scena.yt, movimento: scena.movimento !== false, prospettiva: scena.prospettiva !== false,
     coperto: met.coperto, nebbia: met.nebbia, pioggia: met.pioggia, neve: met.neve, tempesta: met.tempesta, vento: met.vento, raffica: [rafficaT, rafficaSeme, 1], sale,
     lampo: intensitaLampo(ora), lampoX, lampoS: lampo ? lampo.seme || 0 : 0, lampoB: lampo && lampo.fulmine ? 1 : 0, uccelli: Math.max(uccelli, pip > .05 ? 1 : 0), stormi: stormi.dati(), notte,
-    fuori: [fuoriMet.coperto, fuoriMet.pioggia, fuoriMet.tempesta],
+    fuori: [fuoriMet.coperto, fuoriMet.pioggia, fuoriMet.tempesta, fuoriMet.nebbia, fuoriMet.neve],
     vita: {o, k: kOra, interno: dentro}, pulviscolo, nebViva, ombre, meteora, cieloX, notteFinta, luce, buio: scuro, qualita, colNebbia: nebCol, occhio, margine
   };
   ultimoParam = param;

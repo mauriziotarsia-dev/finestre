@@ -74,7 +74,8 @@ uniform vec4 uUBox;           /* dove sono, tutti insieme (x0, y0, x1, y1 nella 
 uniform float uNotte;         /* 0 giorno … 1 notte (stelle, fuochi che tremolano) */
 uniform float uOmbre;         /* quanto si vedono le ombre delle nuvole (giorno sereno) */
 uniform float uDentro;        /* 14/11 sera · 1 = un interno (la taverna): niente cielo né ombre di nuvole; il quarto canale del vento porta il respiro della luce dei fuochi */
-uniform vec3 uFuori;          /* 15/11 sera · in un interno, il tempo di fuori visto dalle finestre: coperto, pioggia, tempesta */
+uniform vec4 uFuori;          /* 15/11 sera · in un interno, il tempo di fuori visto dalle finestre: coperto, pioggia, tempesta; 21/11: nebbia */
+uniform float uFuoriN;        /* 21/11 · in un interno: la neve di fuori */
 uniform vec4 uMeteora;        /* stella cadente: da (x, y) a (z, w), nella vista */
 uniform float uMeteoraK;      /* a che punto è (0 = nessuna) */
 uniform float uHaVento;   /* (il passaggio a bassa risoluzione scrive dal basso: si legge capovolto) */
@@ -886,7 +887,9 @@ void main(){
       /* ⚠ 20/11 (Maurizio: «aumenta un po' la luminosità di giorno, aumentando la luce che entra dalle finestre»): quello che
          è illuminato da fuori (la chiazza sul pavimento, i raggi, le panche e le tovaglie al sole; i vetri meno, sono già
          chiari) diventa più luminoso, nel dipinto e nel video insieme; le fiamme e i loro riflessi caldi no */
-      if (uFuoriK > .001) col *= 1. + uFuoriK * max(fuoriD * (1. - .7 * smoothstep(.6, .72, lumD)), fasF);
+      /* 21/11 (Maurizio: «nuvoloso, nebbia, pioggia, etc dovrebbero cambiare la luce che viene da fuori»): senza sole la luce in più cala */
+      float soleF = 1. - max(max(uFuori.x, uFuori.y), max(uFuori.w * .9, uFuoriN * .8));
+      if (uFuoriK > .001) col *= 1. + uFuoriK * (.2 + .8 * soleF) * max(fuoriD * (1. - .7 * smoothstep(.6, .72, lumD)), fasF);
       if (fuoriD > .02 || fasF > .01){
         float vetroD = smoothstep(.6, .72, lumD);
         /* ⚠ 16/11 (Maurizio: «rendiamo il pulviscolo e la luce che entra dalle finestre più viva»): il respiro è più ampio
@@ -895,14 +898,14 @@ void main(){
         float respiro = rumore(vec2(uT * .13, 5.7)) * .6 + rumore(vec2(uT * .31, 9.2)) * .4;
         float passa = smoothstep(.6, .82, rumore(vec2(uT * .035, 2.3)));
         float luceF = (respiro - .5) - passa * .45;
-        float bello = 1. - max(uFuori.x, uFuori.y);   /* col brutto tempo niente fasci né granelli */
+        float bello = soleF;   /* col brutto tempo niente fasci né granelli (21/11: anche con nebbia e neve) */
         vec3 lc = uFascioD.z > .5 ? uFascioC : vec3(1., .96, .86);
         if (fuoriD > .02){
           vec2 qd = uv * vec2(uAspetto, 1.) * 16.;
           /* 16/11: i banchi scorrono quasi il doppio più svelti */
           float pulv = rumore(qd + vec2(uT * .14, -uT * .28)) * .5 + rumore(qd * 2.1 + vec2(-uT * .12, -uT * .46) + 7.3) * .3 + rumore(qd * 4.3 + vec2(uT * .21, -uT * .66) + 3.1) * .2;
           /* il pulviscolo sta nell'aria (raggi, chiazza sul pavimento), non sui vetri: i vetri, più chiari, seguono solo il respiro */
-          col *= 1. + fuoriD * (1.1 * uPolvK * (pulv - .5) * (1. - vetroD) + .55 * luceF * (1. - .5 * vetroD));   /* sul TV vero, con .55 e .25, in dieci secondi i vetri cambiavano dell'1,5%: non si vedeva */
+          col *= 1. + fuoriD * (1.1 * uPolvK * (pulv - .5) * (1. - vetroD) * (.3 + .7 * bello) + .55 * luceF * (1. - .5 * vetroD) * (.4 + .6 * bello));   /* sul TV vero, con .55 e .25, in dieci secondi i vetri cambiavano dell'1,5%: non si vedeva */
         }
         /* 16/11 · nel fascio la luce nell'aria cresce e cala col respiro, e la polvere ci fa banchi che girano e scivolano */
         if (fasF > .01) col += fasF * lc * (.15 * uPolvK * (gVentoRG.x - .5) * 2. + .09 * luceF) * bello;
@@ -931,11 +934,13 @@ void main(){
            luce più grigia e gocce sui vetri). Coperto e pioggia spengono i raggi e la chiazza sul pavimento e ingrigiscono
            i vetri; sui vetri chiari le gocce scendono a righe, ognuna col suo passo, e qualche goccia ferma luccica; il
            lampo del temporale accende vetri e raggi (il tuono si sente, js/bard.js) */
-        float brutto = max(uFuori.x * .8, uFuori.y);
+        float brutto = max(max(uFuori.x * .8, uFuori.y), max(uFuori.w * .85, uFuoriN * .7));
         if (brutto + uLampo > .005){
+          /* 21/11: il cuore chiaro delle fiamme (camino, torce: chiaro e appena caldo) non è luce di fuori: col brutto tempo diventava azzurrino */
+          float fuoriB = fuoriD * (1. - smoothstep(.05, .12, col.r - col.b) * smoothstep(.62, .75, lumD)) * (1. - smoothstep(.02, .2, gFiamma));
           float vetro = smoothstep(.6, .72, lumD);
-          col = mix(col, vec3(lumD) * vec3(.86, .93, 1.06), fuoriD * brutto * .8);
-          col *= 1. - fuoriD * brutto * (.55 * (1. - vetro) + .38 * vetro);
+          col = mix(col, vec3(lumD) * vec3(.9, .94, 1.), fuoriB * brutto * .8);   /* 21/11: grigio appena freddo (era .86/.93/1.06: il cuore bianco dei fuochi diventava azzurro) */
+          col *= 1. - fuoriB * brutto * (.55 * (1. - vetro) + .38 * vetro);
           if (uFuori.y > .01 && vetro > .02){
             vec2 qg = uv * vec2(uAspetto, 1.) * vec2(150., 1.);
             float cg = floor(qg.x), hg = fract(sin(cg * 91.7 + 3.1) * 43758.5453);
@@ -946,9 +951,34 @@ void main(){
             vec2 qf = uv * vec2(uAspetto, 1.) * 110.; vec2 cf = floor(qf);
             float hf = fract(sin(dot(cf, vec2(41.3, 289.1))) * 43758.5453);
             float ferma = smoothstep(.34, .12, length(fract(qf) - .5 - (vec2(fract(hf * 17.), fract(hf * 31.)) - .5) * .4)) * step(.78, hf);
-            float pg = vetro * fuoriD * min(1., uFuori.y * 1.3);
+            float pg = vetro * fuoriB * min(1., uFuori.y * 1.3);
             col *= 1. - pg * (.5 * scia + .38 * ferma);
             col += pg * (.6 * testa + .3 * ferma) * vec3(.95, .97, 1.);
+          }
+          /* ⚠ 21/11 · QUELLO CHE SI VEDE FUORI (Maurizio: «dovrebbe vedersi qualcosa fuori dalla finestra. Per pioggia e
+             temporale si vede, per il resto non mi pare»). Sui vetri chiari: nuvoloso, banchi di nuvole grigie che passano
+             piano; nebbia, il fuori si perde in un bianco latte che si muove adagio (il disegno degli alberi sparisce);
+             neve, fiocchi che scendono ondeggiando, due grandezze. */
+          vec2 qv = uv * vec2(uAspetto, 1.);
+          if (uFuori.x > .03 && vetro > .02){
+            float nv = rumore(qv * 3. + vec2(uT * .022, .3)) * .6 + rumore(qv * 7. + vec2(uT * .04, 1.7)) * .4;
+            col *= 1. - vetro * fuoriB * uFuori.x * .4 * smoothstep(.38, .78, nv);
+          }
+          if (uFuori.w > .02 && vetro > .02){
+            float nb = rumore(qv * 4. + vec2(uT * .03, -uT * .01)) * .55 + rumore(qv * 9. + vec2(-uT * .05, 3.1)) * .45;
+            vec3 latte = vec3(lumD) * vec3(.97, .98, 1.) * (.9 + .22 * nb);
+            col = mix(col, latte, vetro * fuoriB * min(1., uFuori.w * 1.05));
+          }
+          if (uFuoriN > .02 && vetro > .02){
+            float fi = 0.;
+            for (int l = 0; l < 2; l++){
+              float sc = l == 0 ? 38. : 70., ve = l == 0 ? .055 : .035;
+              vec2 qs = qv * sc + vec2(sin(uT * .6 + qv.y * 7. + float(l) * 2.1) * .7, -uT * ve * sc);
+              vec2 cs = floor(qs); float hs = fract(sin(dot(cs, vec2(27.1 + float(l), 113.7))) * 43758.5453);
+              vec2 ps = fract(qs) - .5 - (vec2(fract(hs * 13.), fract(hs * 29.)) - .5) * .55;
+              fi += smoothstep(l == 0 ? .2 : .13, .0, length(ps)) * step(.5, hs) * (l == 0 ? 1. : .7);
+            }
+            col += vetro * fuoriB * min(1., uFuoriN * 1.2) * fi * .6 * vec3(.97, .98, 1.);
           }
           col += fuoriD * uLampo * (.9 * vetro + .45 * (1. - vetro)) * vec3(.88, .92, 1.);
         }
@@ -1541,7 +1571,7 @@ class Vista {
     this.fumoDati = new Float32Array(32); this.fumoForza = new Float32Array(8);
     this.u = posizioni(this.p, ['uOcchio','uImg0b','uVmix','uImg0','uImg1','uDep0','uDep1','uMap','uCrop0','uCrop1','uCropD0','uCropD1','uUccelli','uCielo0','uCielo1','uCieloM0','uCieloM1','uCieloX','uFermo0','uFermo1','uHaFermo0','uHaFermo1','uRap0','uHaRap0','uVentoT','uAlberiM','uHaVento','uU','uNU','uUBox','uFumo','uFumoI','uNFumo','uFumoA','uFiamma','uFiammaS','uFiammaL','uNFiamma','uFiamT','uHaFiamT','uCamino','uNCamino','uParte','uNParte','uIns0','uIns1','uRiqBox','uRiqTile','uRiqSam','uNebV','uNebG','uDentro','uFascioD','uFascioC','uFuoriK','uPolvK','uScuro','uChiar','uNotte','uOmbre','uMeteora','uMeteoraK','uMix','uHaImg','uHaDep0','uHaDep1','uMovimento0','uMovimento1',
       'uLato','uT','uTV','uRaf','uAspetto','uPix','uCoperto','uNebbia','uPioggia','uNeve','uTempesta','uVento','uLampo','uLampoX','uLampoS','uLampoB',
-      'uNotteFinta','uLuce','uBuio','uQualita','uColNebbia','uMeteo','uSale','uFuori']);
+      'uNotteFinta','uLuce','uBuio','uQualita','uColNebbia','uMeteo','uSale','uFuori','uFuoriN']);
     gl.useProgram(this.p);
     gl.uniform1i(this.u.uImg0, 0); gl.uniform1i(this.u.uImg1, 1); gl.uniform1i(this.u.uDep0, 2); gl.uniform1i(this.u.uDep1, 3); gl.uniform1i(this.u.uImg0b, 4); gl.uniform1i(this.u.uMeteo, 5); gl.uniform1i(this.u.uCielo0, 6); gl.uniform1i(this.u.uCielo1, 7); gl.uniform1i(this.u.uFermo0, 8); gl.uniform1i(this.u.uFermo1, 9); gl.uniform1i(this.u.uVentoT, 10); if (this.u.uAlberiM) gl.uniform1i(this.u.uAlberiM, 11); if (this.u.uRap0) gl.uniform1i(this.u.uRap0, 12); if (this.u.uFiamT) gl.uniform1i(this.u.uFiamT, 13); if (this.u.uIns0) gl.uniform1i(this.u.uIns0, 14); if (this.u.uIns1) gl.uniform1i(this.u.uIns1, 15);
     this.unita = gl.getParameter(gl.MAX_TEXTURE_IMAGE_UNITS) || 8;   /* il fermo vuole 10 unità (il Raspberry 4 ne ha 16) */
@@ -2174,7 +2204,7 @@ class Vista {
        spenti per prova: la maschera del video si legge comunque da interno (due piani) */
     const dentro = haImg && !!(s.vita && s.vita.interno) ? (sp.has('fuochi') ? 2 : 1) : 0;
     gl.uniform1f(u.uDentro, dentro);
-    gl.uniform3fv(u.uFuori, dentro ? (s.fuori || [0, 0, 0]) : [0, 0, 0]);
+    { const fu = dentro && s.fuori ? s.fuori : [0, 0, 0, 0, 0]; gl.uniform4f(u.uFuori, fu[0] || 0, fu[1] || 0, fu[2] || 0, fu[3] || 0); gl.uniform1f(u.uFuoriN, fu[4] || 0); }   /* 21/11: + nebbia e neve */
     /* 16/11 · i fasci di luce delle finestre (mascheraFasci); la larghezza del foro si mette foro per foro */
     const fasci = dentro === 1 && f0.fascio && !sp.has('fasci') ? f0.fascio : null;
     gl.uniform3fv(u.uFascioC, fasci ? fasci.col : [1, .96, .86]);
