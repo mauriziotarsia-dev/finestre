@@ -1598,11 +1598,18 @@ def lavoratore_chrome(casa, chi):
     url = 'https://mauriziotarsia-dev.github.io/finestre/telecomando/?casa=' + urllib.parse.quote(casa) + '&lavoratore=1'
 
     def vivo():
+        # vivo = il browser lavoratore di prima c'è ancora. Se era l'altro (Edge prima che ci fosse Chrome) lo si chiude,
+        # così non ce ne sono mai due a fare gli stessi lavori; si chiude solo il suo pid (profilo suo, non l'Edge del TV)
         try:
             pid = int(open(file_pid).read().strip())
             out = subprocess.run(['tasklist', '/FI', 'PID eq %d' % pid, '/NH'], capture_output=True, text=True, timeout=20,
-                                 creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0)).stdout
-            return nome_exe in out.lower()
+                                 creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0)).stdout.lower()
+            if nome_exe in out: return True
+            if 'msedge.exe' in out or 'chrome.exe' in out:
+                subprocess.run(['taskkill', '/PID', str(pid), '/T', '/F'], capture_output=True, timeout=30,
+                               creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+                di(stato='chiuso il lavoratore di prima', pid=pid); time.sleep(5)
+            return False
         except Exception: return False
 
     while True:
