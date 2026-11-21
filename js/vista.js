@@ -277,7 +277,9 @@ vec3 luciAccese(vec3 c, sampler2D L, vec4 lm, vec2 ti){
   vec3 F = (1. - d) * (uLuciW.x * qt * qt + uLuciW.y * ql * ql + max(uLuciW.z, lm.z) * qc * qc);
   vec3 Lu = d + F;
   float k = clamp(m.r * (1. - uLuciW.x) + m.g * (1. - uLuciW.y) + m.b * (1. - uLuciW.z), 0., 1.);
-  vec3 o = mix(pow(c, vec3(2.2)) * Lu, pow(S, vec3(2.2)) + af * af * F, k);
+  /* sulla sorgente spenta niente luce di brace (le torce da terra sono nello stesso gruppo dei camini: lì faceva un alone) */
+  vec3 F0 = (1. - d) * (uLuciW.x * qt * qt + uLuciW.y * ql * ql + uLuciW.z * qc * qc);
+  vec3 o = mix(pow(c, vec3(2.2)) * Lu, pow(S, vec3(2.2)) + af * af * F0, k);
   if (gIns > .5) gLuciRel = pow(max(Lu, vec3(0.)), vec3(1. / 2.2));
   if (gIns > .5) gLuceF = clamp(dot(F, vec3(.299, .587, .114)) / max(dot(Lu, vec3(.299, .587, .114)), 1e-4), 0., 1.);
   return pow(max(o, vec3(0.)), vec3(1. / 2.2));
