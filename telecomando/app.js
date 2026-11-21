@@ -9,7 +9,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
 const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 const euro = n => (n < .1 ? n.toFixed(3) : n.toFixed(2)).replace('.', ',') + ' $';
-const VERSIONE = '6.90';
+const VERSIONE = '6.91';
 /* 8/11 · l'app si aggiorna da sola (Maurizio: «vedo ancora il quadrato con la doppia finestra»: sul telefono restava la
    versione vecchia anche dopo averla chiusa). Quando torna in primo piano, e ogni 10 minuti, chiede al server quale
    app.js c'è adesso; se è un'altra, ricarica (mai mentre un lavoro AI è in corso) */
@@ -668,7 +668,7 @@ function disegnaFinestre(){
         <button class="btn" data-fai="apriScheda" data-v="paesaggi">${icona('quadro', 20)}<span>Paesaggi</span></button>
       </div>
       <div class="sezione">${titolo('orologio', 'Ora')}<div class="pads c5" id="sceltaOra">${ORE.map(([v, , t]) => pad('ora', v, v, t, false, 40)).join('')}</div></div>
-      <div class="sezione" id="sezLuci" hidden>${titolo('fiamma', 'Luci della taverna')}<div class="pads c4" id="sceltaLuci">${LUCI_TAVERNA.map(([v, med, t]) => pad('luce', v, med, t, false, 38)).join('')}</div>
+      <div class="sezione" id="sezLuci" hidden>${titolo('fiamma', 'Luci della taverna')}<div class="pads c4" id="sceltaLuci">${LUCI_TAVERNA.map(([v, med, t]) => pad('luceTaverna', v, med, t, false, 38)).join('')}</div>
         <p class="nota" style="margin-top:6px">Basse: camini e torce da terra · Medie: torce a muro · Alte: lampadario. Con gli scuri chiusi l'ora non conta.</p></div>
       <div class="sezione">${titolo('nuvola', 'Tempo')}<div class="pads c6" id="sceltaMeteo">${METEO.map(([v, , t]) => pad('meteo', v, MED_METEO[v], t, false, 38)).join('')}</div>
         <div class="pannello" id="pannelloTempo" style="margin-top:10px">
@@ -728,7 +728,7 @@ function aggiornaFinestre(){
   s.querySelectorAll('[data-fai="meteo"]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.v === scena.meteo)));
   { const pI = libreria.find(x => x.id === scena.paesaggio), sl = $('#sezLuci'), lu = scena.luci || {};
     if (sl) sl.hidden = !haInterruttori(pI);
-    s.querySelectorAll('[data-fai="luce"]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.v === 'scuri' ? !!scena.scuri : lu[b.dataset.v] !== 0))); }
+    s.querySelectorAll('[data-fai="luceTaverna"]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.v === 'scuri' ? !!scena.scuri : lu[b.dataset.v] !== 0))); }
   const vv = ventoVicino(scena.vento);
   s.querySelectorAll('[data-fai="vento"]').forEach(b => b.setAttribute('aria-pressed', String((b.dataset.v === '' ? null : +b.dataset.v) === vv)));
   disegnaStrip();
@@ -2948,7 +2948,7 @@ const AZIONI = {
   vaiImpBard: () => { aperti.add('bard'); scrivi('atm-gruppi-aperti', [...aperti]); vai('impostazioni'); },
   chiudiFoglio: () => chiudiFoglio(),
   ora: v => cambia({ora:v}),
-  luce: v => { if (v === 'scuri') return cambia({scuri: !scena.scuri}); const l = Object.assign({t: 1, l: 1, c: 1}, scena.luci || {}); l[v] = l[v] ? 0 : 1; cambia({luci: l}); },
+  luceTaverna: v => { if (v === 'scuri') return cambia({scuri: !scena.scuri}); const l = Object.assign({t: 1, l: 1, c: 1}, scena.luci || {}); l[v] = l[v] ? 0 : 1; cambia({luci: l}); },
   meteo: v => cambia({meteo:v, vento:null}),   /* 8/11: il vento lo decide il tempo */
   fps: (v, b) => { cambia({fps:+v}); b.parentNode.querySelectorAll('button').forEach(x => x.setAttribute('aria-pressed', String(x === b))); },
   accendi: () => cambia({acceso: !scena.acceso}),
