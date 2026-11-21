@@ -1608,7 +1608,7 @@ def lavoratore_chrome(casa, chi):
     while True:
         try:
             if not vivo():
-                p = subprocess.Popen([chrome, '--headless=new', '--user-data-dir=' + os.path.join(cartella, 'profilo'), '--no-first-run',
+                p = subprocess.Popen([chrome, '--headless=new', '--user-data-dir=' + os.path.join(cartella, 'profilo' if nome_exe == 'chrome.exe' else 'profilo-edge'), '--no-first-run',
                                       '--no-default-browser-check', '--disable-gpu', '--disable-background-timer-throttling',
                                       '--disable-renderer-backgrounding', '--disable-backgrounding-occluded-windows', '--mute-audio',
                                       '--no-pings', '--disable-features=msEdgeStartupBoost,msImplicitSignin', url],
