@@ -9,7 +9,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
 const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 const euro = n => (n < .1 ? n.toFixed(3) : n.toFixed(2)).replace('.', ',') + ' $';
-const VERSIONE = '6.92';
+const VERSIONE = '6.93';
 /* 8/11 · l'app si aggiorna da sola (Maurizio: «vedo ancora il quadrato con la doppia finestra»: sul telefono restava la
    versione vecchia anche dopo averla chiusa). Quando torna in primo piano, e ogni 10 minuti, chiede al server quale
    app.js c'è adesso; se è un'altra, ricarica (mai mentre un lavoro AI è in corso) */
@@ -1307,7 +1307,7 @@ async function conLavoro(nome, fn){
   let blocco = null; try { blocco = await navigator.wakeLock?.request('screen'); } catch(e) {}
   try { await fn(lavoro); lavoro.fatto = true; }
   catch(e) { lavoro.errore = e.message; segnala(e); }
-  finally { lavoro.finito = true; lavoro.av = null; try { blocco && blocco.release(); } catch(e) {} disegnaLavoro(); setTimeout(profonditaInSottofondo, 3000); }
+  finally { lavoro.finito = true; lavoro.av = null; try { blocco && blocco.release(); } catch(e) {} disegnaLavoro(); if (LAVORATORE) rapportoLavoro(); setTimeout(profonditaInSottofondo, 3000); }
 }
 const misuraDi = async blob => { const b = await createImageBitmap(blob), largo = b.width / b.height > 1.2;
   return {w:b.width, h:b.height, largo, openai: largo ? 'tv' : Math.abs(b.width / b.height - .4) < .03 ? '832x2080' : '1024x1536'}; };
@@ -3442,6 +3442,8 @@ const MonitorAlly = (() => {
     const recente = st && st.chi === 'ally' && st.lavoro && (!st.finito || Date.now() - Date.parse(st.quando) < 2 * 3600e3);
     if (!recente || id === nascosto){ el.hidden = true; return; }
     ultimo = id; el.hidden = false;
+    /* il battito della Ally sa se il lavoro è finito anche quando l'ultimo rapporto non l'ha detto */
+    if (!st.finito && s && s.lavoro && s.lavoro.nome === st.lavoro && s.lavoro.finito && Date.parse(s.quando) >= Date.parse(st.quando)){ st = Object.assign({}, st, {finito: true, errore: st.errore || s.lavoro.errore, quando: s.quando}); }
     const vivo = s && Date.now() - Date.parse(s.quando) < 3 * 60e3, tace = Date.now() - Date.parse(st.quando);
     const passi = st.passi || [], ora = passi.filter(p => p.startsWith('ora ')).pop(), errori = passi.filter(p => p.startsWith('errore '));
     const t = x => esc(String(x).replace(/^\w+ · /, ''));
