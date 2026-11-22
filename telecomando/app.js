@@ -9,7 +9,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 const leggi = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } };
 const scrivi = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
 const euro = n => (n < .1 ? n.toFixed(3) : n.toFixed(2)).replace('.', ',') + ' $';
-const VERSIONE = '6.91';
+const VERSIONE = '6.92';
 /* 8/11 · l'app si aggiorna da sola (Maurizio: «vedo ancora il quadrato con la doppia finestra»: sul telefono restava la
    versione vecchia anche dopo averla chiusa). Quando torna in primo piano, e ogni 10 minuti, chiede al server quale
    app.js c'è adesso; se è un'altra, ricarica (mai mentre un lavoro AI è in corso) */
@@ -1272,6 +1272,8 @@ function passo(id, cls, testo){
   const p = lavoro.passi.find(x => x.id === id);
   if (p){ p.cls = cls; p.testo = testo; } else lavoro.passi.push({id, cls, testo});
   disegnaLavoro();
+  /* 22/11 · sulla Ally ogni passo va subito in rete (al più ogni 3 s): il telefono lo mostra mentre lavora */
+  if (LAVORATORE && !passo._t){ passo._t = setTimeout(() => { passo._t = null; rapportoLavoro(); }, 3000); }
 }
 function disegnaLavoro(){
   const posti = [$('#lavoroCrea'), $('#lavoroFoglio')].filter(Boolean);
@@ -1299,7 +1301,7 @@ function disegnaLavoro(){
 }
 async function conLavoro(nome, fn){
   if (lavoro && !lavoro.finito){ avviso('C\'è già un lavoro in corso: aspetta che finisca.', true); return; }
-  lavoro = {nome, passi:[], anteprime:{}, av:null, errore:null, fatto:false, finito:false, p:null};
+  lavoro = {nome, passi:[], anteprime:{}, av:null, errore:null, fatto:false, finito:false, p:null, inizio: Date.now()};
   disegnaLavoro();
   { const el = $('#lavoroFoglio') || $('#lavoroCrea'); if (el) setTimeout(() => el.scrollIntoView({behavior: 'smooth', block: 'center'}), 50); }
   let blocco = null; try { blocco = await navigator.wakeLock?.request('screen'); } catch(e) {}
@@ -1544,7 +1546,7 @@ async function costoAggiorna(p, stretta){
 }
 function rapportoLavoro(extra = {}){
   const L = lavoro || {};
-  const st = Object.assign({quando: new Date().toISOString(), chi: LAVORATORE ? 'ally' : 'telefono', chiave: richiestaUltima ? richiestaUltima.chiave : null, lavoro: L.nome || null, paesaggio: L.p ? L.p.nome : null, finito: !!L.finito, errore: L.errore || null,
+  const st = Object.assign({quando: new Date().toISOString(), chi: LAVORATORE ? 'ally' : 'telefono', chiave: richiestaUltima ? richiestaUltima.chiave : null, titolo: richiestaUltima ? richiestaUltima.titolo || null : null, inizio: L.inizio ? new Date(L.inizio).toISOString() : null, av: L.av != null ? Math.round(L.av) : null, lavoro: L.nome || null, paesaggio: L.p ? L.p.nome : null, finito: !!L.finito, errore: L.errore || null,
     passi: (L.passi || []).map(x => x.cls + ' · ' + x.testo)}, extra);
   fetch(SUPABASE_URL + '/storage/v1/object/dmaster-media/finestre/banco/lavoro-telefono.json', {method: 'POST',
     headers: {apikey: SUPABASE_CHIAVE_PUBBLICA, Authorization: 'Bearer ' + SUPABASE_CHIAVE_PUBBLICA, 'Content-Type': 'image/png', 'x-upsert': 'true'}, body: JSON.stringify(st)}).catch(() => {});
@@ -3420,6 +3422,47 @@ const Ally = (() => {
   return {FA, avvia, mandaChiavi, lavora};
 })();
 if (LAVORATORE) Ally.lavora();
+
+/* ═══ 22/11 · A CHE PUNTO È LA ALLY (Maurizio: «sarebbe utile su app su phone monitorare andamento, non ho idea se stia
+   girando o se ci siano problemi e dove siamo»). Sul telefono, una fascia in alto: mentre la Ally lavora (o ha finito da
+   poco) dice che cosa fa, da quanto, il passo di adesso e la barra; un tocco apre tutti i passi. Legge ogni 5 s
+   lavoro-telefono.json (scritto dalla Ally a ogni passo) e ally-lavoratore.json (il battito, ogni minuto): se la Ally tace
+   da più di 3 minuti con un lavoro aperto, lo dice. Un tocco sulla × la nasconde fino al lavoro dopo. */
+const MonitorAlly = (() => {
+  const PUB = SUPABASE_URL + '/storage/v1/object/public/dmaster-media/finestre/banco/';
+  const leggiP = async n => { try { const r = await fetch(PUB + n + '?t=' + Date.now(), {cache: 'no-store'}); return r.ok ? await r.json() : null; } catch(e) { return null; } };
+  let el = null, aperto = false, nascosto = leggi('atm-ally-nascosto', ''), ultimo = null;
+  const min = ms => { const m = Math.round(ms / 60e3); return m < 1 ? 'meno di un minuto' : m === 1 ? '1 minuto' : m < 60 ? m + ' minuti' : Math.floor(m / 60) + ' h ' + (m % 60) + ' min'; };
+  function disegna(st, s){
+    if (!el){ el = document.createElement('div'); el.id = 'statoAlly'; el.setAttribute('role', 'status');
+      el.style.cssText = 'position:fixed;left:max(10px,env(safe-area-inset-left));right:max(10px,env(safe-area-inset-right));top:calc(env(safe-area-inset-top) + 8px);z-index:60;border-radius:12px;box-shadow:0 6px 24px rgba(0,0,0,.45);max-height:60vh;overflow:auto;cursor:pointer';
+      el.addEventListener('click', e => { if (e.target.closest('[data-chiudi-ally]')){ nascosto = ultimo || ''; scrivi('atm-ally-nascosto', nascosto); el.hidden = true; return; } aperto = !aperto; giro(); });
+      document.body.appendChild(el); }
+    const id = st ? (st.chiave || '') + '|' + (st.inizio || st.lavoro || '') : '';
+    const recente = st && st.chi === 'ally' && st.lavoro && (!st.finito || Date.now() - Date.parse(st.quando) < 2 * 3600e3);
+    if (!recente || id === nascosto){ el.hidden = true; return; }
+    ultimo = id; el.hidden = false;
+    const vivo = s && Date.now() - Date.parse(s.quando) < 3 * 60e3, tace = Date.now() - Date.parse(st.quando);
+    const passi = st.passi || [], ora = passi.filter(p => p.startsWith('ora ')).pop(), errori = passi.filter(p => p.startsWith('errore '));
+    const t = x => esc(String(x).replace(/^\w+ · /, ''));
+    const durata = st.inizio ? min((st.finito ? Date.parse(st.quando) : Date.now()) - Date.parse(st.inizio)) : null;
+    let stato, cls = 'in-corso';
+    if (st.errore){ stato = 'Errore'; cls = 'in-corso fatto'; }
+    else if (st.finito){ stato = 'Finito' + (errori.length ? ' (con ' + errori.length + ' passi non riusciti)' : ''); cls = 'in-corso fatto'; }
+    else if (!vivo || tace > 4 * 60e3){ stato = 'La Ally non risponde da ' + min(Math.max(tace, s ? Date.now() - Date.parse(s.quando) : tace)); cls = 'in-corso fatto'; }
+    else stato = 'La Ally sta lavorando';
+    el.innerHTML = `<div class="${cls}" style="margin:0;background:var(--fondo,#15110c)">${icona(st.errore ? 'chiudi' : st.finito ? 'spunta' : 'ricarica', 20)}<span style="flex:1;min-width:0">
+      <b>${esc(stato)}</b><small>${esc(st.titolo || st.lavoro || '')}${durata ? ' · ' + (st.finito ? 'in ' : 'da ') + durata : ''}</small>
+      ${st.errore ? `<small style="color:var(--rosso,#e07a6a)">${esc(st.errore)}</small>` : !st.finito && ora ? `<small>Adesso: ${t(ora)}</small>` : ''}
+      ${!st.finito && st.av != null ? `<div class="barra-av" style="margin-top:8px"><i style="width:${st.av}%"></i></div>` : ''}
+      ${aperto ? `<ul class="passi" style="margin-top:8px">${passi.map(p => { const c = p.split(' · ')[0]; return `<li class="${esc(c)}">${icona(c === 'fatto' ? 'spunta' : c === 'errore' ? 'chiudi' : c === 'ora' ? 'ricarica' : 'orologio', 16)}<span>${t(p)}</span></li>`; }).join('')}</ul>` : `<small style="opacity:.7">Tocca per vedere tutti i passi</small>`}
+      </span><button class="btn" data-chiudi-ally aria-label="Nascondi" style="flex:none;padding:4px 8px;min-height:0">${icona('chiudi', 16)}</button></div>`;
+  }
+  async function giro(){ const [st, s] = await Promise.all([leggiP('lavoro-telefono.json'), leggiP('ally-lavoratore.json')]); disegna(st, s); }
+  function parti(){ if (LAVORATORE) return; giro(); setInterval(() => { if (!document.hidden) giro(); }, 5000); document.addEventListener('visibilitychange', () => { if (!document.hidden) giro(); }); }
+  return {parti, giro};
+})();
+MonitorAlly.parti();
 
 /* via */
 avviaAccesso().finally(() => { if (libreriaStato === 'da caricare') caricaLibreria(); });
