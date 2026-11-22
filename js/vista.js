@@ -1816,6 +1816,9 @@ class Vista {
       const fv = fv0 == null ? null : typeof fv0 === 'number' ? fv0 : +fv0.gradi;
       f.fasciAng = typeof fv === 'number' && isFinite(fv) ? Math.max(-80, Math.min(80, fv)) : null;
       f.fasciVetri = fv0 && Array.isArray(fv0.vetri) ? fv0.vetri.filter(r => Array.isArray(r) && r.length === 4 && r[2] > r[0] && r[3] > r[1]).slice(0, 6) : null;
+      /* 22/11 (Maurizio, taverna deserta: all'alba «la luce che entra da fuori … con colori molto più caldi»): il colore dei
+         fasci si prende dai vetri; «col» [r, g, b] (0…1) nel file dei punti lo dice per quell'ora */
+      f.fasciCol = fv0 && Array.isArray(fv0.col) && fv0.col.length === 3 && fv0.col.every(v => isFinite(+v)) ? fv0.col.map(v => Math.max(0, Math.min(1, +v))) : null;
       /* 16/11 sera · quanto più buia la stanza («buio» per tutte le ore, «buioOre» {ora: …} per una sola; 0 … .8) e il
          pavimento più scuro («pavimentoOre» {ora: {k: quanto, poli: [[x, y], …] il suo contorno nell'immagine}}) */
       const bo = ora && j.buioOre ? j.buioOre[ora] : null, bv = bo != null ? bo : j.buio;
@@ -1845,7 +1848,7 @@ class Vista {
       f.camini.forEach((q, i) => { const r = (co || j.camini || []).filter(q => +q.w > 0 && +q.h > 0)[i]; q.g = r && 'tlc'.includes(r.g) ? r.g : null; });
       const lo = ora && j.legnoOre && j.legnoOre[ora];
       f.legno = lo && typeof lo.maschera === 'string' ? {k: Math.max(0, Math.min(1, +lo.k || .8)), riflessi: Math.max(0, Math.min(1, +lo.riflessi || 0)), url: new URL(lo.maschera, String(url).split('#')[0]).href} : null;
-    } catch(e) { f.fumi = []; f.fuochi = []; f.fiamme = []; f.camini = []; f.parti = []; f.inserti = []; f.fasciAng = null; f.scuro = 0; f.fuoriK = 0; f.polvK = 1; f.pavimento = null; f.legno = null; f.luciDef = null; }
+    } catch(e) { f.fumi = []; f.fuochi = []; f.fiamme = []; f.camini = []; f.parti = []; f.inserti = []; f.fasciAng = null; f.fasciCol = null; f.scuro = 0; f.fuoriK = 0; f.polvK = 1; f.pavimento = null; f.legno = null; f.luciDef = null; }
   }
   /* 9/11 · luci delle case (dall'immagine della notte) e prati delle lucciole (dalla profondità): js/vita.js.
      Le finestre accese si cercano una volta sola per immagine */
@@ -1941,7 +1944,7 @@ class Vista {
     f.fascio = null; f.pavimentoOk = false;
     if (this.internoInArrivo && f.aTex && mA){
       if (f.fasciAng != null) try { const fz = mascheraFasci(im, f.fasciAng, mA.width, mA.height, f.fasciVetri);
-        if (fz){ for (let i = 0; i < fz.a.length; i++) mA.data[i * 4 + 3] = 255 - fz.a[i]; f.fascio = fz; } } catch(e) { f.fascio = null; }
+        if (fz){ for (let i = 0; i < fz.a.length; i++) mA.data[i * 4 + 3] = 255 - fz.a[i]; if (f.fasciCol) fz.col = f.fasciCol; f.fascio = fz; } } catch(e) { f.fascio = null; }
       /* 16/11 sera · dentro il rosso (le chiome, che non ci sono) porta i legni e il pavimento da fare noce: il passaggio del
          vento lo passa al disegno. ⚠ Dalle 19:30 (Maurizio: «anche i legni più tipo noce, anche il parquet») i legni vengono
          da una maschera fatta da Claude sull'immagine (rosso, 1024 di larghezza): allora la maschera intera si rifà a 1024,
