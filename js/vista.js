@@ -64,7 +64,7 @@ float gVentoA;                /* 14/11 sera · il quarto canale del vento in que
 vec3 gVentoRG;                /* 16/11 · dentro: rosso, verde e blu del vento in questo punto (la polvere nei fasci di luce, quanto fascio c'è, quanto pavimento), dalla stessa lettura */
 uniform float uFuoriK;        /* 20/11 · dentro: quanto più forte la luce che entra dalle finestre («fuoriOre» nel file dei punti) */
 uniform float uPolvK;         /* 20/11 sera · dentro: quanto più forte il pulviscolo nella luce («polvereOre»; 1 = come prima) */
-uniform vec2 uScuro;          /* 16/11 sera · dentro: quanto più buia la stanza (ombre e mezzi toni; le luci restano) e quanto più scuro il pavimento */
+uniform vec3 uScuro;          /* 16/11 sera · dentro: quanto più buia la stanza (ombre e mezzi toni; le luci restano) e quanto più scuro il pavimento; z (22/11): quanto i riflessi sul legno tengono il loro colore */
 uniform vec4 uFascioD;        /* 16/11 · i fasci di luce delle finestre (mascheraFasci): direzione x, y; z = ci sono; w = larghezza su altezza del foro */
 uniform vec3 uFascioC;        /* il colore della luce dei vetri */
 #endif
@@ -1234,7 +1234,10 @@ void main(){
       float lS = dot(col, vec3(.299, .587, .114));
       float sc = mix(.6, .9, smoothstep(.2, .05, lS));
       sc = mix(sc, 1., .6 * smoothstep(.45, .8, lS));
-      vec3 noce = mix(vec3(1., .67, .48) * (lS / .747), col, .3) * sc;
+      /* 22/11 (Maurizio, taverna deserta: «i riflessi sui mobili e parquet devono essere più caldi, soprattutto al tramonto»):
+         il noce è il colore del legno, non della luce: con «riflessi» (legnoOre) dove il legno è illuminato forte resta il
+         colore della luce che ci batte (oro all'alba, arancio al tramonto) */
+      vec3 noce = mix(vec3(1., .67, .48) * (lS / .747), col, .3 + .6 * uScuro.z * smoothstep(.12, .45, lS)) * sc;
       col = mix(col, noce, mL);
     }
   }
@@ -1841,7 +1844,7 @@ class Vista {
       f.fiamme.forEach((q, i) => { const r = (fo || j.fiamme || [])[i]; q.g = r && 'tlc'.includes(r.g) ? r.g : null; });
       f.camini.forEach((q, i) => { const r = (co || j.camini || []).filter(q => +q.w > 0 && +q.h > 0)[i]; q.g = r && 'tlc'.includes(r.g) ? r.g : null; });
       const lo = ora && j.legnoOre && j.legnoOre[ora];
-      f.legno = lo && typeof lo.maschera === 'string' ? {k: Math.max(0, Math.min(1, +lo.k || .8)), url: new URL(lo.maschera, String(url).split('#')[0]).href} : null;
+      f.legno = lo && typeof lo.maschera === 'string' ? {k: Math.max(0, Math.min(1, +lo.k || .8)), riflessi: Math.max(0, Math.min(1, +lo.riflessi || 0)), url: new URL(lo.maschera, String(url).split('#')[0]).href} : null;
     } catch(e) { f.fumi = []; f.fuochi = []; f.fiamme = []; f.camini = []; f.parti = []; f.inserti = []; f.fasciAng = null; f.scuro = 0; f.fuoriK = 0; f.polvK = 1; f.pavimento = null; f.legno = null; f.luciDef = null; }
   }
   /* 9/11 · luci delle case (dall'immagine della notte) e prati delle lucciole (dalla profondità): js/vita.js.
@@ -2314,7 +2317,7 @@ class Vista {
     gl.uniform3fv(u.uFascioC, fasci ? fasci.col : [1, .96, .86]);
     gl.uniform1f(u.uFuoriK, dentro === 1 && !sp.has('fuori') ? (f0.fuoriK || 0) : 0);   /* 20/11 */
     gl.uniform1f(u.uPolvK, dentro === 1 && !sp.has('polvere') ? (f0.polvK != null ? f0.polvK : 1) : 1);   /* 20/11 sera */
-    gl.uniform2f(u.uScuro, dentro === 1 ? (f0.scuro || 0) : 0, dentro === 1 && f0.pavimentoOk ? (f0.legnoOk && f0.legno ? f0.legno.k : f0.pavimento ? f0.pavimento.k : 0) : 0);   /* 16/11 sera */
+    gl.uniform3f(u.uScuro, dentro === 1 ? (f0.scuro || 0) : 0, dentro === 1 && f0.pavimentoOk ? (f0.legnoOk && f0.legno ? f0.legno.k : f0.pavimento ? f0.pavimento.k : 0) : 0, f0.legno ? f0.legno.riflessi : 0);   /* 16/11 sera */
     const me = s.meteora || null;
     gl.uniform4fv(u.uMeteora, me ? me.da : [0,0,0,0]); gl.uniform1f(u.uMeteoraK, me ? me.k : 0);
     const oc = s.occhio || {x:0, z:0}; gl.uniform3f(u.uOcchio, oc.x || 0, ((s.margine || 1.04) - 1) / 2, oc.z || 0);   /* y: la riserva ai lati (spostaVivo) */
