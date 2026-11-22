@@ -97,6 +97,7 @@ uniform vec4 uRiqBox[8];      /* fino a otto riquadri (21/11; prima quattro): do
 uniform vec4 uRiqTile[8];     /* da quale parte del loro video (u0, v0, u1, v1) */
 uniform vec4 uRiqW, uRiqW2;   /* 21/11 · quanto è acceso ogni riquadro (taverna deserta: il gruppo di luce del suo fuoco; 1 altrimenti) */
 uniform vec4 uRiqSam, uRiqSam2;   /* (i riquadri 5…8 in uRiqSam2; +4 = prende la luce della stanza: la gatta della taverna deserta) */
+vec3 gLuciAf = vec3(-1.);   /* 22/11 · la stanza sfumata (A sfumata, lineare) in questo punto, per gli inserti «rapporto» */
 vec3 gLuciRel;                /* 21/11 · quanto le luci accese cambiano questo punto rispetto al dipinto (taverna deserta; 1 altrimenti) */
 //         /* per ognuno: 0 = primo video, 1 = secondo, -1 = spento; +2 = col suo «alfa» nella metà di sotto del video */
 float gIns;                   /* 1 mentre si disegna il paesaggio che si vede (non quello da cui si sfuma) */
@@ -228,7 +229,7 @@ float fogliame(vec3 c){
    Video senza mipmap: leggerli dentro un «if» va bene */
 vec3 riquadro(vec3 c, vec2 ti, vec4 box, vec4 tile, float sam, float w){
   if (sam < -.5 || w < .002) return c;
-  float conRap = step(7.5, sam); sam -= 8. * conRap;   /* 22/11: «rapporto», il video dice di quanto cambia il dipinto sotto (×2) */
+  float conRap = step(7.5, sam); sam -= 8. * conRap;   /* 22/11: «rapporto», il video è il suo rapporto alla luce sfumata del suo sfondo (×2,5) */
   float conLuce = step(3.5, sam); sam -= 4. * conLuce;
   vec2 q = (ti - box.xy) / (box.zw - box.xy);
   if (q.x <= 0. || q.y <= 0. || q.x >= 1. || q.y >= 1.) return c;
@@ -237,7 +238,10 @@ vec3 riquadro(vec3 c, vec2 ti, vec4 box, vec4 tile, float sam, float w){
   vec3 v = s1 < .5 ? texture2D(uIns0, ut).rgb : texture2D(uIns1, ut).rgb;
   /* con l'alfa (la metà di sotto del video, grigia: quanto la clip si muove lì) due riquadri vicini non si coprono */
   if (sam > 1.5) a *= s1 < .5 ? texture2D(uIns0, ut + vec2(0., .5)).g : texture2D(uIns1, ut + vec2(0., .5)).g;
-  if (conRap > .5) v = c * v * 2.; else if (conLuce > .5) v *= gLuciRel;
+  /* 22/11 5:40 (Maurizio: «di notte col camino spento tutto intorno al gatto si vede un alone»): l'inserto della gatta è fatto
+     all'alba col fuoco acceso; con «rapporto» prende la luce sfumata della stanza di adesso (A sfumata × luce), così lo sfondo
+     attorno alla gatta non porta più il chiarore dell'alba */
+  if (conRap > .5) v = gLuciAf.x < 0. ? v * 2.5 * c : v * 2.5 * pow(gLuciAf, vec3(1. / 2.2)) * gLuciRel; else if (conLuce > .5) v *= gLuciRel;
   return mix(c, v, a * w);
 }
 /* ⚠ 17/11 · PROSPETTIVA VIVA A TUTTA ALTEZZA (Maurizio: «proviamo a tenere l'immagine a tutta altezza e a fare solo
@@ -292,6 +296,7 @@ vec3 luciAccese(vec3 c, sampler2D L, vec4 lm, vec2 ti){
   vec3 o1 = somma > .5 ? Sl + max(Al - Sl, vec3(0.)) * (uLuciW.x * qt * qt + uLuciW.y * ql * ql + uLuciW.z * qc * qc) : Al * Lu;
   vec3 o = mix(o1, Sl + af * af * F0, k);
   if (gIns > .5) gLuciRel = pow(max(Lu, vec3(0.)), vec3(1. / 2.2));
+  if (gIns > .5) gLuciAf = af * af;
   if (gIns > .5) gLuceF = clamp(dot(F, vec3(.299, .587, .114)) / max(dot(Lu, vec3(.299, .587, .114)), 1e-4), 0., 1.);
   return pow(max(o, vec3(0.)), vec3(1. / 2.2));
 }
@@ -902,7 +907,7 @@ void main(){
   gVentoA = 128. / 255.; gVentoRG = vec3(.5, 0., 0.);
 #endif
   if (uHaImg > .5){
-    float n0, s0; gIns = 1.; gLuceF = 1.; gLuciRel = vec3(1.); vec3 c0 = paesaggio(uImg0, uImg0b, uVmix, uDep0, uCrop0, uCropD0, uHaDep0, uMovimento0, uCielo0, uCieloM0, uFermo0, uHaFermo0, uRap0, uHaRap0, uv, n0, s0, uLuciM0);
+    float n0, s0; gIns = 1.; gLuceF = 1.; gLuciRel = vec3(1.); gLuciAf = vec3(-1.); vec3 c0 = paesaggio(uImg0, uImg0b, uVmix, uDep0, uCrop0, uCropD0, uHaDep0, uMovimento0, uCielo0, uCieloM0, uFermo0, uHaFermo0, uRap0, uHaRap0, uv, n0, s0, uLuciM0);
     if (uMix > .001){
       float n1, s1; gIns = 0.; vec3 c1 = paesaggio(uImg1, uImg1, 0., uDep1, uCrop1, uCropD1, uHaDep1, uMovimento1, uCielo1, uCieloM1, uFermo1, uHaFermo1, uRap0, 0., uv, n1, s1, uLuciM1);
       col = mix(c0, c1, uMix); n = mix(n0, n1, uMix); sky = mix(s0, s1, uMix);
