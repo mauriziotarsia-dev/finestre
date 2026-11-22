@@ -228,6 +228,7 @@ float fogliame(vec3 c){
    Video senza mipmap: leggerli dentro un «if» va bene */
 vec3 riquadro(vec3 c, vec2 ti, vec4 box, vec4 tile, float sam, float w){
   if (sam < -.5 || w < .002) return c;
+  float conRap = step(7.5, sam); sam -= 8. * conRap;   /* 22/11: «rapporto», il video dice di quanto cambia il dipinto sotto (×2) */
   float conLuce = step(3.5, sam); sam -= 4. * conLuce;
   vec2 q = (ti - box.xy) / (box.zw - box.xy);
   if (q.x <= 0. || q.y <= 0. || q.x >= 1. || q.y >= 1.) return c;
@@ -236,7 +237,7 @@ vec3 riquadro(vec3 c, vec2 ti, vec4 box, vec4 tile, float sam, float w){
   vec3 v = s1 < .5 ? texture2D(uIns0, ut).rgb : texture2D(uIns1, ut).rgb;
   /* con l'alfa (la metà di sotto del video, grigia: quanto la clip si muove lì) due riquadri vicini non si coprono */
   if (sam > 1.5) a *= s1 < .5 ? texture2D(uIns0, ut + vec2(0., .5)).g : texture2D(uIns1, ut + vec2(0., .5)).g;
-  if (conLuce > .5) v *= gLuciRel;
+  if (conRap > .5) v = c * v * 2.; else if (conLuce > .5) v *= gLuciRel;
   return mix(c, v, a * w);
 }
 /* ⚠ 17/11 · PROSPETTIVA VIVA A TUTTA ALTEZZA (Maurizio: «proviamo a tenere l'immagine a tutta altezza e a fare solo
@@ -266,7 +267,7 @@ vec2 luciT(float col, float rig, vec2 ti, float hS, float nR){
   return vec2((q.x + col) / 3., hS + (q.y + rig) / nR * (1. - hS));
 }
 vec3 luciAccese(vec3 c, sampler2D L, vec4 lm, vec2 ti){
-  float hS = lm.y, nR = max(lm.w, 2.);
+  float somma = step(9.5, lm.w), hS = lm.y, nR = max(lm.w - 10. * somma, 2.);
   vec3 S = texture2D(L, vec2(ti.x, min(ti.y, 1. - .5 / 2160.) * hS)).rgb;
   vec3 d = pow(texture2D(L, luciT(0., 0., ti, hS, nR)).rgb, vec3(3.));
   vec3 qt = texture2D(L, luciT(1., 0., ti, hS, nR)).rgb, ql = texture2D(L, luciT(2., 0., ti, hS, nR)).rgb, qc = texture2D(L, luciT(0., 1., ti, hS, nR)).rgb;
@@ -283,7 +284,13 @@ vec3 luciAccese(vec3 c, sampler2D L, vec4 lm, vec2 ti){
   float k = clamp(m.r * (1. - uLuciW.x) + m.g * (1. - uLuciW.y) + m.b * (1. - uLuciW.z), 0., 1.);
   /* sulla sorgente spenta niente luce di brace (le torce da terra sono nello stesso gruppo dei camini: lì faceva un alone) */
   vec3 F0 = (1. - d) * (uLuciW.x * qt * qt + uLuciW.y * ql * ql + uLuciW.z * qc * qc);
-  vec3 o = mix(pow(c, vec3(2.2)) * Lu, pow(S, vec3(2.2)) + af * af * F0, k);
+  /* 22/11 5:16 (Maurizio: a luci spente «un senso di dipinto spennellato … sul muro in pietra e sullo stemma»): con «somma»
+     (luciOre) la stanza spenta è la sua immagine nitida S, e ogni gruppo acceso aggiunge la sua parte della differenza col
+     dipinto acceso (A − S): tutto spento = S, tutto acceso = A, esatti. Prima era A · d, il dipinto acceso per una luce a un
+     terzo della risoluzione: i rilievi accesi dal fuoco restavano e i contorni della luce erano impastati */
+  vec3 Sl = pow(S, vec3(2.2)), Al = pow(c, vec3(2.2));
+  vec3 o1 = somma > .5 ? Sl + max(Al - Sl, vec3(0.)) * (uLuciW.x * qt * qt + uLuciW.y * ql * ql + uLuciW.z * qc * qc) : Al * Lu;
+  vec3 o = mix(o1, Sl + af * af * F0, k);
   if (gIns > .5) gLuciRel = pow(max(Lu, vec3(0.)), vec3(1. / 2.2));
   if (gIns > .5) gLuceF = clamp(dot(F, vec3(.299, .587, .114)) / max(dot(Lu, vec3(.299, .587, .114)), 1e-4), 0., 1.);
   return pow(max(o, vec3(0.)), vec3(1. / 2.2));
@@ -1839,11 +1846,11 @@ class Vista {
       const io = ora && j.insertiOre && j.insertiOre[ora];
       f.inserti = (io || []).slice(0, 2).filter(q => q && typeof q.video === 'string' && Array.isArray(q.riquadri)).map(q => ({url: new URL(q.video, String(url).split('#')[0]).href,
         modo: q.modo === 'continuo' ? 'continuo' : 'riposo', tratti: (q.tratti || []).filter(t => Array.isArray(t) && t[1] > t[0]), attesa: Array.isArray(q.attesa) ? q.attesa.map(Number) : [6, 20],
-        riquadri: q.riquadri.filter(r => r && Array.isArray(r.box) && r.box.length === 4).map(r => ({box: r.box.map(Number), tile: Array.isArray(r.tile) && r.tile.length === 4 ? r.tile.map(Number) : [0, 0, 1, 1], alfa: !!r.alfa, g: 'tlc'.includes(r.g) ? r.g : null, luce: !!r.luce}))}));
+        riquadri: q.riquadri.filter(r => r && Array.isArray(r.box) && r.box.length === 4).map(r => ({box: r.box.map(Number), tile: Array.isArray(r.tile) && r.tile.length === 4 ? r.tile.map(Number) : [0, 0, 1, 1], alfa: !!r.alfa, g: 'tlc'.includes(r.g) ? r.g : null, luce: !!r.luce, rapporto: !!r.rapporto}))}));
       /* 21/11 · gli interruttori (taverna deserta): «luciOre» {ora: {spento: file, luci: file, scuri: true|false}} accanto a
          questo; nelle fiamme e nei camini «g» dice il gruppo (t torce a muro, l lampadario, c camini e torce da terra) */
       const uo = ora && j.luciOre && j.luciOre[ora], base = String(url).split('#')[0];
-      f.luciDef = uo && typeof uo.spento === 'string' && typeof uo.luci === 'string' ? {spento: new URL(uo.spento, base).href, luci: new URL(uo.luci, base).href, scuri: !!uo.scuri, brace: Math.max(0, Math.min(1, +uo.brace || 0))} : null;
+      f.luciDef = uo && typeof uo.spento === 'string' && typeof uo.luci === 'string' ? {spento: new URL(uo.spento, base).href, luci: new URL(uo.luci, base).href, scuri: !!uo.scuri, brace: Math.max(0, Math.min(1, +uo.brace || 0)), somma: uo.modo === 'somma'} : null;
       f.fiamme.forEach((q, i) => { const r = (fo || j.fiamme || [])[i]; q.g = r && 'tlc'.includes(r.g) ? r.g : null; });
       f.camini.forEach((q, i) => { const r = (co || j.camini || []).filter(q => +q.w > 0 && +q.h > 0)[i]; q.g = r && 'tlc'.includes(r.g) ? r.g : null; });
       const lo = ora && j.legnoOre && j.legnoOre[ora];
@@ -2292,7 +2299,7 @@ class Vista {
     /* con un video le nuvole si muovono già da sé: restano solo gli alberi (nel video cucito sono fermi come le case) */
     const mov = s.movimento && !sp.has('alberi');
     gl.uniform1f(u.uMovimento0, mov ? ((v0 && !f0.rTex) || f0.cTex ? .5 : 1) : 0);   /* ricolorato: il cielo è il dipinto, le nuvole le muove la pagina */ gl.uniform1f(u.uMovimento1, mov ? (v1 || f1.cTex ? .5 : 1) : 0);
-    gl.uniform4f(u.uLuciM0, haImg && f0.lTex && !sp.has('luci') ? 1 : 0, f0.lH || 0, f0.luciDef ? f0.luciDef.brace : 0, f0.lR || 2); gl.uniform4f(u.uLuciM1, haImg && f1.lTex && !sp.has('luci') ? 1 : 0, f1.lH || 0, f1.luciDef ? f1.luciDef.brace : 0, f1.lR || 2);
+    gl.uniform4f(u.uLuciM0, haImg && f0.lTex && !sp.has('luci') ? 1 : 0, f0.lH || 0, f0.luciDef ? f0.luciDef.brace : 0, (f0.lR || 2) + (f0.luciDef && f0.luciDef.somma ? 10 : 0)); gl.uniform4f(u.uLuciM1, haImg && f1.lTex && !sp.has('luci') ? 1 : 0, f1.lH || 0, f1.luciDef ? f1.luciDef.brace : 0, (f1.lR || 2) + (f1.luciDef && f1.luciDef.somma ? 10 : 0));
     gl.uniform3f(u.uLuciW, this.luciW.t, this.luciW.l, this.luciW.c);
     gl.uniform4fv(u.uCieloM0, haImg && f0.cTex && s.movimento && !sp.has('cielo') ? f0.cm : [0,0,0,0]); gl.uniform4fv(u.uCieloM1, haImg && f1.cTex && s.movimento ? f1.cm : [0,0,0,0]);
     gl.uniform1f(u.uCieloX, s.cieloX || 0);
@@ -2453,7 +2460,7 @@ class Vista {
       { const sam = [-1, -1, -1, -1, -1, -1, -1, -1], pesi = [1, 1, 1, 1, 1, 1, 1, 1], box = this.riqBox || (this.riqBox = new Float32Array(32)), tile = this.riqTile || (this.riqTile = new Float32Array(32)); let n = 0;
         if (haImg && f0.ok && s.movimento && !sp.has('inserti') && this.unita >= 16){
           (f0.ins || []).forEach((I, j) => { if (!I || !I.ok || n >= 8) return; lega(14 + j, I.tex);
-            for (const r of I.q.riquadri){ if (n >= 8) break; box.set(r.box, n * 4); tile.set(r.tile, n * 4); pesi[n] = r.g && f0.lTex ? this.luciW[r.g] : 1; sam[n++] = j + (r.alfa ? 2 : 0) + (r.luce ? 4 : 0); } });
+            for (const r of I.q.riquadri){ if (n >= 8) break; box.set(r.box, n * 4); tile.set(r.tile, n * 4); pesi[n] = r.g && f0.lTex ? this.luciW[r.g] : 1; sam[n++] = j + (r.alfa ? 2 : 0) + (r.luce ? 4 : 0) + (r.rapporto ? 8 : 0); } });
         }
         gl.uniform4fv(u.uRiqBox, box); gl.uniform4fv(u.uRiqTile, tile); gl.uniform4f(u.uRiqSam, sam[0], sam[1], sam[2], sam[3]); gl.uniform4f(u.uRiqW, pesi[0], pesi[1], pesi[2], pesi[3]);
         gl.uniform4f(u.uRiqSam2, sam[4], sam[5], sam[6], sam[7]); gl.uniform4f(u.uRiqW2, pesi[4], pesi[5], pesi[6], pesi[7]); }
