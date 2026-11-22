@@ -2099,7 +2099,8 @@ class Vista {
           v.pause(); I.attivo = -1; const [a, b] = q.attesa; I.prossimo = ora + 1000 * (a + Math.random() * Math.max(0, b - a));
         }
       }
-      if (v.readyState >= 2 && (!v.paused || I.nuovo)){
+      /* 22/11 · solo a fotogramma nuovo (i video sono a 24 al secondo, il TV disegna a 60: prima si ricaricava a ogni disegno) */
+      if (v.readyState >= 2 && (I.nuovo || (!v.paused && nuovoFotogramma(v)))){
         gl.bindTexture(gl.TEXTURE_2D, I.tex);
         try { gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, v); I.nuovo = false; I.ok = true; } catch(e) {}
       }
