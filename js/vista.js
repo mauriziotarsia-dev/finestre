@@ -260,22 +260,26 @@ float spostaVivo(float u, float n){
      Af   (radice) A sfumata senza le sorgenti
    Luce del punto (lineare): L = d + (1 − d) · Σ w q   →   A · L (tutto acceso: A esatta). Dove un gruppo spento ha la
    sorgente, A avrebbe il fantasma della fiamma: lì la stanza spenta più la luce degli altri gruppi, S + Af · (L − d). */
-vec2 luciT(float col, float rig, vec2 ti, float hS){
+vec2 luciT(float col, float rig, vec2 ti, float hS, float nR){
   vec2 e = vec2(.5 / 1280., .5 / 720.);
   vec2 q = clamp(ti, e, 1. - e);
-  return vec2((q.x + col) / 3., hS + (q.y + rig) * .5 * (1. - hS));
+  return vec2((q.x + col) / 3., hS + (q.y + rig) / nR * (1. - hS));
 }
 vec3 luciAccese(vec3 c, sampler2D L, vec4 lm, vec2 ti){
-  float hS = lm.y;
+  float hS = lm.y, nR = max(lm.w, 2.);
   vec3 S = texture2D(L, vec2(ti.x, min(ti.y, 1. - .5 / 2160.) * hS)).rgb;
-  vec3 d = pow(texture2D(L, luciT(0., 0., ti, hS)).rgb, vec3(3.));
-  vec3 qt = texture2D(L, luciT(1., 0., ti, hS)).rgb, ql = texture2D(L, luciT(2., 0., ti, hS)).rgb, qc = texture2D(L, luciT(0., 1., ti, hS)).rgb;
-  vec3 m = texture2D(L, luciT(1., 1., ti, hS)).rgb;
-  vec3 af = texture2D(L, luciT(2., 1., ti, hS)).rgb;
+  vec3 d = pow(texture2D(L, luciT(0., 0., ti, hS, nR)).rgb, vec3(3.));
+  vec3 qt = texture2D(L, luciT(1., 0., ti, hS, nR)).rgb, ql = texture2D(L, luciT(2., 0., ti, hS, nR)).rgb, qc = texture2D(L, luciT(0., 1., ti, hS, nR)).rgb;
+  vec3 m = texture2D(L, luciT(1., 1., ti, hS, nR)).rgb;
+  vec3 af = texture2D(L, luciT(2., 1., ti, hS, nR)).rgb;
+  /* 22/11 (Maurizio: all'alba e al tramonto, a luci spente, «la luce che entra da fuori deve essere più viva, simile a quella
+     del giorno anche se con colori molto più caldi»): una terza riga di riquadri, la luce di fuori in più rispetto al dipinto
+     (radice, 0…4 volte il dipinto). Si somma sempre, accese o spente: le luci della stanza si aggiungono come prima */
+  vec3 ex = nR > 2.5 ? pow(texture2D(L, luciT(0., 2., ti, hS, nR)).rgb, vec3(2.)) * 4. : vec3(0.);
   /* 21/11 sera (Maurizio: «senza luci accese avevamo detto che un minimo di brace per far vedere qualcosa della stanza lo
      lasciavamo»): i camini spenti fanno ancora un poco della loro luce (lm.z, «brace» nel file dei punti), senza fiamme */
   vec3 F = (1. - d) * (uLuciW.x * qt * qt + uLuciW.y * ql * ql + max(uLuciW.z, lm.z) * qc * qc);
-  vec3 Lu = d + F;
+  vec3 Lu = d + ex + F;
   float k = clamp(m.r * (1. - uLuciW.x) + m.g * (1. - uLuciW.y) + m.b * (1. - uLuciW.z), 0., 1.);
   /* sulla sorgente spenta niente luce di brace (le torce da terra sono nello stesso gruppo dei camini: lì faceva un alone) */
   vec3 F0 = (1. - d) * (uLuciW.x * qt * qt + uLuciW.y * ql * ql + uLuciW.z * qc * qc);
@@ -1957,7 +1961,7 @@ class Vista {
       this.carica(f.aTex, M);
     }
     /* 21/11 · gli interruttori: stanza spenta in alto, i sei riquadri della luce sotto, in una texture sola (luciAccese) */
-    f.lTex = null; f.lH = 0;
+    f.lTex = null; f.lH = 0; f.lR = 2;
     if (this.internoInArrivo && f.luciDef) try {
       const [sp, lu] = await Promise.all([caricaImg(f.luciDef.spento), caricaImg(f.luciDef.luci)]);
       const W = sp.naturalWidth, H = sp.naturalHeight + lu.naturalHeight, gl = this.gl;
@@ -1967,6 +1971,7 @@ class Vista {
       gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, gl.RGBA, gl.UNSIGNED_BYTE, sp);
       gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, sp.naturalHeight, gl.RGBA, gl.UNSIGNED_BYTE, lu);
       f.lH = sp.naturalHeight / H;
+      f.lR = Math.max(2, Math.round(lu.naturalHeight / (W / 3 * 9 / 16)));   /* 22/11: righe di riquadri (3 = con la luce di fuori in più) */
     } catch(e) { console.warn('luci', e); if (f.lTex) this.gl.deleteTexture(f.lTex); f.lTex = null; }
     this.apriInserti(f);
     /* ⚠ 16/11 sera (Maurizio: «elimina quei puntini luminosi in alto a sinistra accanto allo stemma sopra il camino»): erano le
@@ -2281,7 +2286,7 @@ class Vista {
     /* con un video le nuvole si muovono già da sé: restano solo gli alberi (nel video cucito sono fermi come le case) */
     const mov = s.movimento && !sp.has('alberi');
     gl.uniform1f(u.uMovimento0, mov ? ((v0 && !f0.rTex) || f0.cTex ? .5 : 1) : 0);   /* ricolorato: il cielo è il dipinto, le nuvole le muove la pagina */ gl.uniform1f(u.uMovimento1, mov ? (v1 || f1.cTex ? .5 : 1) : 0);
-    gl.uniform4f(u.uLuciM0, haImg && f0.lTex && !sp.has('luci') ? 1 : 0, f0.lH || 0, f0.luciDef ? f0.luciDef.brace : 0, 0); gl.uniform4f(u.uLuciM1, haImg && f1.lTex && !sp.has('luci') ? 1 : 0, f1.lH || 0, f1.luciDef ? f1.luciDef.brace : 0, 0);
+    gl.uniform4f(u.uLuciM0, haImg && f0.lTex && !sp.has('luci') ? 1 : 0, f0.lH || 0, f0.luciDef ? f0.luciDef.brace : 0, f0.lR || 2); gl.uniform4f(u.uLuciM1, haImg && f1.lTex && !sp.has('luci') ? 1 : 0, f1.lH || 0, f1.luciDef ? f1.luciDef.brace : 0, f1.lR || 2);
     gl.uniform3f(u.uLuciW, this.luciW.t, this.luciW.l, this.luciW.c);
     gl.uniform4fv(u.uCieloM0, haImg && f0.cTex && s.movimento && !sp.has('cielo') ? f0.cm : [0,0,0,0]); gl.uniform4fv(u.uCieloM1, haImg && f1.cTex && s.movimento ? f1.cm : [0,0,0,0]);
     gl.uniform1f(u.uCieloX, s.cieloX || 0);
